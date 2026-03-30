@@ -81,12 +81,9 @@ app.use((err, req, res, next) => {
 async function iniciar() {
   try {
     await initDB();
-    app.listen(PORT, () => {
-      console.log(`🚛 API corriendo en http://localhost:${PORT}`);
-      console.log(`   Frontend permitido: ${origenesPermitidos.join(', ')}`);
-    });
+    app.listen(PORT, () => console.log(`🚛 API corriendo en puerto ${PORT}`));
   } catch (err) {
-    console.error('No se pudo iniciar el servidor:', err.message);
+    console.error('No se pudo iniciar:', err.message);
     process.exit(1);
   }
 }
