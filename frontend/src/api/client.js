@@ -1,6 +1,14 @@
 // src/api/client.js
-const BASE_URL = process.env.REACT_APP_API_URL || 'https://beer-tan.netlify.app/';
-const API_KEY  = process.env.REACT_APP_API_KEY  || 'heavy-behind-blush-will';
+const BASE_URL = process.env.REACT_APP_API_URL;
+const API_KEY  = process.env.REACT_APP_API_KEY;
+
+if (!BASE_URL) {
+  console.error('❌ Falta REACT_APP_API_URL en Netlify');
+}
+if (!API_KEY) {
+  console.error('❌ Falta REACT_APP_API_KEY en Netlify');
+}
+
 
 async function apiFetch(path, options = {}) {
   const res  = await fetch(`${BASE_URL}${path}`, {
