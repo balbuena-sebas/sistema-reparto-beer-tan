@@ -17,6 +17,7 @@ import { TRechazos }    from './components/TRechazos';
 import { TFoxtrot }     from './components/TFoxtrot';
 import { TImportacion } from './components/TImportacion';
 import { TNotas }       from './components/TNotas';
+import { TBiolinks }    from './components/TBiolinks';
 
 import { DC }          from './constants';
 import { PERMISOS_DEFAULTS, normalizarUsuario } from './config/permissions';
@@ -207,6 +208,10 @@ export default function App() {
     setLoginError('');
     setLoginNombre('');
     setLoginDni('');
+    // Para choferes y ayudantes, mostrar primero la pestaña de Links
+    if (user.role === 'chofer' || user.role === 'ayudante') {
+      setTab('biolinks');
+    }
     notify(`✓ Bienvenido ${result.user.nombre}`);
   };
 
@@ -787,6 +792,7 @@ export default function App() {
     { id: 'importar',  lb: '📂 Importar'  },
     { id: 'config',    lb: '⚙ Config'    },
     { id: 'notas',     lb: '📌 Notas'     },
+    { id: 'biolinks',  lb: '🔗 Links'   },
   ];
 
   // Filtrar tabs según permisos del usuario loguado (TODOS incluido admin)
@@ -992,6 +998,9 @@ export default function App() {
             regsAll={regs} ausAll={aus}
             loggedInUser={loggedInUser}
             notify={notify} />
+        )}
+        {tab === 'biolinks' && (
+          <TBiolinks />
         )}
       </main>
 

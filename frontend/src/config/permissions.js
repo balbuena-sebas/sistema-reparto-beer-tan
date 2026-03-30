@@ -13,6 +13,7 @@ export const PERMISOS_DEFAULTS = {
     importar: true,
     config: true,
     notas: true,
+    biolinks: true,
     editar_contenido: false, // Admin debe aprobar explícitamente para crear/subir contenido
   },
   chofer: {
@@ -27,6 +28,7 @@ export const PERMISOS_DEFAULTS = {
     importar: false,
     config: false,
     notas: true,
+    biolinks: true,
     editar_contenido: false,
   },
   ayudante: {
@@ -41,6 +43,7 @@ export const PERMISOS_DEFAULTS = {
     importar: false,
     config: false,
     notas: true,
+    biolinks: true,
     editar_contenido: false,
   },
 };
