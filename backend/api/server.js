@@ -11,23 +11,22 @@ const { initDB }  = require('./db');
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(helmet());
+//app.use(helmet());
 
 const origenesPermitidos = [
   process.env.FRONTEND_URL,
-  'https://beer-tan.netlify.app',
+  'https://beer-tan.netlify.app',                                   
   'http://localhost:3000',
 ].filter(Boolean);
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin && process.env.NODE_ENV !== 'production') return callback(null, true);
-    if (origenesPermitidos.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS: origen no permitido → ${origin}`));
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  origin: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-api-key'],
+  credentials: true
 }));
+
+app.options('*', cors());
 
 app.use(compression());
 app.use(express.json({ limit: '20mb' }));
