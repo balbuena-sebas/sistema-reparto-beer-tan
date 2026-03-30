@@ -1,0 +1,269 @@
+// db.js — Conexión a Neon PostgreSQL y creación de tablas
+const { Pool } = require('pg');
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  max: 3,                         // Neon free: máx 3 conexiones simultáneas
+  idleTimeoutMillis:  30000,
+  connectionTimeoutMillis: 15000, // 15s para el cold start de Neon (era 10s)
+  query_timeout: 20000,
+});
+
+pool.on('error', (err) => {
+  console.error('Error inesperado en el pool de DB:', err.message);
+});
+
+// ── query con retry automático ───────────────────────────────────────────────
+async function query(text, params, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await pool.query(text, params);
+    } catch (err) {
+      const esTimeout = err.message?.includes('timeout') ||
+                        err.message?.includes('terminated') ||
+                        err.message?.includes('ECONNRESET');
+      if (esTimeout && i < retries) {
+        console.log(`⚠ Timeout DB (intento ${i + 1}/${retries + 1}), reintentando en 2s...`);
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+// ── Crear tablas si no existen ──────────────────────────────────────────────
+async function initDB() {
+  let client;
+  for (let intento = 1; intento <= 3; intento++) {
+    try {
+      client = await pool.connect();
+      break;
+    } catch (err) {
+      console.warn(`⚠ Neon no responde (intento ${intento}/3): ${err.message}`);
+      if (intento === 3) throw err;
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+
+  try {
+    await client.query('BEGIN');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS registros (
+        id            BIGINT PRIMARY KEY,
+        fecha         DATE NOT NULL,
+        chofer        TEXT NOT NULL,
+        ay1           TEXT DEFAULT '',
+        ay2           TEXT DEFAULT '',
+        patente       TEXT DEFAULT '',
+        localidad     TEXT DEFAULT '',
+        destino       TEXT DEFAULT '',
+        bultos        INTEGER DEFAULT 0,
+        costo_reparto INTEGER DEFAULT 0,
+        rec_sn        TEXT DEFAULT 'NO',
+        n_recargas    INTEGER DEFAULT 0,
+        rec_cant      TEXT DEFAULT '',
+        fte           INTEGER DEFAULT 1,
+        bultos_clark  INTEGER DEFAULT 0,
+        bultos_rec    INTEGER DEFAULT 0,
+        destinos_gz   BYTEA,
+        created_at    TIMESTAMPTZ DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_regs_fecha     ON registros(fecha)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_regs_chofer    ON registros(chofer)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_regs_localidad ON registros(localidad)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ausencias (
+        id            BIGINT PRIMARY KEY,
+        persona       TEXT NOT NULL,
+        motivo        TEXT DEFAULT '',
+        fecha_desde   DATE NOT NULL,
+        fecha_hasta   DATE,
+        observaciones TEXT DEFAULT '',
+        dias          INTEGER DEFAULT 1,
+        created_at    TIMESTAMPTZ DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_aus_persona ON ausencias(persona)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_aus_fecha   ON ausencias(fecha_desde)`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS configuracion (
+        id              INTEGER PRIMARY KEY DEFAULT 1,
+        empresa         TEXT DEFAULT 'Sistema de Reparto',
+        costo_chofer    INTEGER DEFAULT 0,
+        costo_ayudante  INTEGER DEFAULT 0,
+        obj_tandil      INTEGER DEFAULT 0,
+        obj_flores      INTEGER DEFAULT 0,
+        param1          INTEGER DEFAULT 0,
+        param2          INTEGER DEFAULT 0,
+        param3          INTEGER DEFAULT 0,
+        alerta_recargas INTEGER DEFAULT 10,
+        listas_gz       BYTEA,
+        driver_map_gz   BYTEA,
+        dias_no_gz      BYTEA,
+        updated_at      TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS dias_no_gz BYTEA
+    `);
+
+    await client.query(`
+      INSERT INTO configuracion (id) VALUES (1)
+      ON CONFLICT (id) DO NOTHING
+    `);
+
+    // Tabla rechazos
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rechazos (
+        id                BIGSERIAL PRIMARY KEY,
+        archivo           TEXT,
+        fecha_import      TIMESTAMPTZ DEFAULT NOW(),
+        fecha             DATE,
+        articulo          TEXT,
+        articulo_desc     TEXT,
+        bultos            NUMERIC DEFAULT 0,
+        bultos_rechazados NUMERIC DEFAULT 0,
+        hl                NUMERIC DEFAULT 0,
+        hl_rechazado      NUMERIC DEFAULT 0,
+        importe_neto      NUMERIC DEFAULT 0,
+        importe_rechazado NUMERIC DEFAULT 0,
+        motivo            TEXT,
+        motivo_desc       TEXT,
+        tipo_motivo       TEXT,
+        cliente_id        TEXT,
+        cliente_desc      TEXT,
+        domicilio         TEXT,
+        canal             TEXT,
+        canal_desc        TEXT,
+        chofer            TEXT,
+        chofer_desc       TEXT,
+        transporte_id     TEXT,
+        ruta              TEXT,
+        ruta_desc         TEXT,
+        rechazo_total     BOOLEAN DEFAULT false
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rec_fecha   ON rechazos(fecha)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rec_chofer  ON rechazos(chofer)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_rec_archivo ON rechazos(archivo)`);
+
+    // Columnas nuevas por si la tabla ya existía sin ellas
+    await client.query(`ALTER TABLE rechazos ADD COLUMN IF NOT EXISTS hl            NUMERIC DEFAULT 0`);
+    await client.query(`ALTER TABLE rechazos ADD COLUMN IF NOT EXISTS hl_rechazado  NUMERIC DEFAULT 0`);
+    await client.query(`ALTER TABLE rechazos ADD COLUMN IF NOT EXISTS transporte_id TEXT`);
+
+    // Tabla notas — por persona, mes, categoría
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notas (
+        id         BIGSERIAL PRIMARY KEY,
+        persona    TEXT NOT NULL,
+        mes        TEXT NOT NULL,           -- 'YYYY-MM'
+        fecha      DATE NOT NULL DEFAULT CURRENT_DATE,
+        categoria  TEXT DEFAULT 'Nota libre',
+        texto      TEXT NOT NULL,
+        prioridad  TEXT DEFAULT 'normal',   -- normal | urgente
+        estado     TEXT DEFAULT 'activa',   -- activa | resuelta | eliminada
+        creado_en  TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_notas_mes     ON notas(mes)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_notas_persona ON notas(persona)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_notas_estado  ON notas(estado)`);
+
+    // ── Tablas Foxtrot ────────────────────────────────────────────────────────
+
+    // Tabla rutas Foxtrot (Route Analytics)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS foxtrot_rutas (
+        id                            BIGSERIAL PRIMARY KEY,
+        archivo                       TEXT,
+        fecha_import                  TIMESTAMPTZ DEFAULT NOW(),
+        dc_id                         TEXT,
+        dc_name                       TEXT,
+        route_id                      TEXT,
+        route_name                    TEXT,
+        fecha                         DATE,
+        driver_id                     TEXT,
+        driver_name                   TEXT,
+        chofer_mapeado                TEXT,
+        imported_customers            NUMERIC DEFAULT 0,
+        successful_customers          NUMERIC DEFAULT 0,
+        failed_customers              NUMERIC DEFAULT 0,
+        total_visited_customers       NUMERIC DEFAULT 0,
+        total_unvisited_customers     NUMERIC DEFAULT 0,
+        planned_driving_meters        NUMERIC DEFAULT 0,
+        total_driven_meters           NUMERIC DEFAULT 0,
+        planned_driving_seconds       NUMERIC DEFAULT 0,
+        total_driven_seconds          NUMERIC DEFAULT 0,
+        planned_journey_seconds       NUMERIC DEFAULT 0,
+        total_journey_seconds         NUMERIC DEFAULT 0,
+        sequence_adherence            NUMERIC DEFAULT 0,
+        seq_adhered_clicks            NUMERIC DEFAULT 0,
+        seq_not_adhered_clicks        NUMERIC DEFAULT 0,
+        seq_forgiven_clicks           NUMERIC DEFAULT 0,
+        seq_no_decision_clicks        NUMERIC DEFAULT 0,
+        total_unauthorized_stops      NUMERIC DEFAULT 0,
+        total_unauthorized_stops_secs NUMERIC DEFAULT 0,
+        total_authorized_stops        NUMERIC DEFAULT 0,
+        total_authorized_stops_secs   NUMERIC DEFAULT 0,
+        driver_click_score            NUMERIC DEFAULT 0,
+        is_digital_route              BOOLEAN DEFAULT false
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_rutas_fecha   ON foxtrot_rutas(fecha)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_rutas_driver  ON foxtrot_rutas(driver_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_rutas_archivo ON foxtrot_rutas(archivo)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_rutas_dc      ON foxtrot_rutas(dc_name)`);
+
+    // Tabla intentos Foxtrot (Attempt Analytics)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS foxtrot_intentos (
+        id                        BIGSERIAL PRIMARY KEY,
+        archivo                   TEXT,
+        fecha_import              TIMESTAMPTZ DEFAULT NOW(),
+        dc_name                   TEXT,
+        route_id                  TEXT,
+        driver_id                 TEXT,
+        driver_name               TEXT,
+        chofer_mapeado            TEXT,
+        fecha                     DATE,
+        customer_id               TEXT,
+        customer_name             TEXT,
+        location_confidence       TEXT,
+        visit_start_ts            TEXT,
+        visit_duration_secs       NUMERIC DEFAULT 0,
+        visit_meters_from_cust    NUMERIC DEFAULT 0,
+        aggregate_visit_status    TEXT,
+        sequence_adherence_status TEXT,
+        suspicious_drive_by       BOOLEAN DEFAULT false,
+        inferred_service_secs     NUMERIC DEFAULT 0
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_int_fecha   ON foxtrot_intentos(fecha)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_int_driver  ON foxtrot_intentos(driver_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_int_archivo ON foxtrot_intentos(archivo)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_int_status  ON foxtrot_intentos(aggregate_visit_status)`);
+
+    await client.query('COMMIT');
+    console.log('✅ Base de datos inicializada correctamente');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('❌ Error al inicializar la base de datos:', err.message);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { pool, query, initDB };
