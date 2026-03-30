@@ -16,30 +16,19 @@ app.use(helmet());
 
 /* ================= CORS ================= */
 
-const origenesPermitidos = [
-  'https://beer-tan.netlify.app',
-  'https://beer-tan-backend.onrender.com',
-  'http://localhost:3000'
-];
+app.use((req, res, next) => {
 
-const corsOptions = {
-  origin: function (origin, callback) {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, x-api-key');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
 
-    if (!origin) return callback(null, true);
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
 
-    if (origenesPermitidos.includes(origin)) {
-      return callback(null, true);
-    }
+  next();
 
-    return callback(null, true);
-  },
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','x-api-key'],
-  credentials: true
-};
-
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+});
 
 /* =========================================== */
 
