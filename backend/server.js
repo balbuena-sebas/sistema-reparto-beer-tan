@@ -1,33 +1,56 @@
-require('dotenv').config();
+require("dotenv").config();
 
-const express     = require('express');
-const cors        = require('cors');
-const helmet      = require('helmet');
-const compression = require('compression');
-const rateLimit   = require('express-rate-limit');
-const { initDB }  = require('./db');
+const express = require("express");
+const cors = require("cors");
+const helmet = require("helmet");
+const compression = require("compression");
 
-const app  = express();
-const PORT = process.env.PORT || 3001;
+const app = express();
 
-/* ================= SECURITY ================= */
-
+app.use(express.json());
 app.use(helmet());
+app.use(compression());
 
-/* ================= CORS ================= */
+/* CORS */
+app.use(cors({
+  origin: "https://beer-tan.netlify.app",
+  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization","x-api-key"]
+}));
 
 app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "https://beer-tan.netlify.app");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, x-api-key");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
 
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, x-api-key');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
 
   next();
+});
 
+/* TEST */
+app.get("/", (req, res) => {
+  res.send("API Sistema de Reparto");
+});
+
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
+
+/* RUTAS */
+app.use("/api/registros", require("./routes/registros"));
+app.use("/api/config", require("./routes/config"));
+app.use("/api/rechazos", require("./routes/rechazos"));
+app.use("/api/ausencias", require("./routes/ausencias"));
+app.use("/api/foxtrot", require("./routes/foxtrot"));
+
+/* PUERTO */
+const PORT = process.env.PORT || 10000;
+
+app.listen(PORT, () => {
+  console.log("Servidor corriendo en puerto", PORT);
 });
 
 /* =========================================== */
