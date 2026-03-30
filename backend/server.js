@@ -1,42 +1,34 @@
-// server.js — Servidor principal de la API de reparto
 require('dotenv').config();
-
-const express     = require('express');
-const cors        = require('cors');
-const helmet      = require('helmet');
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
 const compression = require('compression');
-const rateLimit   = require('express-rate-limit');
-const { initDB }  = require('./db');
+const rateLimit = require('express-rate-limit');
+const { initDB } = require('./db');
 
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 3001;
 
-//app.use(helmet());
+// ========== MIDDLEWARE CORS MANUAL (FUERZA BRUTA) ==========
+app.use((req, res, next) => {
+  // Permite cualquier origen (solo para producción)
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+// ============================================================
 
-const origenesPermitidos = [
-  process.env.FRONTEND_URL,
-  'https://beer-tan.netlify.app',                                   
-  'http://localhost:3000',
-].filter(Boolean);
-
-app.use(cors({
-  origin: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-api-key'],
-  credentials: true
-}));
-app.options('*', cors());
-
+app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(compression());
 app.use(express.json({ limit: '20mb' }));
 
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 200,
-  message: { ok: false, error: 'Demasiados requests. Esperá un momento.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+const limiter = rateLimit({ windowMs: 60 * 1000, max: 200 });
 app.use('/api/', limiter);
 
 const autenticar = (req, res, next) => {
@@ -47,34 +39,29 @@ const autenticar = (req, res, next) => {
   next();
 };
 
-// ── Rutas ─────────────────────────────────────────────────────────────────────
-const registrosRouter            = require('./routes/registros');
-const ausenciasRouter            = require('./routes/ausencias');
-const configRouter               = require('./routes/config');
-const migracionRouter            = require('./routes/migracion');
+// Rutas
+const registrosRouter = require('./routes/registros');
+const ausenciasRouter = require('./routes/ausencias');
+const configRouter = require('./routes/config');
+const migracionRouter = require('./routes/migracion');
 const { router: rechazosRouter } = require('./routes/rechazos');
-const notasRouter                = require('./routes/notas');
-const foxtrotRouter              = require('./routes/foxtrot');
+const notasRouter = require('./routes/notas');
+const foxtrotRouter = require('./routes/foxtrot');
 
 app.use('/api/registros', autenticar, registrosRouter);
 app.use('/api/ausencias', autenticar, ausenciasRouter);
-app.use('/api/config',    autenticar, configRouter);
+app.use('/api/config', autenticar, configRouter);
 app.use('/api/migracion', autenticar, migracionRouter);
-app.use('/api/rechazos',  autenticar, rechazosRouter);
-app.use('/api/notas',     autenticar, notasRouter);
-app.use('/api/foxtrot',   autenticar, foxtrotRouter);
+app.use('/api/rechazos', autenticar, rechazosRouter);
+app.use('/api/notas', autenticar, notasRouter);
+app.use('/api/foxtrot', autenticar, foxtrotRouter);
 
-app.get('/health', (req, res) => {
-  res.json({ ok: true, status: 'online', ts: new Date().toISOString() });
-});
-
-app.get('/', (req, res) => {
-  res.json({ ok: true, msg: 'API Sistema de Reparto', version: '1.0.0' });
-});
+app.get('/health', (req, res) => res.json({ ok: true, status: 'online' }));
+app.get('/', (req, res) => res.json({ ok: true, msg: 'API Sistema de Reparto' }));
 
 app.use((err, req, res, next) => {
   console.error('Error global:', err.message);
-  res.status(500).json({ ok: false, error: 'Error interno del servidor' });
+  res.status(500).json({ ok: false, error: 'Error interno' });
 });
 
 async function iniciar() {
