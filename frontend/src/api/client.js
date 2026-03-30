@@ -2,6 +2,9 @@
 const BASE_URL = process.env.REACT_APP_API_URL;
 const API_KEY  = process.env.REACT_APP_API_KEY;
 
+console.log('API URL:', BASE_URL);
+console.log('API KEY:', API_KEY);
+
 if (!BASE_URL) {
   console.error('❌ Falta REACT_APP_API_URL en Netlify');
 }
