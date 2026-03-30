@@ -2,8 +2,6 @@
 const BASE_URL = process.env.REACT_APP_API_URL || "https://beer-tan-backend.onrender.com";
 const API_KEY  = process.env.REACT_APP_API_KEY || "heavy-behind-blush-will";
 
-console.log('API URL:', BASE_URL);
-console.log('API KEY:', API_KEY);
 
 async function apiFetch(path, options = {}) {
   const res  = await fetch(`${BASE_URL}${path}`, {
