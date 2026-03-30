@@ -10,6 +10,8 @@ const { initDB }  = require('./db');
 const app  = express();
 const PORT = process.env.PORT || 3001;
 
+/* ================= SECURITY ================= */
+
 app.use(helmet());
 
 /* ================= CORS ================= */
@@ -20,34 +22,55 @@ const origenesPermitidos = [
   'http://localhost:3000'
 ];
 
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
+
     if (!origin) return callback(null, true);
-    if (origenesPermitidos.includes(origin)) return callback(null, true);
+
+    if (origenesPermitidos.includes(origin)) {
+      return callback(null, true);
+    }
+
     return callback(null, true);
   },
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','x-api-key'],
   credentials: true
-}));
+};
 
-app.options('*', cors()); // importante
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
-/* ======================================= */
+/* =========================================== */
 
 app.use(compression());
 app.use(express.json({ limit: '20mb' }));
 
+/* ================= RATE LIMIT =============== */
+
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 200,
+  standardHeaders: true,
+  legacyHeaders: false
 });
 
-app.use('/api/', limiter);
+app.use('/api/', (req, res, next) => {
 
-/* =============== API KEY =============== */
+  if (req.method === 'OPTIONS') return next();
+
+  limiter(req, res, next);
+
+});
+
+/* =============== API KEY ==================== */
 
 const autenticar = (req, res, next) => {
+
+  if (req.method === 'OPTIONS') {
+    return next();
+  }
+
   const apiKey = req.headers['x-api-key'];
 
   if (!apiKey || apiKey !== process.env.API_SECRET_KEY) {
@@ -60,7 +83,7 @@ const autenticar = (req, res, next) => {
   next();
 };
 
-/* =============== RUTAS ================= */
+/* =============== RUTAS ====================== */
 
 const registrosRouter            = require('./routes/registros');
 const ausenciasRouter            = require('./routes/ausencias');
@@ -78,34 +101,44 @@ app.use('/api/rechazos',  autenticar, rechazosRouter);
 app.use('/api/notas',     autenticar, notasRouter);
 app.use('/api/foxtrot',   autenticar, foxtrotRouter);
 
-/* =============== HEALTH ================ */
+/* =============== HEALTH ===================== */
 
 app.get('/health', (req, res) => {
   res.json({
     ok: true,
     status: 'online',
-    ts: new Date()
+    ts: new Date().toISOString()
   });
 });
 
 app.get('/', (req, res) => {
   res.json({
     ok: true,
-    msg: 'API Sistema de Reparto'
+    msg: 'API Sistema de Reparto',
+    version: '1.0.0'
   });
 });
 
-/* =============== ERROR ================= */
+/* =============== ERROR ====================== */
 
 app.use((err, req, res, next) => {
-  console.error(err);
+
+  console.error('Error global:', err.message);
+
+  if (err.message.includes('CORS')) {
+    return res.status(403).json({
+      ok: false,
+      error: 'CORS bloqueado'
+    });
+  }
+
   res.status(500).json({
     ok: false,
-    error: 'Error interno'
+    error: 'Error interno del servidor'
   });
 });
 
-/* =============== START ================= */
+/* =============== START ====================== */
 
 async function iniciar() {
   try {
@@ -113,12 +146,14 @@ async function iniciar() {
     await initDB();
 
     app.listen(PORT, () => {
-      console.log(`Servidor corriendo en puerto ${PORT}`);
+      console.log(`🚛 API corriendo en puerto ${PORT}`);
+      console.log(`🌐 Frontend permitido: ${origenesPermitidos.join(', ')}`);
     });
 
   } catch (err) {
 
-    console.error('Error al iniciar:', err);
+    console.error('No se pudo iniciar el servidor:', err.message);
+    process.exit(1);
 
   }
 }
