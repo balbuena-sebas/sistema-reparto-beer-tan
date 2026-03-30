@@ -15,17 +15,25 @@ app.use(helmet());
 
 const origenesPermitidos = [
   process.env.FRONTEND_URL,
-  'https://beer-tan-backend.onrender.com',
+  'https://beer-tan.netlify.app',
+  'https://69caa3a0c874d330c2e3e4c4--beer-tan.netlify.app',
+  'http://localhost:3000'
 ].filter(Boolean);
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin && process.env.NODE_ENV !== 'production') return callback(null, true);
-    if (origenesPermitidos.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS: origen no permitido → ${origin}`));
+
+    if (!origin) return callback(null, true);
+
+    if (origenesPermitidos.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(null, true); // permite cualquier origen en producción
   },
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-api-key'],
+  credentials: true
 }));
 
 app.use(compression());
