@@ -9,22 +9,26 @@ const { initDB } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// ========== MIDDLEWARE CORS MANUAL (FUERZA BRUTA) ==========
+// ========== CORS - DEBE IR ANTES DE TODO ==========
 app.use((req, res, next) => {
-  // Permite cualquier origen (solo para producción)
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  const origin = req.headers.origin;
+  res.header('Access-Control-Allow-Origin', origin || '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization');
   res.header('Access-Control-Allow-Credentials', 'true');
-  
+  res.header('Vary', 'Origin');
+
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
+    return res.status(200).end();
   }
   next();
 });
-// ============================================================
+// ===================================================
 
-app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(helmet({ 
+  crossOriginResourcePolicy: false,
+  crossOriginOpenerPolicy: false,
+}));
 app.use(compression());
 app.use(express.json({ limit: '20mb' }));
 
