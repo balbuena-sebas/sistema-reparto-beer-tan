@@ -15,7 +15,7 @@ app.use(helmet());
 
 const origenesPermitidos = [
   process.env.FRONTEND_URL,
-  'http://localhost:3000',
+  'https://beer-tan.netlify.app',
 ].filter(Boolean);
 
 app.use(cors({
