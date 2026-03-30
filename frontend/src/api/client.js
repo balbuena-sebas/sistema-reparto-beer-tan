@@ -1,6 +1,6 @@
 // src/api/client.js
-const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
-const API_KEY  = process.env.REACT_APP_API_KEY  || '';
+const BASE_URL = process.env.REACT_APP_API_URL || 'https://beer-tan.netlify.app/';
+const API_KEY  = process.env.REACT_APP_API_KEY  || 'heavy-behind-blush-will';
 
 async function apiFetch(path, options = {}) {
   const res  = await fetch(`${BASE_URL}${path}`, {
