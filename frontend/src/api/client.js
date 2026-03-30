@@ -1,7 +1,7 @@
 // src/api/client.js
 const BASE_URL =
   process.env.REACT_APP_API_URL ||
-  "https://beer-tan-backend.netlify.com";
+  "https://beer-tan-backend.onrender.com";
 
 const API_KEY = process.env.REACT_APP_API_KEY;
 
