@@ -348,7 +348,7 @@ export const RepCard = ({ r, onClose, onEdit, onDel, loggedInUser }) => {
             </div>
             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 6 }}>Localidad</div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text2)' }}>{isT(r.localidad) ? 'Tandil' : 'Las Flores'}</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text2)' }}>{esTandil(r.localidad) ? 'Tandil' : 'Las Flores'}</div>
             </div>
             <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 6 }}>Equipo</div>
@@ -388,7 +388,7 @@ export const RepCard = ({ r, onClose, onEdit, onDel, loggedInUser }) => {
                       <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: 'var(--text2)' }}>#</th>
                       <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 800, color: 'var(--text2)' }}>Destino</th>
                       <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, color: 'var(--text2)' }}>Bultos</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--text2)' }}>Costo $</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: 'var(--text2)' }}>Importe de Facturación</th>
                       <th style={{ padding: '10px 12px', textAlign: 'center', fontWeight: 800, color: 'var(--text2)' }}>Clark</th>
                     </tr>
                   </thead>
@@ -445,7 +445,7 @@ export const RepCard = ({ r, onClose, onEdit, onDel, loggedInUser }) => {
                 <div style={{ fontSize: 40, fontWeight: 900, color: '#5b21b6', fontFamily: 'monospace' }}>
                   {r.costoReparto ? fp(totalCosto) : '—'}
                 </div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#6b21a8', textTransform: 'uppercase', marginTop: 8 }}>Costo Total</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#6b21a8', textTransform: 'uppercase', marginTop: 8 }}>Importe de Facturación</div>
                 <div style={{ fontSize: 10, color: '#6b21a8', marginTop: 2 }}>{r.nRecargas || 0} destino(s)</div>
               </div>
 
