@@ -467,40 +467,47 @@ export const TRechazos = ({ rechazos = [], regs = [], cfg = {}, embebido = false
     const dm = cfg.driverMap || [];
     // Los IDs del driverMap son de TRANSPORTE (vienen del CSV de Foxtrot)
     const ids = new Set(dm.map(d => String(d.id || '').trim()).filter(Boolean));
+    // FIX: mapa ID → nombre normalizado para validar que el ID pertenezca al chofer correcto
+    // Un mismo ID puede aparecer en registros de choferes distintos (datos sucios del CSV).
+    // Al cruzar ID + nombre, nos aseguramos de que solo pase quien realmente tiene ese ID.
+    const idToNombre = {};
+    dm.forEach(d => { idToNombre[String(d.id || '').trim()] = norm(d.nombre || ''); });
     const nombresRaw = dm.length > 0
       ? dm.map(d => d.nombre)
       : (cfg.choferes?.length > 0 ? cfg.choferes : DC.choferes);
     const nombres = new Set(nombresRaw.map(n => norm(n)));
-    // FIX: guardar si el driverMap tiene IDs reales cargados
-    // Si tiene IDs → el filtro es estricto por ID, el nombre NO es fallback
-    // Si no tiene IDs → compatibilidad legacy: filtrar por nombre
     const tieneIds = ids.size > 0;
     console.log('[TRechazos] choferes válidos:', nombresRaw.length, nombresRaw, '| IDs cargados:', ids.size);
-    return { ids, nombres, size: nombresRaw.length, tieneIds };
+    return { ids, idToNombre, nombres, size: nombresRaw.length, tieneIds };
   }, [cfg.driverMap, cfg.choferes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const esChoferValido = useCallback((r) => {
     if (!soloMisChoferes || misChoferes.size === 0) return true;
 
-    // Check 1: por transporteId (más confiable, viene del CSV Foxtrot)
+    const nombreRegistro = norm(r.choferDesc || '');
+
+    // Check 1: por transporteId — además verifica que el ID pertenezca a ESTE chofer
+    // FIX: un chofer puede tener el mismo transporteId que otro en datos sucios del CSV.
+    // Solo se acepta si el nombre en el driverMap coincide con el choferDesc del registro.
     const tId = String(r.transporteId || '').trim();
-    if (tId && tId !== '—' && misChoferes.ids.has(tId)) return true;
-
-    // Check 2: por chofer ID numérico
-    const cId = String(r.chofer || '').trim();
-    if (cId && misChoferes.ids.has(cId)) return true;
-
-    // Check 3: por nombre normalizado — SOLO si el driverMap NO tiene IDs cargados
-    // (modo legacy: cuando solo se configuraron nombres, sin IDs de transporte)
-    // FIX: si hay IDs en el driverMap, NO usar nombre como fallback.
-    // Esto evita que choferes sin ID en el mapeo pasen el filtro por nombre.
-    if (!misChoferes.tieneIds) {
-      return misChoferes.nombres.has(norm(r.choferDesc || ''));
+    if (tId && tId !== '—' && misChoferes.ids.has(tId)) {
+      const nombreEnMapa = misChoferes.idToNombre[tId];
+      if (!nombreEnMapa || nombreEnMapa === nombreRegistro) return true;
+      // El ID existe en el mapa pero pertenece a OTRO chofer → no pasa
     }
 
-    // Log de diagnóstico: chofer rechazado por el filtro
-    // (descomentar si se necesita depurar quién pasa y quién no)
-    // console.log('[filtro] EXCLUIDO:', r.choferDesc, '| tId:', tId, '| cId:', cId);
+    // Check 2: por chofer ID numérico — misma lógica
+    const cId = String(r.chofer || '').trim();
+    if (cId && misChoferes.ids.has(cId)) {
+      const nombreEnMapa = misChoferes.idToNombre[cId];
+      if (!nombreEnMapa || nombreEnMapa === nombreRegistro) return true;
+    }
+
+    // Check 3: por nombre normalizado — SOLO si driverMap NO tiene IDs (modo legacy)
+    if (!misChoferes.tieneIds) {
+      return misChoferes.nombres.has(nombreRegistro);
+    }
+
     return false;
   }, [soloMisChoferes, misChoferes]); // eslint-disable-line react-hooks/exhaustive-deps
 
