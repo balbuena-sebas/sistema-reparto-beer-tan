@@ -471,20 +471,37 @@ export const TRechazos = ({ rechazos = [], regs = [], cfg = {}, embebido = false
       ? dm.map(d => d.nombre)
       : (cfg.choferes?.length > 0 ? cfg.choferes : DC.choferes);
     const nombres = new Set(nombresRaw.map(n => norm(n)));
-    console.log('[TRechazos] choferes válidos:', nombresRaw.length, nombresRaw);
-    return { ids, nombres, size: nombresRaw.length };
+    // FIX: guardar si el driverMap tiene IDs reales cargados
+    // Si tiene IDs → el filtro es estricto por ID, el nombre NO es fallback
+    // Si no tiene IDs → compatibilidad legacy: filtrar por nombre
+    const tieneIds = ids.size > 0;
+    console.log('[TRechazos] choferes válidos:', nombresRaw.length, nombresRaw, '| IDs cargados:', ids.size);
+    return { ids, nombres, size: nombresRaw.length, tieneIds };
   }, [cfg.driverMap, cfg.choferes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const esChoferValido = useCallback((r) => {
     if (!soloMisChoferes || misChoferes.size === 0) return true;
-    // Primero por transporteId — matchea exactamente con los IDs del driverMap
+
+    // Check 1: por transporteId (más confiable, viene del CSV Foxtrot)
     const tId = String(r.transporteId || '').trim();
     if (tId && tId !== '—' && misChoferes.ids.has(tId)) return true;
-    // Fallback por chofer ID
+
+    // Check 2: por chofer ID numérico
     const cId = String(r.chofer || '').trim();
     if (cId && misChoferes.ids.has(cId)) return true;
-    // Último recurso: nombre normalizado
-    return misChoferes.nombres.has(norm(r.choferDesc || ''));
+
+    // Check 3: por nombre normalizado — SOLO si el driverMap NO tiene IDs cargados
+    // (modo legacy: cuando solo se configuraron nombres, sin IDs de transporte)
+    // FIX: si hay IDs en el driverMap, NO usar nombre como fallback.
+    // Esto evita que choferes sin ID en el mapeo pasen el filtro por nombre.
+    if (!misChoferes.tieneIds) {
+      return misChoferes.nombres.has(norm(r.choferDesc || ''));
+    }
+
+    // Log de diagnóstico: chofer rechazado por el filtro
+    // (descomentar si se necesita depurar quién pasa y quién no)
+    // console.log('[filtro] EXCLUIDO:', r.choferDesc, '| tId:', tId, '| cId:', cId);
+    return false;
   }, [soloMisChoferes, misChoferes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { fechaMin, fechaMax } = useMemo(() => {
@@ -536,7 +553,9 @@ export const TRechazos = ({ rechazos = [], regs = [], cfg = {}, embebido = false
   const porCliente  = useMemo(()=>agrupar(r=>r.clienteDesc||r.clienteId),[agrupar]);
   const porMotivo   = useMemo(()=>agrupar(r=>r.motivoDesc||r.motivo),[agrupar]);
   const porArticulo = useMemo(()=>agrupar(r=>r.articuloDesc||r.articulo),[agrupar]);
-  const porChofer   = useMemo(()=>agrupar(r=>r.choferDesc||r.chofer),[agrupar]);
+  // FIX: agrupar siempre por choferDesc para que un mismo chofer con múltiples IDs
+  // no quede partido en varias entradas separadas
+  const porChofer   = useMemo(()=>agrupar(r=>r.choferDesc||'—'),[agrupar]);
 
   const itemsActivos = {cliente:porCliente,motivo:porMotivo,articulo:porArticulo,chofer:porChofer}[tabActiva]||[];
   const maxBultos    = itemsActivos[0]?.bultos||1;
@@ -865,27 +884,30 @@ export const TRechazos = ({ rechazos = [], regs = [], cfg = {}, embebido = false
       {cardAbierta?.tipo==='motivo'   && <CardMotivo   item={cardAbierta.item} onCerrar={()=>setCardAbierta(null)} />}
       {cardAbierta?.tipo==='articulo' && <CardArticulo item={cardAbierta.item} ranking={porArticulo.findIndex(x=>x.nombre===cardAbierta.item.nombre)+1} onCerrar={()=>setCardAbierta(null)} />}
       {cardAbierta?.tipo==='chofer' && (() => {
-        // Obtener el chofer ID desde los propios registros del item
-        // (más confiable que buscar por nombre en el driverMap)
-        const choferIdDelItem = cardAbierta.item.rows[0]
-          ? String(cardAbierta.item.rows[0].chofer || '').trim()
-          : '';
+        // FIX: recopilar TODOS los IDs únicos que aparecen en los rows del item
+        // Un mismo chofer puede tener más de un ID en el archivo CSV
+        const idsDelItem = [...new Set(
+          cardAbierta.item.rows
+            .map(r => String(r.chofer || '').trim())
+            .filter(Boolean)
+        )];
 
         // Mes efectivo: mesSel activo o mes único en los datos
         const mesEfectivo = mesSel || mesDelExcel;
         const datosMes = mesEfectivo ? (cfg.bultosXMes || {})[mesEfectivo] : null;
 
-        // Buscar bultos entregados por este chofer específico
+        // FIX: sumar bultos entregados de TODOS los IDs del chofer, no solo el primero
         let bultosRepartidos = 0;
-        if (choferIdDelItem && datosMes?.porChofer) {
-          bultosRepartidos = Math.round(datosMes.porChofer[choferIdDelItem] || 0);
+        if (idsDelItem.length > 0 && datosMes?.porChofer) {
+          idsDelItem.forEach(id => { bultosRepartidos += datosMes.porChofer[id] || 0; });
+          bultosRepartidos = Math.round(bultosRepartidos);
         }
 
-        // Si no hay mes seleccionado y hay múltiples meses, sumar todos
-        if (bultosRepartidos === 0 && choferIdDelItem && !mesEfectivo) {
+        // Si no hay mes seleccionado y hay múltiples meses, sumar todos los meses
+        if (bultosRepartidos === 0 && idsDelItem.length > 0 && !mesEfectivo) {
           const bxM = cfg.bultosXMes || {};
           Object.values(bxM).forEach(dm => {
-            bultosRepartidos += Math.round(dm.porChofer?.[choferIdDelItem] || 0);
+            idsDelItem.forEach(id => { bultosRepartidos += Math.round(dm.porChofer?.[id] || 0); });
           });
         }
 
