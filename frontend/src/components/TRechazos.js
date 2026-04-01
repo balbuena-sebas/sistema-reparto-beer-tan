@@ -275,6 +275,15 @@ const CardChofer = ({ item, onCerrar, bultosRepartidos = 0 }) => {
   const clientes = useMemo(()=>{ const m={}; rows.forEach(r=>{ const k=r.clienteDesc||'—'; const t=clasificarMotivo(r.motivoDesc||r.motivo); if(!m[k]) m[k]={nombre:k,bultos:0,log:0,fact:0,n:0}; m[k].bultos+=r.bultosRechazados; m[k].n++; if(t==='logistica') m[k].log+=r.bultosRechazados; if(t==='facturacion') m[k].fact+=r.bultosRechazados; }); return Object.values(m).sort((a,b)=>b.bultos-a.bultos).slice(0,8); },[rows]);
   const artLog = useMemo(()=>{ const m={}; logR.forEach(r=>{ const k=r.articuloDesc||'—'; if(!m[k]) m[k]={nombre:k,bultos:0}; m[k].bultos+=r.bultosRechazados; }); return Object.values(m).sort((a,b)=>b.bultos-a.bultos).slice(0,5); },[logR]);
 
+  // Nuevos contadores simples para el chofer
+  const countTotales = useMemo(() => rows.filter(r => r.rechazoTotal === true || r.rechazoTotal === 'true').length, [rows]);
+  const countParciales = rows.length - countTotales;
+  const countClientesTotal = useMemo(() => {
+    const s = new Set();
+    rows.forEach(r => { const c = r.clienteDesc || r.clienteId; if(c) s.add(c); });
+    return s.size;
+  }, [rows]);
+
   // % siempre sobre bultos entregados — si no hay datos usar rechazados como fallback visual
   const base       = bultosRepartidos > 0 ? bultosRepartidos : item.bultos;
   const pctLogNum  = base > 0 ? logB / base * 100 : 0;
@@ -300,6 +309,19 @@ const CardChofer = ({ item, onCerrar, bultosRepartidos = 0 }) => {
         <Kpi icon="🚛" label="Por logística" value={fn(Math.round(logB))} color="#b91c1c" bg="#fee2e2" border="#fca5a5" />
         <Kpi icon="🧾" label="Por facturación" value={fn(Math.round(factB))} color="#b87c00" bg="#fff7e0" border="#fcd34d" />
         <Kpi icon="📊" label={bultosRepartidos>0?"% Log. s/entregados":"% Logístico"} value={`${pctLogStr}%`} color={nc.c} bg={nc.bg} border={nc.c+'40'} />
+      </div>
+
+      {/* NUEVO: KPIs fila 2 — clientes y tipo de rechazo */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, margin:'0 24px 16px' }}>
+        <Kpi icon="🏪" label="Locales con Rechazo" value={fn(countClientesTotal)} 
+             sub="Clientes que tuvieron problemas"
+             color="#ea580c" bg="#ffedd5" border="#fdba74" />
+        <Kpi icon="📄" label="Pedidos Rechazados (Total)" value={fn(countTotales)} 
+             sub="Devolvieron toda la factura"
+             color="#be123c" bg="#ffe4e6" border="#fda4af" />
+        <Kpi icon="📦" label="Rechazos Parciales" value={fn(countParciales)} 
+             sub="Devolvieron solo algunos bultos"
+             color="#ca8a04" bg="#fefce8" border="#fde047" />
       </div>
 
       {/* Barra visual Entregados / Rechazados / Logísticos */}
@@ -651,6 +673,23 @@ export const TRechazos = ({ rechazos = [], regs = [], cfg = {}, embebido = false
   const pctFact = pctDec(factBultos, baseParaPct);
   const pctOtro = pctDec(otroBultos, baseParaPct);
 
+  // ── NUEVOS KPIS: Clientes y Facturas (Versión Simple) ─────────────────────
+  const clientesConRechazo = useMemo(() => {
+    const s = new Set();
+    filtrados.forEach(r => {
+      // Usamos clienteDesc o clienteId para identificar únicos
+      const c = r.clienteDesc || r.clienteId;
+      if (c) s.add(c);
+    });
+    return s.size;
+  }, [filtrados]);
+
+  const rechazosTotalesCount = useMemo(() => {
+    return filtrados.filter(r => r.rechazoTotal === true || r.rechazoTotal === 'true').length;
+  }, [filtrados]);
+  
+  const rechazosParcialesCount = filtrados.length - rechazosTotalesCount;
+
   const TABS = [
     {id:'cliente', label:'🏪 Clientes',  color:'#b91c1c'},
     {id:'motivo',  label:'📋 Motivos',   color:'#b87c00'},
@@ -720,6 +759,19 @@ export const TRechazos = ({ rechazos = [], regs = [], cfg = {}, embebido = false
         <Kpi icon="📋"  label="Registros de rechazo" value={fn(filtrados.length)}          color="#b87c00" bg="#fff7e0" border="#fcd34d" />
         <Kpi icon="🧴"  label="HL rechazados"        value={totalHL.toFixed(2)}             color="#5b21b6" bg="#f5f3ff" border="#c4b5fd" />
         <Kpi icon="💰"  label="Importe rechazado"    value={fp(totalImporte)}               color="#0369a1" bg="#e0f2fe" border="#7dd3fc" />
+      </div>
+
+      {/* KPIs fila 2 — clientes y tipo de rechazo */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:12 }}>
+        <Kpi icon="🏪" label="Locales con Rechazo" value={fn(clientesConRechazo)} 
+             sub="Cantidad de clientes o facturas afectadas"
+             color="#ea580c" bg="#ffedd5" border="#fdba74" />
+        <Kpi icon="📄" label="Pedidos Rechazados (Total)" value={fn(rechazosTotalesCount)} 
+             sub="El cliente devolvió toda la factura"
+             color="#be123c" bg="#ffe4e6" border="#fda4af" />
+        <Kpi icon="📦" label="Rechazos Parciales" value={fn(rechazosParcialesCount)} 
+             sub="El cliente devolvió solo algunos bultos"
+             color="#ca8a04" bg="#fefce8" border="#fde047" />
       </div>
 
       {/* KPI fila 2 — días trabajados */}
