@@ -1001,7 +1001,7 @@ export default function App() {
   );
 
   const allP = useMemo(
-    () => [...new Set([...cfg.choferes, ...cfg.ayudantes])],
+    () => [...new Set([...(cfg.choferes || []), ...(cfg.ayudantes || []), ...(cfg.operarios || [])])],
     [cfg],
   );
   const navMap = {

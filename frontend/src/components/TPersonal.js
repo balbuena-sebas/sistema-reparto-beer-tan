@@ -7,7 +7,7 @@ export const TPersonal = ({ rM, aM, cfg, mes, setMes, regsAll = [], ausAll = [] 
   const dt = diasT(mes);
 
   const stats = useMemo(() => {
-    const all = [...new Set([...cfg.choferes, ...cfg.ayudantes])];
+    const all = [...new Set([...(cfg.choferes || []), ...(cfg.ayudantes || []), ...(cfg.operarios || [])])];
     return all.map(name => {
       const comoCh = rM.filter(r => r.chofer === name);
       const comoAy = rM.filter(r => r.ay1 === name || r.ay2 === name);
@@ -15,9 +15,10 @@ export const TPersonal = ({ rM, aM, cfg, mes, setMes, regsAll = [], ausAll = [] 
       const diasAus = ausencias.reduce((s, a) => s + (a.dias || 1), 0);
       const bultos = comoCh.reduce((s, r) => s + (+r.bultos || 0), 0);
       const recargas = comoCh.reduce((s, r) => s + (r.nRecargas || 0), 0);
-      const esChofer = cfg.choferes.includes(name);
-      const esAyudante = cfg.ayudantes.includes(name);
-      return { name, comoCh: comoCh.length, comoAy: comoAy.length, diasAus, bultos, recargas, esChofer, esAyudante, ausencias };
+      const esChofer = (cfg.choferes || []).includes(name);
+      const esAyudante = (cfg.ayudantes || []).includes(name);
+      const esOperario = (cfg.operarios || []).includes(name);
+      return { name, comoCh: comoCh.length, comoAy: comoAy.length, diasAus, bultos, recargas, esChofer, esAyudante, esOperario, ausencias };
     }).sort((a, b) => b.bultos - a.bultos);
   }, [rM, aM, cfg]);
 
@@ -26,7 +27,9 @@ export const TPersonal = ({ rM, aM, cfg, mes, setMes, regsAll = [], ausAll = [] 
       <div className="dash-header">
         <div>
           <h2 className="dash-title">Personal</h2>
-          <p className="dash-sub">{stats.length} personas · {cfg.choferes.length} choferes · {cfg.ayudantes.length} ayudantes</p>
+          <p className="dash-sub">
+            {stats.length} personas · {(cfg.choferes || []).length} choferes · {(cfg.ayudantes || []).length} ayudantes · {(cfg.operarios || []).length} operarios
+          </p>
         </div>
         <div className="dash-header-right">
           <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} />
@@ -43,6 +46,7 @@ export const TPersonal = ({ rM, aM, cfg, mes, setMes, regsAll = [], ausAll = [] 
                 <div className="personal-roles">
                   {p.esChofer && <span className="role-badge role-chofer">Chofer</span>}
                   {p.esAyudante && <span className="role-badge role-ayudante">Ayudante</span>}
+                  {p.esOperario && <span className="role-badge role-operario" style={{ background: '#dcfce7', color: '#166534' }}>Operario</span>}
                 </div>
               </div>
             </div>

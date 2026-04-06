@@ -6,21 +6,29 @@ export const TCostos = ({ rM, K, cfg, mes, setMes, regsAll = [], ausAll = [] }) 
   const dt = diasT(mes);
 
   const costoPersonal = useMemo(() => {
-    const choferes = new Set(rM.map(r => r.chofer).filter(Boolean));
-    const ayudantes = new Set([
+    const listOperarios = new Set(cfg.operarios || []);
+    const rawChoferes = rM.map(r => r.chofer).filter(Boolean);
+    const rawAyudantes = [
       ...rM.map(r => r.ay1).filter(Boolean),
       ...rM.map(r => r.ay2).filter(Boolean)
-    ]);
+    ];
+
+    const choferes = new Set(rawChoferes.filter(n => !listOperarios.has(n)));
+    const ayudantes = new Set(rawAyudantes.filter(n => !listOperarios.has(n)));
+    const operarios = new Set([...rawChoferes, ...rawAyudantes].filter(n => listOperarios.has(n)));
+
     return {
       choferes: choferes.size * cfg.costoChofer,
       ayudantes: ayudantes.size * cfg.costoAyudante,
+      operarios: operarios.size * (cfg.costoOperario || 0),
       totalChoferes: choferes.size,
-      totalAyudantes: ayudantes.size
+      totalAyudantes: ayudantes.size,
+      totalOperarios: operarios.size
     };
   }, [rM, cfg]);
 
   const costoRepartos = rM.reduce((s, r) => s + (+r.costoReparto || 0), 0);
-  const totalGeneral = costoPersonal.choferes + costoPersonal.ayudantes + costoRepartos;
+  const totalGeneral = costoPersonal.choferes + costoPersonal.ayudantes + costoPersonal.operarios + costoRepartos;
 
   const porLocalidad = useMemo(() => {
     const map = {};
@@ -44,8 +52,9 @@ export const TCostos = ({ rM, K, cfg, mes, setMes, regsAll = [], ausAll = [] }) 
   const costoCards = [
     { label: 'Personal Choferes', value: costoPersonal.choferes, sub: `${costoPersonal.totalChoferes} choferes × ${fp(cfg.costoChofer)}`, color: '#e8b84b' },
     { label: 'Personal Ayudantes', value: costoPersonal.ayudantes, sub: `${costoPersonal.totalAyudantes} ayudantes × ${fp(cfg.costoAyudante)}`, color: '#00d4ff' },
+    { label: 'Personal Operarios', value: costoPersonal.operarios, sub: `${costoPersonal.totalOperarios} operarios × ${fp(cfg.costoOperario)}`, color: '#22c55e' },
     { label: 'Costos de Reparto', value: costoRepartos, sub: `${rM.length} repartos registrados`, color: '#a78bfa' },
-    { label: 'Total General', value: totalGeneral, sub: 'Costo total del mes', color: '#22c55e' },
+    { label: 'Total General', value: totalGeneral, sub: 'Costo total del mes', color: '#166534' },
   ];
 
   return (

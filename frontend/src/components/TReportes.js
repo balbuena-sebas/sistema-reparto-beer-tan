@@ -404,11 +404,13 @@ const KpiCard = ({
     <div style={{ fontSize: 26, marginBottom: 4 }}>{icon}</div>
     <div
       style={{
-        fontSize: 30,
+        fontSize: String(value).length > 9 ? 22 : 30,
         fontWeight: 900,
         fontFamily: "var(--font-mono)",
         color,
-        lineHeight: 1,
+        lineHeight: 1.1,
+        wordBreak: "break-word",
+        overflowWrap: "anywhere",
       }}>
       {value}
     </div>

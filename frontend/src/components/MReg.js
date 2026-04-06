@@ -289,15 +289,15 @@ export const MReg = ({ d, cfg, aus = [], onSave, onClose, loggedInUser }) => {
                 </div>
                 <div className="modal-field" style={{ gridColumn: '1 / -1' }}>
                   <SelectDisponible label="Chofer" value={form.chofer} onChange={v => setF('chofer', v)}
-                    opciones={cfg.choferes || []} noDisponible={noDisponible} placeholder="— Seleccionar chofer —" requerido />
+                    opciones={[...(cfg.choferes || []), ...(cfg.operarios || [])]} noDisponible={noDisponible} placeholder="— Seleccionar chofer —" requerido />
                 </div>
                 <div className="modal-field">
                   <SelectDisponible label="Ayudante 1" value={form.ay1} onChange={v => setF('ay1', v)}
-                    opciones={cfg.ayudantes || []} noDisponible={noDisponible} />
+                    opciones={[...(cfg.ayudantes || []), ...(cfg.operarios || [])]} noDisponible={noDisponible} />
                 </div>
                 <div className="modal-field">
                   <SelectDisponible label="Ayudante 2" value={form.ay2} onChange={v => setF('ay2', v)}
-                    opciones={cfg.ayudantes || []} noDisponible={noDisponible} />
+                    opciones={[...(cfg.ayudantes || []), ...(cfg.operarios || [])]} noDisponible={noDisponible} />
                 </div>
                 <div className="modal-field">
                   <label>Localidad</label>

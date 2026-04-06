@@ -47,7 +47,7 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
   });
   const [saved, setSaved] = useState(false);
   const [newItems, setNewItems] = useState({
-    choferes: '', ayudantes: '', patentes: '',
+    choferes: '', ayudantes: '', operarios: '', patentes: '',
     localidades: '', destinos: '', motivosAusencia: '', personasNotas: '',
   });
   const [nuevoUsuario, setNuevoUsuario] = useState({ nombre: '', dni: '', role: 'chofer' });
@@ -240,6 +240,10 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
             <input className="filter-input" type="number" value={form.costoAyudante || ''} onChange={e => setF('costoAyudante', +e.target.value)} />
           </div>
           <div className="config-field">
+            <label>Costo Operario ($/mes)</label>
+            <input className="filter-input" type="number" value={form.costoOperario || ''} onChange={e => setF('costoOperario', +e.target.value)} />
+          </div>
+          <div className="config-field">
             <label>Obj. Bultos Tandil (mensual)</label>
             <input className="filter-input" type="number" value={form.objTandil || ''} onChange={e => setF('objTandil', +e.target.value)} />
           </div>
@@ -402,6 +406,7 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
             { key:'objFlores',      label:'Obj. Bultos Las Flores (mensual)', global: form.objFlores },
             { key:'costoChofer',    label:'Costo Chofer ($/mes)',             global: form.costoChofer },
             { key:'costoAyudante',  label:'Costo Ayudante ($/mes)',           global: form.costoAyudante },
+            { key:'costoOperario',  label:'Costo Operario ($/mes)',          global: form.costoOperario },
             { key:'alertaRecargas', label:'Alerta Recargas (umbral)',         global: form.alertaRecargas },
           ].map(({ key, label, global: gv }) => {
             const val = (form.paramXMes||{})[mesParam]?.[key];
@@ -613,6 +618,7 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
       <div className="dash-grid-2">
         <ListEditor label="Choferes"               listKey="choferes"        placeholder="Apellido Nombre..."    items={form.choferes||[]}        newVal={newItems.choferes}        onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
         <ListEditor label="Ayudantes"              listKey="ayudantes"       placeholder="Apellido Nombre..."    items={form.ayudantes||[]}       newVal={newItems.ayudantes}       onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
+        <ListEditor label="Operarios"              listKey="operarios"       placeholder="Apellido Nombre..."    items={form.operarios||[]}       newVal={newItems.operarios}       onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
         <ListEditor label="Patentes"               listKey="patentes"        placeholder="ABC 123..."            items={form.patentes||[]}        newVal={newItems.patentes}        onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
         <ListEditor label="Localidades"            listKey="localidades"     placeholder="LOCALIDAD (Zona)..."   items={form.localidades||[]}     newVal={newItems.localidades}     onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
         <ListEditor label="Destinos"               listKey="destinos"        placeholder="Nombre destino..."     items={form.destinos||[]}        newVal={newItems.destinos}        onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
