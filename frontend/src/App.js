@@ -493,7 +493,22 @@ export default function App() {
     // Admin: solo mes actual; Chofer/Ayudante: TODO su historico de ausencias
     const datosBase =
       !loggedInUser || loggedInUser.role === "admin"
-        ? aus.filter((a) => a.fechaDesde?.startsWith(mes))
+        ? aus.filter((a) => {
+            if (!a.fechaDesde) return false;
+            // Rango de la ausencia [aS, aE]
+            const aS = a.fechaDesde;
+            const aE = a.fechaHasta || a.fechaDesde;
+            
+            // Rango del mes seleccionado [mS, mNext)
+            const [y, m] = mes.split("-").map(Number);
+            const mS = `${mes}-01`;
+            const mNext = m === 12 
+              ? `${y + 1}-01-01` 
+              : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+            
+            // Hay solapamiento si: (Inicio Ausencia < Fin del Mes) Y (Fin Ausencia >= Inicio del Mes)
+            return aS < mNext && aE >= mS;
+          })
         : aus; // Choferes/Ayudantes ven TODAS sus ausencias (pasadas, presentes, futuras)
 
     if (!loggedInUser || loggedInUser.role === "admin") return datosBase;
