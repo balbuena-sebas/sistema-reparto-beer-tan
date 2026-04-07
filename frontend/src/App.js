@@ -319,11 +319,17 @@ export default function App() {
         setRegs(todosRegs || []);
         setAus(todosAus || []);
         const cfgFinal = { ...DC, ...(cfgGuardada || {}) };
-        if (cfgGuardada?.driverMap) cfgFinal.driverMap = cfgGuardada.driverMap;
-        if (cfgGuardada?.diasNoTrabajados)
-          cfgFinal.diasNoTrabajados = cfgGuardada.diasNoTrabajados;
-        if (cfgGuardada?.paramXMes) cfgFinal.paramXMes = cfgGuardada.paramXMes;
-        if (cfgGuardada?.usuarios) cfgFinal.usuarios = cfgGuardada.usuarios;
+        const keys = [
+          'driverMap', 'diasNoTrabajados', 'operarios', 'temporada', 'paramXMes', 'usuarios',
+          'choferes', 'ayudantes', 'patentes', 'localidades', 'destinos', 'motivosAusencia', 'personasNotas',
+          'costoChofer', 'costoAyudante', 'costoOperarioChofer', 'costoOperarioAyudante', 'costoTemporada',
+          'objTandil', 'objFlores', 'alertaRecargas', 'param1', 'param2', 'param3', 'empresa', 'bultosXMes', 'updatedAt'
+        ];
+        keys.forEach(k => {
+          if (cfgGuardada?.[k] !== undefined && cfgGuardada?.[k] !== null) {
+            cfgFinal[k] = cfgGuardada[k];
+          }
+        });
         // Si no hay usuarios en DB, usar los por defecto (admin)
         if (!cfgFinal.usuarios || cfgFinal.usuarios.length === 0) {
           cfgFinal.usuarios = DC.usuarios;
@@ -410,11 +416,17 @@ export default function App() {
       setRegs(todosRegs || []);
       setAus(todosAus || []);
       const cfgFinal2 = { ...DC, ...(cfgGuardada || {}) };
-      if (cfgGuardada?.driverMap) cfgFinal2.driverMap = cfgGuardada.driverMap;
-      if (cfgGuardada?.diasNoTrabajados)
-        cfgFinal2.diasNoTrabajados = cfgGuardada.diasNoTrabajados;
-      if (cfgGuardada?.paramXMes) cfgFinal2.paramXMes = cfgGuardada.paramXMes;
-      if (cfgGuardada?.usuarios) cfgFinal2.usuarios = cfgGuardada.usuarios;
+      const keys2 = [
+        'driverMap', 'diasNoTrabajados', 'operarios', 'temporada', 'paramXMes', 'usuarios',
+        'choferes', 'ayudantes', 'patentes', 'localidades', 'destinos', 'motivosAusencia', 'personasNotas',
+        'costoChofer', 'costoAyudante', 'costoOperarioChofer', 'costoOperarioAyudante', 'costoTemporada',
+        'objTandil', 'objFlores', 'alertaRecargas', 'param1', 'param2', 'param3', 'empresa', 'bultosXMes', 'updatedAt'
+      ];
+      keys2.forEach(k => {
+        if (cfgGuardada?.[k] !== undefined && cfgGuardada?.[k] !== null) {
+          cfgFinal2[k] = cfgGuardada[k];
+        }
+      });
       // Rellenar permisos si falta
       if (cfgFinal2.usuarios && cfgFinal2.usuarios.length > 0) {
         const permisosDefaults = {
@@ -825,33 +837,33 @@ export default function App() {
   const saveCfg = useCallback(
     async (nc) => {
       try {
-        // Validar permiso de editar_contenido para admin
-        if (loggedInUser && loggedInUser.role === "admin") {
-          const tienePermiso =
-            (loggedInUser.permisos || {}).editar_contenido === true;
-          if (!tienePermiso) {
-            // Permitir si el admin está intentando auto-asignarse el permiso (salida del círculo vicioso)
-            const usuariosRaw = Array.isArray(nc.usuarios) ? nc.usuarios : [];
-            const usuarioEnNuevoCfg = usuariosRaw.find(
-              (u) =>
-                String(u.dni || "").trim() === String(loggedInUser.dni).trim(),
-            );
-            const seAsignaPermiso =
-              usuarioEnNuevoCfg &&
-              (usuarioEnNuevoCfg.permisos || {}).editar_contenido === true;
+        // Validar permiso de editar_contenido
+        const tienePermiso = (loggedInUser?.permisos || {}).editar_contenido === true;
+        const esAdmin = loggedInUser?.role === "admin";
 
-            if (!seAsignaPermiso) {
-              notify(
-                "❌ No tienes permiso para editar contenido. Solicítale al administrador principal.",
-                "w",
-              );
-              return;
-            }
-          }
-        } else if (!loggedInUser || loggedInUser.role !== "admin") {
-          // Solo admin puede guardar configuración
-          notify("❌ Solo administradores pueden guardar cambios", "w");
+        if (!esAdmin && !tienePermiso) {
+          notify("❌ No tienes permiso para editar la configuración", "w");
           return;
+        }
+
+        // Caso especial: si es admin pero no tiene el permiso, permitir solo si se lo está auto-asignando
+        if (esAdmin && !tienePermiso) {
+          const usuariosRaw = Array.isArray(nc.usuarios) ? nc.usuarios : [];
+          const usuarioEnNuevoCfg = usuariosRaw.find(
+            (u) =>
+              String(u.dni || "").trim() === String(loggedInUser.dni).trim(),
+          );
+          const seAsignaPermiso =
+            usuarioEnNuevoCfg &&
+            (usuarioEnNuevoCfg.permisos || {}).editar_contenido === true;
+
+          if (!seAsignaPermiso) {
+            notify(
+              "❌ No tienes permiso para editar contenido. Solicítale al administrador principal o asígnatelo si eres admin.",
+              "w",
+            );
+            return;
+          }
         }
 
         const usuariosRaw = Array.isArray(nc.usuarios) ? nc.usuarios : [];
@@ -896,11 +908,17 @@ export default function App() {
         const guardada = await guardarConfig(payload);
 
         const cfgMerge = { ...DC, ...guardada };
-        if (guardada?.driverMap) cfgMerge.driverMap = guardada.driverMap;
-        if (guardada?.diasNoTrabajados)
-          cfgMerge.diasNoTrabajados = guardada.diasNoTrabajados;
-        if (guardada?.paramXMes) cfgMerge.paramXMes = guardada.paramXMes;
-        if (guardada?.usuarios) cfgMerge.usuarios = guardada.usuarios;
+        const keys3 = [
+          'driverMap', 'diasNoTrabajados', 'operarios', 'temporada', 'paramXMes', 'usuarios',
+          'choferes', 'ayudantes', 'patentes', 'localidades', 'destinos', 'motivosAusencia', 'personasNotas',
+          'costoChofer', 'costoAyudante', 'costoOperarioChofer', 'costoOperarioAyudante', 'costoTemporada',
+          'objTandil', 'objFlores', 'alertaRecargas', 'param1', 'param2', 'param3', 'empresa', 'bultosXMes', 'updatedAt'
+        ];
+        keys3.forEach(k => {
+          if (guardada?.[k] !== undefined && guardada?.[k] !== null) {
+            cfgMerge[k] = guardada[k];
+          }
+        });
         setCfg(cfgMerge);
 
         // Actualizar loggedInUser SI está loguado, buscando por DNI en la nueva config
@@ -1297,7 +1315,7 @@ export default function App() {
           <TPersonal
             rM={rM}
             aM={aM}
-            cfg={cfg}
+            cfg={cfgConMes}
             mes={mes}
             setMes={handleSetMes}
             loggedInUser={loggedInUser}
@@ -1309,7 +1327,7 @@ export default function App() {
           <TCostos
             rM={rM}
             K={K}
-            cfg={cfg}
+            cfg={cfgConMes}
             mes={mes}
             setMes={handleSetMes}
             regsAll={regs}
@@ -1322,7 +1340,7 @@ export default function App() {
             rM={rM}
             aM={aM}
             K={K}
-            cfg={cfg}
+            cfg={cfgConMes}
             mes={mes}
             setMes={handleSetMes}
             regsAll={regs}
@@ -1334,7 +1352,7 @@ export default function App() {
                   rM,
                   aM,
                   K,
-                  cfg,
+                  cfg: cfgConMes,
                   mes,
                   regsAll: regs,
                   ausAll: aus,
@@ -1383,7 +1401,12 @@ export default function App() {
           />
         )}
         {tab === "config" && (
-          <TConfig cfg={cfg} onSave={saveCfg} loggedInUser={loggedInUser} />
+          <TConfig
+            key={cfg.updatedAt || "config"}
+            cfg={cfg}
+            onSave={saveCfg}
+            loggedInUser={loggedInUser}
+          />
         )}
         {tab === "notas" && (
           <TNotas

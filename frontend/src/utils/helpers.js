@@ -1,5 +1,15 @@
 // src/utils/helpers.js
 
+// Feriados nacionales Argentina 2025-2026
+const FERIADOS_AR = new Set([
+  '2025-01-01','2025-02-24','2025-02-25','2025-03-24','2025-04-02','2025-04-18',
+  '2025-05-01','2025-05-25','2025-06-20','2025-07-09','2025-08-17','2025-10-12',
+  '2025-11-20','2025-12-08','2025-12-25',
+  '2026-01-01','2026-02-16','2026-02-17','2026-03-23','2026-03-24','2026-04-02',
+  '2026-04-03','2026-05-01','2026-05-25','2026-06-15','2026-06-20','2026-07-09',
+  '2026-08-17','2026-10-12','2026-11-20','2026-12-08','2026-12-25',
+]);
+
 export const fp = (n) =>
   n || n === 0 ? "$" + Math.round(n).toLocaleString("es-AR") : "—";
 
@@ -8,7 +18,10 @@ export const fn = (n) => (n || 0).toLocaleString("es-AR");
 export const recN = (t) =>
   t === "1 recarga" ? 1 : t === "3 recargas" ? 3 : 0;
 
-export const cFTE = (c, a1, a2) => (c ? 1 : 0) + (a1 ? 1 : 0) + (a2 ? 1 : 0);
+export const cFTE = (c, a1, a2) => 
+  ((c || '').trim() ? 1 : 0) + 
+  ((a1 || '').trim() ? 1 : 0) + 
+  ((a2 || '').trim() ? 1 : 0);
 
 export function cRec(b, f, p1 = 450, p2 = 700, p3 = 900) {
   if (!f) return "Pendiente FTE";
@@ -45,7 +58,19 @@ export const mesN = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
-export const isT = (l) => l && l.includes("Tandil");
+export const isT = (l) => {
+  if (!l) return false;
+  const s = String(l).toLowerCase();
+  return (
+    s.includes("tandil") ||
+    s.includes("vela") ||
+    s.includes("barker") ||
+    s.includes("gardey") ||
+    s.includes("juarez") ||
+    s.includes("san manuel") ||
+    s.includes("fernandez")
+  );
+};
 
 export const cDias = (d1, d2) => {
   if (!d1) return 1;
@@ -68,22 +93,28 @@ export const semL = (k) => {
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
-export const diasH = (ms) => {
+export const diasH = (ms, diasNo = []) => {
   const [y, m] = ms.split("-").map(Number);
   let h = 0;
+  const holidays = new Set((diasNo || []).map(d => d.fecha || d));
   for (let i = 1; i <= new Date(y, m, 0).getDate(); i++) {
-    if (new Date(y, m - 1, i).getDay() !== 0) h++;
+    const d = new Date(y, m - 1, i);
+    const iso = `${y}-${String(m).padStart(2, "0")}-${String(i).padStart(2, "0")}`;
+    if (d.getDay() !== 0 && !holidays.has(iso) && !FERIADOS_AR.has(iso)) h++;
   }
   return h;
 };
 
-export const diasT = (ms) => {
+export const diasT = (ms, diasNo = []) => {
   const hoy = new Date();
   const [y, m] = ms.split("-").map(Number);
-  if (hoy.getFullYear() !== y || hoy.getMonth() + 1 !== m) return diasH(ms);
+  if (hoy.getFullYear() !== y || hoy.getMonth() + 1 !== m) return diasH(ms, diasNo);
   let h = 0;
+  const holidays = new Set((diasNo || []).map(d => d.fecha || d));
   for (let i = 1; i <= hoy.getDate(); i++) {
-    if (new Date(y, m - 1, i).getDay() !== 0) h++;
+    const d = new Date(y, m - 1, i);
+    const iso = `${y}-${String(m).padStart(2, "0")}-${String(i).padStart(2, "0")}`;
+    if (d.getDay() !== 0 && !holidays.has(iso) && !FERIADOS_AR.has(iso)) h++;
   }
   return Math.max(1, h);
 };

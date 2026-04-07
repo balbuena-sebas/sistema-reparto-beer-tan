@@ -6,41 +6,55 @@ export const TCostos = ({ rM, K, cfg, mes, setMes, regsAll = [], ausAll = [] }) 
   const dt = diasT(mes);
 
   const costoPersonal = useMemo(() => {
-    const listOperarios = new Set(cfg.operarios || []);
-    const rawChoferes = rM.map(r => r.chofer).filter(Boolean);
+    const listOperarios = new Set((cfg.operarios || []).map(n => n.toLowerCase().trim()));
+    const listTemporada = new Set((cfg.temporada || []).map(n => n.toLowerCase().trim()));
+    const norm = (n) => (n || '').toLowerCase().trim();
+
+    const rawChoferes = rM.map(r => norm(r.chofer)).filter(Boolean);
     const rawAyudantes = [
-      ...rM.map(r => r.ay1).filter(Boolean),
-      ...rM.map(r => r.ay2).filter(Boolean)
+      ...rM.map(r => norm(r.ay1)).filter(Boolean),
+      ...rM.map(r => norm(r.ay2)).filter(Boolean)
     ];
 
-    const choferes = new Set(rawChoferes.filter(n => !listOperarios.has(n)));
-    const ayudantes = new Set(rawAyudantes.filter(n => !listOperarios.has(n)));
-    const operarios = new Set([...rawChoferes, ...rawAyudantes].filter(n => listOperarios.has(n)));
+    // Operarios por rol: SOLO si "llegaron a la recarga" (nRecargas > 0)
+    const rawChoferesConRec = rM.filter(r => (r.nRecargas || 0) > 0).map(r => norm(r.chofer)).filter(Boolean);
+    const rawAyudantesConRec = rM.filter(r => (r.nRecargas || 0) > 0).flatMap(r => [norm(r.ay1), norm(r.ay2)]).filter(Boolean);
+
+    const opsCh = new Set(rawChoferesConRec.filter(n => listOperarios.has(n)));
+    const opsAy = new Set(rawAyudantesConRec.filter(n => listOperarios.has(n)));
+    
+    // Temporada: Aparecen en records CON RECARGA, pero NO son operarios (y están en lista temporada)
+    const temporada = new Set([
+      ...rawChoferesConRec.filter(n => !listOperarios.has(n) && listTemporada.has(n)),
+      ...rawAyudantesConRec.filter(n => !listOperarios.has(n) && listTemporada.has(n))
+    ]);
+
+    // Choferes/Ayudantes puros: No son operarios ni temporada
+    const choferes = new Set(rawChoferes.filter(n => !listOperarios.has(n) && !listTemporada.has(n)));
+    const ayudantes = new Set(rawAyudantes.filter(n => !listOperarios.has(n) && !listTemporada.has(n)));
 
     return {
       choferes: choferes.size * cfg.costoChofer,
       ayudantes: ayudantes.size * cfg.costoAyudante,
-      operarios: operarios.size * (cfg.costoOperario || 0),
+      temporada: temporada.size * (cfg.costoTemporada || cfg.costoAyudante),
+      operariosCh: opsCh.size * (cfg.costoOperarioChofer || 0),
+      operariosAy: opsAy.size * (cfg.costoOperarioAyudante || 0),
       totalChoferes: choferes.size,
       totalAyudantes: ayudantes.size,
-      totalOperarios: operarios.size
+      totalTemporada: temporada.size,
+      totalOpsCh: opsCh.size,
+      totalOpsAy: opsAy.size
     };
   }, [rM, cfg]);
 
   const costoRepartos = rM.reduce((s, r) => s + (+r.costoReparto || 0), 0);
-  const totalGeneral = costoPersonal.choferes + costoPersonal.ayudantes + costoPersonal.operarios + costoRepartos;
+  const totalGeneral = costoPersonal.choferes + costoPersonal.ayudantes + costoPersonal.temporada +
+                       costoPersonal.operariosCh + costoPersonal.operariosAy + costoRepartos;
 
   const porLocalidad = useMemo(() => {
     const map = {};
     rM.forEach(r => {
-      // isT() chequea si la localidad contiene 'Tandil' (case insensitive)
-      // También cubre casos como "TANDIL" sin sufijo "(Tandil)"
-      const locNorm = String(r.localidad || '').toUpperCase();
-      const zona = (locNorm.includes('TANDIL') || locNorm.includes('VELA') || 
-                    locNorm.includes('BARKER') || locNorm.includes('GARDEY') ||
-                    locNorm.includes('JUAREZ') || locNorm.includes('SAN MANUEL') ||
-                    locNorm.includes('JUAN N FERNANDEZ'))
-        ? 'Tandil' : 'Las Flores';
+      const zona = isT(r.localidad) ? 'Tandil' : 'Las Flores';
       if (!map[zona]) map[zona] = { repartos: 0, bultos: 0, costo: 0 };
       map[zona].repartos++;
       map[zona].bultos += +r.bultos || 0;
@@ -50,12 +64,25 @@ export const TCostos = ({ rM, K, cfg, mes, setMes, regsAll = [], ausAll = [] }) 
   }, [rM]);
 
   const costoCards = [
-    { label: 'Personal Choferes', value: costoPersonal.choferes, sub: `${costoPersonal.totalChoferes} choferes × ${fp(cfg.costoChofer)}`, color: '#e8b84b' },
-    { label: 'Personal Ayudantes', value: costoPersonal.ayudantes, sub: `${costoPersonal.totalAyudantes} ayudantes × ${fp(cfg.costoAyudante)}`, color: '#00d4ff' },
-    { label: 'Personal Operarios', value: costoPersonal.operarios, sub: `${costoPersonal.totalOperarios} operarios × ${fp(cfg.costoOperario)}`, color: '#22c55e' },
-    { label: 'Costos de Reparto', value: costoRepartos, sub: `${rM.length} repartos registrados`, color: '#a78bfa' },
-    { label: 'Total General', value: totalGeneral, sub: 'Costo total del mes', color: '#166534' },
+    { label: 'Facturación Choferes', value: costoPersonal.choferes, sub: `${costoPersonal.totalChoferes} choferes × ${fp(cfg.costoChofer)}`, color: '#e8b84b' },
+    { label: 'Facturación Ayudantes', value: costoPersonal.ayudantes, sub: `${costoPersonal.totalAyudantes} ayudantes × ${fp(cfg.costoAyudante)}`, color: '#00d4ff' },
   ];
+
+  if (costoPersonal.totalTemporada > 0) {
+    costoCards.push({ label: 'Personal Temporada', value: costoPersonal.temporada, sub: `${costoPersonal.totalTemporada} temporada × ${fp(cfg.costoTemporada || cfg.costoAyudante)}`, color: '#f59e0b' });
+  }
+
+  if (costoPersonal.totalOpsCh > 0) {
+    costoCards.push({ label: 'Personal Operarios (Chofer)', value: costoPersonal.operariosCh, sub: `${costoPersonal.totalOpsCh} operarios × ${fp(cfg.costoOperarioChofer)}`, color: '#22c55e' });
+  }
+  if (costoPersonal.totalOpsAy > 0) {
+    costoCards.push({ label: 'Personal Operarios (Ayudante)', value: costoPersonal.operariosAy, sub: `${costoPersonal.totalOpsAy} operarios × ${fp(cfg.costoOperarioAyudante)}`, color: '#10b981' });
+  }
+
+  costoCards.push(
+    { label: 'Facturación del Reparto', value: costoRepartos, sub: `${rM.length} repartos registrados`, color: '#a78bfa' },
+    { label: 'Facturación Total de Repartos', value: totalGeneral, sub: 'Total de ingresos proyectados', color: '#166534' }
+  );
 
   return (
     <div className="dash-container">
@@ -70,15 +97,19 @@ export const TCostos = ({ rM, K, cfg, mes, setMes, regsAll = [], ausAll = [] }) 
       </div>
 
       <div className="stats-grid">
-        {costoCards.map((c, i) => (
-          <div key={i} className="stat-card" style={{ '--accent': c.color, background: `${c.color}10` }}>
-            <div className="stat-content">
-              <div className="stat-value" style={{ color: c.color }}>{fp(c.value)}</div>
-              <div className="stat-label">{c.label}</div>
-              <div className="stat-sub">{c.sub}</div>
+        {costoCards.map((c, i) => {
+          const valStr = fp(c.value);
+          const valFontSize = valStr.length > 12 ? '22px' : valStr.length > 10 ? '26px' : '32px';
+          return (
+            <div key={i} className="stat-card" style={{ '--accent': c.color, background: `${c.color}10`, padding: '20px 14px' }}>
+              <div className="stat-content">
+                <div className="stat-value" style={{ color: c.color, fontSize: valFontSize }}>{valStr}</div>
+                <div className="stat-label">{c.label}</div>
+                <div className="stat-sub">{c.sub}</div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="dash-grid-2">
@@ -92,7 +123,7 @@ export const TCostos = ({ rM, K, cfg, mes, setMes, regsAll = [], ausAll = [] }) 
                 <div className="zona-stats">
                   <div className="zona-stat"><span>{data.repartos}</span><small>repartos</small></div>
                   <div className="zona-stat"><span>{fn(data.bultos)}</span><small>bultos</small></div>
-                  <div className="zona-stat"><span>{fp(data.costo)}</span><small>costo</small></div>
+                  <div className="zona-stat"><span>{fp(data.costo)}</span><small>facturación</small></div>
                 </div>
               </div>
             ))}

@@ -490,8 +490,8 @@ export const TReportes = ({
   onXLSX,
   onPDF,
 }) => {
-  const dt = diasT(mes);
-  const dh = diasH(mes);
+  const dt = diasT(mes, cfg.diasNoTrabajados || []);
+  const dh = diasH(mes, cfg.diasNoTrabajados || []);
   const [seccion, setSeccion] = useState("resumen");
   const [anioVer, setAnioVer] = useState(new Date().getFullYear());
 
@@ -792,7 +792,7 @@ export const TReportes = ({
             />
             <KpiCard
               icon="💰"
-              label="Costo Total"
+              label="Facturación Total"
               value={fp(rM.reduce((s, r) => s + (+r.costoReparto || 0), 0))}
               sub="repartos registrados"
               color="#475569"
@@ -1075,7 +1075,7 @@ export const TReportes = ({
                 "Bultos",
                 "Recargas",
                 "Prom. bultos/rep.",
-                "Costo total",
+                "Facturación total",
               ]}
               rows={porChofer.map(([name, d], i) => [
                 <span style={{ fontWeight: 800, color: "var(--text3)" }}>
@@ -1206,7 +1206,7 @@ export const TReportes = ({
                 max={maxBultosCliente}
                 color={i < 3 ? ["#b87c00", "#64748b", "#b45309"][i] : "#005fa3"}
                 badge={d.zonas.join(" · ")}
-                sub={`${d.repartos} repartos históricos · Costo acumulado: ${d.costo ? fp(d.costo) : "no registrado"}`}
+                sub={`${d.repartos} repartos históricos · Facturación acumulada: ${d.costo ? fp(d.costo) : "no registrado"}`}
               />
             ))}
           </div>

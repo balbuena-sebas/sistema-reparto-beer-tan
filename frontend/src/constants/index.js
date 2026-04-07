@@ -45,7 +45,9 @@ export const DC = {
   ],
   costoChofer:      115130,
   costoAyudante:    96870,
-  costoOperario:    96870, // Default to Ayudante cost or 0? I'll use 96870 as an example.
+  costoOperarioChofer: 115130,
+  costoOperarioAyudante: 96870,
+  costoTemporada:      96870,
   objTandil:        18000,
   objFlores:        8000,
   param1:           450,
@@ -56,6 +58,7 @@ export const DC = {
   driverMap:        [],
   diasNoTrabajados: [],
   operarios:        [],
+  temporada:        [],
   personasNotas:    [],  // lista separada para el tablero de notas
   paramXMes:        {},  // { 'YYYY-MM': { objTandil, objFlores, costoChofer, costoAyudante, alertaRecargas, costoOperario } }
 };

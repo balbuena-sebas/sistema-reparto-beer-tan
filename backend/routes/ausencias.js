@@ -21,8 +21,11 @@ router.get('/', async (req, res) => {
     let sql  = 'SELECT * FROM ausencias';
     let params = [];
     if (mes) {
-      sql += " WHERE TO_CHAR(fecha_desde, 'YYYY-MM') = $1";
-      params  = [mes];
+      // Devolver ausencias que CORTE con el mes (empiecen antes del fin de mes Y terminen después del inicio de mes)
+      const primerDia = `${mes}-01`;
+      const ultimoDia = new Date(mes.slice(0, 4), mes.slice(5, 7), 0).toISOString().split('T')[0];
+      sql += " WHERE fecha_desde <= $2 AND (fecha_hasta IS NULL OR fecha_hasta >= $1)";
+      params = [primerDia, ultimoDia];
     }
     sql += ' ORDER BY fecha_desde DESC';
     const result = await query(sql, params);

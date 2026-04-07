@@ -8,6 +8,8 @@ const CFG_DEFAULT = {
   empresa:             '',
   costoChofer:         0,
   costoAyudante:       0,
+  costoOperarioChofer:  0,
+  costoOperarioAyudante: 0,
   objTandil:           0,
   objFlores:           0,
   param1:              0,
@@ -20,6 +22,7 @@ const CFG_DEFAULT = {
   localidades:         [],
   destinos:            [],
   motivosAusencia:     [],
+  operarios:           [],
   driverMap:           [],
   diasNoTrabajados:    [],
   bultosTotal:         0,
@@ -41,6 +44,9 @@ async function filaACfg(fila) {
       empresa:             fila.empresa         || '',
       costoChofer:         fila.costo_chofer     || 0,
       costoAyudante:       fila.costo_ayudante   || 0,
+      costoOperarioChofer:  fila.costo_operario   || 0,
+      costoOperarioAyudante: fila.costo_operario_ayudante || 0,
+      costoTemporada:      fila.costo_temporada     || 0,
       objTandil:           fila.obj_tandil       || 0,
       objFlores:           fila.obj_flores       || 0,
       param1:              fila.param1           || 0,
@@ -49,10 +55,12 @@ async function filaACfg(fila) {
       alertaRecargas:      fila.alerta_recargas  || 10,
       choferes:            listas.choferes        || [],
       ayudantes:           listas.ayudantes       || [],
+      temporada:           listas.temporada       || [],
       patentes:            listas.patentes        || [],
       localidades:         listas.localidades     || [],
       destinos:            listas.destinos        || [],
       motivosAusencia:     listas.motivosAusencia || [],
+      operarios:           listas.operarios       || [],
       driverMap:           Array.isArray(driverMap) ? driverMap : [],
       diasNoTrabajados:    Array.isArray(diasNoTrabajados) ? diasNoTrabajados : [],
       bultosTotal:         listas.bultosTotal         || 0,
@@ -63,6 +71,7 @@ async function filaACfg(fila) {
       personasNotas:       Array.isArray(listas.personasNotas) ? listas.personasNotas : [],
       usuarios:           Array.isArray(listas.usuarios) ? listas.usuarios : [],
       paramXMes:           (listas.paramXMes && typeof listas.paramXMes === 'object') ? listas.paramXMes : {},
+      updatedAt:           fila.updated_at,
     };
   } catch (err) {
     console.error('filaACfg error:', err.message);
@@ -92,6 +101,7 @@ router.put('/', async (req, res) => {
       localidades:         Array.isArray(c.localidades)     ? c.localidades     : [],
       destinos:            Array.isArray(c.destinos)        ? c.destinos        : [],
       motivosAusencia:     Array.isArray(c.motivosAusencia) ? c.motivosAusencia : [],
+      operarios:           Array.isArray(c.operarios)       ? c.operarios       : [],
       bultosTotal:         Number(c.bultosTotal) || 0,
       bultosPorTransporte: (c.bultosPorTransporte && typeof c.bultosPorTransporte === 'object')
                              ? c.bultosPorTransporte : {},
@@ -102,6 +112,7 @@ router.put('/', async (req, res) => {
       personasNotas:       Array.isArray(c.personasNotas) ? c.personasNotas : [],
       usuarios:            Array.isArray(c.usuarios) ? c.usuarios : [],
       paramXMes:           (c.paramXMes && typeof c.paramXMes === 'object') ? c.paramXMes : {},
+      temporada:           Array.isArray(c.temporada) ? c.temporada : [],
     });
 
     const driverMapGz = await comprimir(Array.isArray(c.driverMap) ? c.driverMap : []);
@@ -109,15 +120,18 @@ router.put('/', async (req, res) => {
 
     const result = await pool.query(`
       INSERT INTO configuracion
-        (id, empresa, costo_chofer, costo_ayudante,
+        (id, empresa, costo_chofer, costo_ayudante, costo_operario, costo_operario_ayudante, costo_temporada,
          obj_tandil, obj_flores,
          param1, param2, param3, alerta_recargas,
          listas_gz, driver_map_gz, dias_no_gz, updated_at)
-      VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+      VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
       ON CONFLICT (id) DO UPDATE SET
         empresa         = EXCLUDED.empresa,
         costo_chofer    = EXCLUDED.costo_chofer,
         costo_ayudante  = EXCLUDED.costo_ayudante,
+        costo_operario  = EXCLUDED.costo_operario,
+        costo_operario_ayudante = EXCLUDED.costo_operario_ayudante,
+        costo_temporada = EXCLUDED.costo_temporada,
         obj_tandil      = EXCLUDED.obj_tandil,
         obj_flores      = EXCLUDED.obj_flores,
         param1          = EXCLUDED.param1,
@@ -133,6 +147,9 @@ router.put('/', async (req, res) => {
       c.empresa        || '',
       c.costoChofer    || 0,
       c.costoAyudante  || 0,
+      c.costoOperarioChofer || 0,
+      c.costoOperarioAyudante || 0,
+      c.costoTemporada || 0,
       c.objTandil      || 0,
       c.objFlores      || 0,
       c.param1         || 0,

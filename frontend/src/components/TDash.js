@@ -513,7 +513,7 @@ export const RepCard = ({ r, onClose, onEdit, onDel, loggedInUser }) => {
 // ── FIRMA ACTUALIZADA: acepta foxtrotKpis y onNavFoxtrot ─────────────────────
 export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, onDel, onNav, rechazos=[], onNavRechazos, regsAll=[], foxtrotKpis=[], onNavFoxtrot, loggedInUser }) => {
   const [selected, setSelected] = useState(null);
-  const dt = diasT(mes);
+  const dt = diasT(mes, cfg.diasNoTrabajados || []);
 
   // Determinar si el mes seleccionado es el mes actual
   const hoy = new Date();

@@ -2,23 +2,27 @@ import React, { useState, useCallback } from 'react';
 import { PERMISOS_DEFAULTS, normalizarUsuario } from '../config/permissions';
 
 // ── ListEditor fuera del componente para evitar re-mount en cada keystroke ────
-const ListEditor = ({ label, listKey, placeholder, items, newVal, onNewVal, onAdd, onRemove }) => (
+const ListEditor = ({ label, listKey, placeholder, items, newVal, onNewVal, onAdd, onRemove, type="text" }) => (
   <div className="list-editor">
     <div className="list-editor-header">
       <span className="list-editor-title">{label}</span>
       <span className="list-editor-count">{items.length}</span>
     </div>
     <div className="list-tags">
-      {items.map(item => (
-        <span key={item} className="list-tag">
-          {item}
-          <button className="tag-remove" onClick={() => onRemove(listKey, item)}>×</button>
-        </span>
-      ))}
+      {items.map(item => {
+        const val = typeof item === 'object' ? (item.fecha || item.label || '—') : item;
+        return (
+          <span key={val} className="list-tag">
+            {val}
+            <button className="tag-remove" onClick={() => onRemove(listKey, item)}>×</button>
+          </span>
+        );
+      })}
     </div>
     <div className="list-add">
       <input
         className="filter-input"
+        type={type}
         placeholder={placeholder}
         value={newVal}
         onChange={e => onNewVal(listKey, e.target.value)}
@@ -47,7 +51,7 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
   });
   const [saved, setSaved] = useState(false);
   const [newItems, setNewItems] = useState({
-    choferes: '', ayudantes: '', operarios: '', patentes: '',
+    choferes: '', ayudantes: '', operarios: '', temporada: '', patentes: '',
     localidades: '', destinos: '', motivosAusencia: '', personasNotas: '',
   });
   const [nuevoUsuario, setNuevoUsuario] = useState({ nombre: '', dni: '', role: 'chofer' });
@@ -127,14 +131,25 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
     const val = newItems[list]?.trim();
     if (!val) return;
     setForm(f => {
-      if ((f[list] || []).includes(val)) return f;
-      return { ...f, [list]: [...(f[list] || []), val] };
+      const current = f[list] || [];
+      if (list === 'diasNoTrabajados') {
+        if (current.some(d => d.fecha === val)) return f;
+        return { ...f, [list]: [...current, { fecha: val }] };
+      }
+      if (current.includes(val)) return f;
+      return { ...f, [list]: [...current, val] };
     });
     setNewItems(n => ({ ...n, [list]: '' }));
   }, [newItems]);
 
   const removeItem = useCallback((list, val) =>
-    setForm(f => ({ ...f, [list]: (f[list] || []).filter(x => x !== val) }))
+    setForm(f => {
+      const current = f[list] || [];
+      if (list === 'diasNoTrabajados') {
+        return { ...f, [list]: current.filter(d => d.fecha !== (val.fecha || val)) };
+      }
+      return { ...f, [list]: current.filter(x => x !== val) };
+    })
   , []);
 
   const onNewVal = useCallback((list, val) =>
@@ -233,39 +248,47 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
           </div>
           <div className="config-field">
             <label>Costo Chofer ($/mes)</label>
-            <input className="filter-input" type="number" value={form.costoChofer || ''} onChange={e => setF('costoChofer', +e.target.value)} />
+            <input className="filter-input" type="number" value={form.costoChofer ?? ''} onChange={e => setF('costoChofer', e.target.value === '' ? undefined : +e.target.value)} />
           </div>
           <div className="config-field">
             <label>Costo Ayudante ($/mes)</label>
-            <input className="filter-input" type="number" value={form.costoAyudante || ''} onChange={e => setF('costoAyudante', +e.target.value)} />
+            <input className="filter-input" type="number" value={form.costoAyudante ?? ''} onChange={e => setF('costoAyudante', e.target.value === '' ? undefined : +e.target.value)} />
           </div>
           <div className="config-field">
-            <label>Costo Operario ($/mes)</label>
-            <input className="filter-input" type="number" value={form.costoOperario || ''} onChange={e => setF('costoOperario', +e.target.value)} />
+            <label>Costo Operario Chofer ($/mes)</label>
+            <input className="filter-input" type="number" value={form.costoOperarioChofer ?? ''} onChange={e => setF('costoOperarioChofer', e.target.value === '' ? undefined : +e.target.value)} />
+          </div>
+          <div className="config-field">
+            <label>Costo Operario Ayudante ($/mes)</label>
+            <input className="filter-input" type="number" value={form.costoOperarioAyudante ?? ''} onChange={e => setF('costoOperarioAyudante', e.target.value === '' ? undefined : +e.target.value)} />
+          </div>
+          <div className="config-field">
+            <label>Costo Personal Temporada ($/mes)</label>
+            <input className="filter-input" type="number" value={form.costoTemporada ?? ''} onChange={e => setF('costoTemporada', e.target.value === '' ? undefined : +e.target.value)} />
           </div>
           <div className="config-field">
             <label>Obj. Bultos Tandil (mensual)</label>
-            <input className="filter-input" type="number" value={form.objTandil || ''} onChange={e => setF('objTandil', +e.target.value)} />
+            <input className="filter-input" type="number" value={form.objTandil ?? ''} onChange={e => setF('objTandil', e.target.value === '' ? undefined : +e.target.value)} />
           </div>
           <div className="config-field">
             <label>Obj. Bultos Las Flores (mensual)</label>
-            <input className="filter-input" type="number" value={form.objFlores || ''} onChange={e => setF('objFlores', +e.target.value)} />
+            <input className="filter-input" type="number" value={form.objFlores ?? ''} onChange={e => setF('objFlores', e.target.value === '' ? undefined : +e.target.value)} />
           </div>
           <div className="config-field">
             <label>Alerta Recargas (umbral)</label>
-            <input className="filter-input" type="number" value={form.alertaRecargas || ''} onChange={e => setF('alertaRecargas', +e.target.value)} />
+            <input className="filter-input" type="number" value={form.alertaRecargas ?? ''} onChange={e => setF('alertaRecargas', e.target.value === '' ? undefined : +e.target.value)} />
           </div>
           <div className="config-field">
             <label>Parámetro Bultos 1</label>
-            <input className="filter-input" type="number" value={form.param1 || ''} onChange={e => setF('param1', +e.target.value)} />
+            <input className="filter-input" type="number" value={form.param1 ?? ''} onChange={e => setF('param1', e.target.value === '' ? undefined : +e.target.value)} />
           </div>
           <div className="config-field">
             <label>Parámetro Bultos 2</label>
-            <input className="filter-input" type="number" value={form.param2 || ''} onChange={e => setF('param2', +e.target.value)} />
+            <input className="filter-input" type="number" value={form.param2 ?? ''} onChange={e => setF('param2', e.target.value === '' ? undefined : +e.target.value)} />
           </div>
           <div className="config-field">
             <label>Parámetro Bultos 3</label>
-            <input className="filter-input" type="number" value={form.param3 || ''} onChange={e => setF('param3', +e.target.value)} />
+            <input className="filter-input" type="number" value={form.param3 ?? ''} onChange={e => setF('param3', e.target.value === '' ? undefined : +e.target.value)} />
           </div>
         </div>
       </div>
@@ -406,7 +429,9 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
             { key:'objFlores',      label:'Obj. Bultos Las Flores (mensual)', global: form.objFlores },
             { key:'costoChofer',    label:'Costo Chofer ($/mes)',             global: form.costoChofer },
             { key:'costoAyudante',  label:'Costo Ayudante ($/mes)',           global: form.costoAyudante },
-            { key:'costoOperario',  label:'Costo Operario ($/mes)',          global: form.costoOperario },
+            { key:'costoOperarioChofer',  label:'Costo Op. Chofer ($/mes)',     global: form.costoOperarioChofer },
+            { key:'costoOperarioAyudante', label:'Costo Op. Ayudante ($/mes)',    global: form.costoOperarioAyudante },
+            { key:'costoTemporada',       label:'Costo Temporada ($/mes)',       global: form.costoTemporada },
             { key:'alertaRecargas', label:'Alerta Recargas (umbral)',         global: form.alertaRecargas },
           ].map(({ key, label, global: gv }) => {
             const val = (form.paramXMes||{})[mesParam]?.[key];
@@ -618,6 +643,7 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
       <div className="dash-grid-2">
         <ListEditor label="Choferes"               listKey="choferes"        placeholder="Apellido Nombre..."    items={form.choferes||[]}        newVal={newItems.choferes}        onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
         <ListEditor label="Ayudantes"              listKey="ayudantes"       placeholder="Apellido Nombre..."    items={form.ayudantes||[]}       newVal={newItems.ayudantes}       onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
+        <ListEditor label="Personal de Temporada"   listKey="temporada"       placeholder="Apellido Nombre..."    items={form.temporada||[]}       newVal={newItems.temporada}       onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
         <ListEditor label="Operarios"              listKey="operarios"       placeholder="Apellido Nombre..."    items={form.operarios||[]}       newVal={newItems.operarios}       onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
         <ListEditor label="Patentes"               listKey="patentes"        placeholder="ABC 123..."            items={form.patentes||[]}        newVal={newItems.patentes}        onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />
         <ListEditor label="Localidades"            listKey="localidades"     placeholder="LOCALIDAD (Zona)..."   items={form.localidades||[]}     newVal={newItems.localidades}     onNewVal={onNewVal} onAdd={addItem} onRemove={removeItem} />

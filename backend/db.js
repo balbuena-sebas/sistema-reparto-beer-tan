@@ -101,6 +101,7 @@ async function initDB() {
         costo_chofer    INTEGER DEFAULT 0,
         costo_ayudante  INTEGER DEFAULT 0,
         costo_operario  INTEGER DEFAULT 0,
+        costo_operario_ayudante INTEGER DEFAULT 0,
         obj_tandil      INTEGER DEFAULT 0,
         obj_flores      INTEGER DEFAULT 0,
         param1          INTEGER DEFAULT 0,
@@ -115,7 +116,11 @@ async function initDB() {
     `);
 
     await client.query(`
-      ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS costo_operario INTEGER DEFAULT 0
+      ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS costo_operario_ayudante INTEGER DEFAULT 0
+    `);
+
+    await client.query(`
+      ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS costo_temporada INTEGER DEFAULT 0
     `);
 
     await client.query(`
