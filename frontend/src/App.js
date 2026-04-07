@@ -299,61 +299,69 @@ export default function App() {
     setTab("dashboard");
   };
 
-  // ── Carga inicial ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    async function cargarTodo() {
-      try {
-        // Despertar el servidor de Render antes de hacer las llamadas reales
+  // ── Función para Refrescar Datos (Polling) ──────────────────────────────────
+  const refrescarDatos = useCallback(async (silencioso = false) => {
+    try {
+      if (!silencioso) setCargando(true);
+      
+      // En la carga inicial (no silenciosa), intentamos despertar el servidor
+      if (!silencioso) {
         await fetch(`${process.env.REACT_APP_API_URL}/health`, {
           headers: { "x-api-key": process.env.REACT_APP_API_KEY },
         }).catch(() => {});
+      }
 
-        const [todosRegs, todosAus, cfgGuardada, todosRechazos, xMes] =
-          await Promise.all([
-            getRegistros(),
-            getAusencias(),
-            getConfig(),
-            getRechazos(),
-            getBultosPorMes(),
-          ]);
-        setRegs(todosRegs || []);
-        setAus(todosAus || []);
-        const cfgFinal = { ...DC, ...(cfgGuardada || {}) };
-        const keys = [
-          'driverMap', 'diasNoTrabajados', 'operarios', 'temporada', 'paramXMes', 'usuarios',
-          'choferes', 'ayudantes', 'patentes', 'localidades', 'destinos', 'motivosAusencia', 'personasNotas',
-          'costoChofer', 'costoAyudante', 'costoOperarioChofer', 'costoOperarioAyudante', 'costoTemporada',
-          'objTandil', 'objFlores', 'alertaRecargas', 'param1', 'param2', 'param3', 'empresa', 'bultosXMes', 'updatedAt'
-        ];
-        keys.forEach(k => {
-          if (cfgGuardada?.[k] !== undefined && cfgGuardada?.[k] !== null) {
-            cfgFinal[k] = cfgGuardada[k];
-          }
-        });
-        // Si no hay usuarios en DB, usar los por defecto (admin)
-        if (!cfgFinal.usuarios || cfgFinal.usuarios.length === 0) {
-          cfgFinal.usuarios = DC.usuarios;
-        } else {
-          // Asegurar que todos los usuarios tengan permisos completos
-          // Solo llenar los que faltan, preservando los que SÍ están configurados
-          cfgFinal.usuarios = cfgFinal.usuarios.map((u) => ({
-            ...u,
-            permisos: {
-              ...(PERMISOS_DEFAULTS[u.role] || PERMISOS_DEFAULTS.chofer),
-              ...(u.permisos || {}),
-            },
-          }));
+      const [todosRegs, todosAus, cfgGuardada, todosRechazos, xMes] =
+        await Promise.all([
+          getRegistros(),
+          getAusencias(),
+          getConfig(),
+          getRechazos(),
+          getBultosPorMes(),
+        ]);
+
+      setRegs(todosRegs || []);
+      setAus(todosAus || []);
+      
+      const cfgFinal = { ...DC, ...(cfgGuardada || {}) };
+      const keys = [
+        'driverMap', 'diasNoTrabajados', 'operarios', 'temporada', 'paramXMes', 'usuarios',
+        'choferes', 'ayudantes', 'patentes', 'localidades', 'destinos', 'motivosAusencia', 'personasNotas',
+        'costoChofer', 'costoAyudante', 'costoOperarioChofer', 'costoOperarioAyudante', 'costoTemporada',
+        'objTandil', 'objFlores', 'alertaRecargas', 'param1', 'param2', 'param3', 'empresa', 'bultosXMes', 'updatedAt'
+      ];
+      keys.forEach(k => {
+        if (cfgGuardada?.[k] !== undefined && cfgGuardada?.[k] !== null) {
+          cfgFinal[k] = cfgGuardada[k];
         }
-        setCfg(cfgFinal);
-        setRechazos(todosRechazos || []);
-        const xMesDeConfig = cfgGuardada?.bultosXMes || {};
-        const xMesFinal = { ...(xMes || {}) };
-        Object.keys(xMesDeConfig).forEach((m) => {
-          xMesFinal[m] = xMesDeConfig[m];
-        });
-        setBultosXMes(xMesFinal);
+      });
+      
+      // Si no hay usuarios en DB, usar los por defecto (admin)
+      if (!cfgFinal.usuarios || cfgFinal.usuarios.length === 0) {
+        cfgFinal.usuarios = DC.usuarios;
+      } else {
+        cfgFinal.usuarios = cfgFinal.usuarios.map((u) => ({
+          ...u,
+          permisos: {
+            ...(PERMISOS_DEFAULTS[u.role] || PERMISOS_DEFAULTS.chofer),
+            ...(u.permisos || {}),
+          },
+        }));
+      }
+      
+      setCfg(cfgFinal);
+      setRechazos(todosRechazos || []);
+      
+      const xMesDeConfig = cfgGuardada?.bultosXMes || {};
+      const xMesFinal = { ...(xMes || {}) };
+      Object.keys(xMesDeConfig).forEach((m) => {
+        xMesFinal[m] = xMesDeConfig[m];
+      });
+      setBultosXMes(xMesFinal);
+      
+      if (!silencioso) {
         setCargando(false);
-
+        // Verificar migración solo en carga inicial
         const yaMigro = sessionStorage.getItem("reparto_migrado");
         if (!yaMigro) {
           const claves = ["reparto_data", "reparto", "reparto-data", "data"];
@@ -370,17 +378,24 @@ export default function App() {
           if (hayLocal) setMostrarMigracion(true);
           else sessionStorage.setItem("reparto_migrado", "true");
         }
-      } catch (err) {
-        console.error("Error de conexión:", err);
-        setErrConex(
-          err.message ||
-            "Error desconocido. Verificá que el backend esté corriendo.",
-        );
+      }
+    } catch (err) {
+      console.error("Error al refrescar datos:", err);
+      if (!silencioso) {
+        setErrConex(err.message || "Error desconocido. Verificá que el backend esté corriendo.");
         setCargando(false);
       }
     }
-    cargarTodo();
   }, []);
+
+  // ── Carga inicial y Configuración del Polling (cada 30s) ──────────────────
+  useEffect(() => {
+    refrescarDatos(false);
+    const interval = setInterval(() => {
+      refrescarDatos(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [refrescarDatos]);
 
   // ── Cargar KPIs Foxtrot cada vez que cambia el mes ────────────────────────
   // Se hace desde App.js para que tanto el Dashboard como TFoxtrot compartan
@@ -407,80 +422,8 @@ export default function App() {
 
   const onMigracionCompletada = async () => {
     setMostrarMigracion(false);
-    try {
-      const [todosRegs, todosAus, cfgGuardada] = await Promise.all([
-        getRegistros(),
-        getAusencias(),
-        getConfig(),
-      ]);
-      setRegs(todosRegs || []);
-      setAus(todosAus || []);
-      const cfgFinal2 = { ...DC, ...(cfgGuardada || {}) };
-      const keys2 = [
-        'driverMap', 'diasNoTrabajados', 'operarios', 'temporada', 'paramXMes', 'usuarios',
-        'choferes', 'ayudantes', 'patentes', 'localidades', 'destinos', 'motivosAusencia', 'personasNotas',
-        'costoChofer', 'costoAyudante', 'costoOperarioChofer', 'costoOperarioAyudante', 'costoTemporada',
-        'objTandil', 'objFlores', 'alertaRecargas', 'param1', 'param2', 'param3', 'empresa', 'bultosXMes', 'updatedAt'
-      ];
-      keys2.forEach(k => {
-        if (cfgGuardada?.[k] !== undefined && cfgGuardada?.[k] !== null) {
-          cfgFinal2[k] = cfgGuardada[k];
-        }
-      });
-      // Rellenar permisos si falta
-      if (cfgFinal2.usuarios && cfgFinal2.usuarios.length > 0) {
-        const permisosDefaults = {
-          admin: {
-            dashboard: true,
-            registros: true,
-            ausencias: true,
-            personal: true,
-            costos: true,
-            reportes: true,
-            rechazos: true,
-            foxtrot: true,
-            importar: true,
-            config: true,
-            notas: true,
-          },
-          chofer: {
-            dashboard: true,
-            registros: true,
-            ausencias: true,
-            personal: false,
-            costos: false,
-            reportes: false,
-            rechazos: false,
-            foxtrot: false,
-            importar: false,
-            config: false,
-            notas: true,
-          },
-          ayudante: {
-            dashboard: true,
-            registros: true,
-            ausencias: true,
-            personal: false,
-            costos: false,
-            reportes: false,
-            rechazos: false,
-            foxtrot: false,
-            importar: false,
-            config: false,
-            notas: true,
-          },
-        };
-        cfgFinal2.usuarios = cfgFinal2.usuarios.map((u) => ({
-          ...u,
-          permisos:
-            u.permisos || permisosDefaults[u.role] || permisosDefaults.chofer,
-        }));
-      }
-      setCfg(cfgFinal2);
-      notify("✓ Datos migrados correctamente");
-    } catch {
-      /* si falla, usa los datos ya cargados */
-    }
+    await refrescarDatos(false);
+    notify("✓ Datos migrados correctamente");
   };
 
   // ── Filtros y KPIs ────────────────────────────────────────────────────────
@@ -550,7 +493,22 @@ export default function App() {
     // Admin: solo mes actual; Chofer/Ayudante: TODO su historico de ausencias
     const datosBase =
       !loggedInUser || loggedInUser.role === "admin"
-        ? aus.filter((a) => a.fechaDesde?.startsWith(mes))
+        ? aus.filter((a) => {
+            if (!a.fechaDesde) return false;
+            // Rango de la ausencia [aS, aE]
+            const aS = a.fechaDesde;
+            const aE = a.fechaHasta || a.fechaDesde;
+            
+            // Rango del mes seleccionado [mS, mNext)
+            const [y, m] = mes.split("-").map(Number);
+            const mS = `${mes}-01`;
+            const mNext = m === 12 
+              ? `${y + 1}-01-01` 
+              : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+            
+            // Hay solapamiento si: (Inicio Ausencia < Fin del Mes) Y (Fin Ausencia >= Inicio del Mes)
+            return aS < mNext && aE >= mS;
+          })
         : aus; // Choferes/Ayudantes ven TODAS sus ausencias (pasadas, presentes, futuras)
 
     if (!loggedInUser || loggedInUser.role === "admin") return datosBase;
