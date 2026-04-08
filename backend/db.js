@@ -278,6 +278,9 @@ async function initDB() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_chk_fecha ON checklists(fecha)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_chk_dni   ON checklists(dni)`);
+    
+    // Migración: Asegurar que existe la columna 'estado' si la tabla ya existía
+    await client.query(`ALTER TABLE checklists ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'completado'`);
 
     await client.query('COMMIT');
     console.log('✅ Base de datos inicializada correctamente');

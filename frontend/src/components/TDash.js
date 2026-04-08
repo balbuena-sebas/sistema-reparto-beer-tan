@@ -266,8 +266,9 @@ const WidgetChecklist = ({ checklists = [], cfg = {} }) => {
     ...(cfg.choferes || []),
   ])].sort();
 
-  const completados = checklists.filter(c => c.estado === 'completado').map(c => c.chofer);
-  const sinRuta = checklists.filter(c => c.estado === 'sin_ruta').map(c => c.chofer);
+  const safeChecklists = Array.isArray(checklists) ? checklists : [];
+  const completados = safeChecklists.filter(c => c.estado === 'completado').map(c => c.chofer);
+  const sinRuta = safeChecklists.filter(c => c.estado === 'sin_ruta').map(c => c.chofer);
   const faltantes = todosLosChoferes.filter(c => !completados.includes(c) && !sinRuta.includes(c));
 
   return (
