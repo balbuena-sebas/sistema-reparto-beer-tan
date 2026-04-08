@@ -11,9 +11,9 @@ router.get('/', async (req, res) => {
       'SELECT * FROM checklists WHERE fecha = $1 ORDER BY creado_en DESC',
       [fecha]
     );
-    res.json(result.rows);
+    res.json({ ok: true, data: result.rows });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
