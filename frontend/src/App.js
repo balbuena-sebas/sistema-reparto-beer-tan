@@ -44,6 +44,8 @@ import {
   actualizarNota,
   eliminarNota,
   getFoxtrotKpisPorChofer,
+  getChecklists,
+  guardarChecklist,
 } from "./api/client";
 
 // ─── Pantalla de carga / error ────────────────────────────────────────────────
@@ -140,9 +142,81 @@ export default function App() {
   const [loginDni, setLoginDni] = useState("");
   const [loginError, setLoginError] = useState("");
 
-  // ── Estado Foxtrot KPIs (para Dashboard) ─────────────────────────────────
-  const [foxtrotKpis, setFoxtrotKpis] = useState([]);
   const [cargandoFoxtrotKpis, setCargandoFoxtrotKpis] = useState(false);
+  const [checklistCompletado, setChecklistCompletado] = useState(true); // Bloqueo si es false
+  const [checklistsHoy, setChecklistsHoy] = useState([]);
+
+  // ── Restauración de sesión Persistente ──────────────────
+  useEffect(() => {
+    const savedUser = localStorage.getItem("bt_user_session");
+    if (savedUser) {
+      try {
+        const user = JSON.parse(savedUser);
+        if (user && user.dni) {
+          setLoggedInUser(user);
+          // Reiniciar sincronización de pestañas para el usuario restaurado
+          const sessionKey = `app_session_${user.dni}`;
+          const sessionId = Math.random().toString(36).substring(2, 15);
+          sessionStorage.setItem(sessionKey, sessionId);
+          if (!window.activeSessions) window.activeSessions = {};
+          window.activeSessions[user.dni] = sessionId;
+        }
+      } catch (e) {
+        console.error("Error restaurando sesión:", e);
+        localStorage.removeItem("bt_user_session");
+      }
+    }
+  }, []);
+
+  // ── Recordatorio de Checklist (07:15 AM) ──────────────────
+  useEffect(() => {
+    if (!loggedInUser || loggedInUser.role !== "chofer") return;
+
+    // Solicitar permiso de notificaciones solo la primera vez que inicia sesión como chofer
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+
+    const checkChecklist = () => {
+      const ahora = new Date();
+      const hora = ahora.getHours();
+      const mins = ahora.getMinutes();
+      const hoy = ahora.toISOString().split("T")[0];
+
+      // Verificamos si ya pasó el horario límite (07:15) y no notificamos hoy
+      if (
+        (hora > 7 || (hora === 7 && mins >= 15)) &&
+        localStorage.getItem("last_checklist_notify") !== hoy
+      ) {
+        // En lugar de una alerta invasiva, usamos notificaciones del navegador
+        // Verificamos de forma inteligente si ya hizo algún registro hoy
+        const yaHizoRegistro = regs.some(
+          (r) =>
+            r.fecha === hoy &&
+            (r.chofer === loggedInUser.nombre ||
+              r.createdByDni === loggedInUser.dni),
+        );
+
+        if (!yaHizoRegistro && Notification.permission === "granted") {
+          navigator.serviceWorker.ready.then((registration) => {
+            registration.showNotification("📋 Control de Camión", {
+              body: "Debes realizar el check list del camión antes de salir a ruta.",
+              icon: "/icon-day.png",
+              badge: "/icon-day.png",
+              tag: "checklist-reminder",
+              vibrate: [200, 100, 200],
+            });
+            localStorage.setItem("last_checklist_notify", hoy);
+          });
+        }
+      }
+    };
+
+    // Revisar al montar y luego cada 5 minutos
+    checkChecklist();
+    const interval = setInterval(checkChecklist, 300000);
+    return () => clearInterval(interval);
+  }, [loggedInUser, regs]);
 
   const notify = useCallback((msg, type = "ok") => {
     setToast({ msg, type });
@@ -208,7 +282,34 @@ export default function App() {
     }
     const user = result.user;
 
-    // FIJO: Usuario Administrador siempre es admin
+  // ── Sincronización Checklist (Choferes) ──────────────────
+  useEffect(() => {
+    if (!loggedInUser || loggedInUser.role !== "chofer") {
+      setChecklistCompletado(true);
+      return;
+    }
+    const hoy = new Date().toISOString().split("T")[0];
+    getChecklists(hoy).then(res => {
+      const yaLoHizo = res.some(c => c.dni === loggedInUser.dni);
+      setChecklistCompletado(yaLoHizo);
+    }).catch(() => setChecklistCompletado(true)); // En caso de error api no bloquear compulsivamente
+  }, [loggedInUser]);
+
+  const handleChecklistConfirm = async (estado = "completado") => {
+    const hoy = new Date().toISOString().split("T")[0];
+    try {
+      await guardarChecklist({
+        chofer: loggedInUser.nombre,
+        dni: loggedInUser.dni,
+        fecha: hoy,
+        estado: estado
+      });
+      setChecklistCompletado(true);
+      notify(estado === "completado" ? "✓ Checklist confirmado" : "ℹ️ Registrado como 'Sin ruta'");
+    } catch (err) {
+      notify("❌ Error al guardar estado", "w");
+    }
+  };
     if (user.nombre === "Administrador" && user.dni === "admin") {
       user.role = "admin";
       // El admin principal siempre tiene permiso de editar contenido
@@ -278,6 +379,9 @@ export default function App() {
     });
 
     setLoggedInUser(user);
+    // Persistencia de sesión para móviles/PWA
+    localStorage.setItem("bt_user_session", JSON.stringify(user));
+    
     setLoginError("");
     setLoginNombre("");
     setLoginDni("");
@@ -293,6 +397,7 @@ export default function App() {
     if (window.sessionCheckInterval) clearInterval(window.sessionCheckInterval);
     if (loggedInUser?.dni) delete window.activeSessions?.[loggedInUser.dni];
 
+    localStorage.removeItem("bt_user_session");
     setLoggedInUser(null);
     setLoginError("");
     setToast(null);
@@ -318,10 +423,12 @@ export default function App() {
           getConfig(),
           getRechazos(),
           getBultosPorMes(),
+          getChecklists(new Date().toISOString().split("T")[0]),
         ]);
 
       setRegs(todosRegs || []);
       setAus(todosAus || []);
+      setChecklistsHoy(Array.isArray(todosChecklists) ? todosChecklists : []);
       
       const cfgFinal = { ...DC, ...(cfgGuardada || {}) };
       const keys = [
@@ -1046,7 +1153,8 @@ export default function App() {
         }}>
         <div
           style={{
-            width: 360,
+            width: "100%",
+            maxWidth: 360,
             background: "#fff",
             borderRadius: 12,
             border: "1px solid #e2e8f0",
@@ -1221,6 +1329,53 @@ export default function App() {
       )}
 
       <main className="app-main">
+        {/* BLOQUEO PARA CHOFERES (CHECKLIST) */}
+        {!checklistCompletado && loggedInUser?.role === "chofer" && (
+          <div style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)",
+            zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20
+          }}>
+            <div style={{
+              background: "#fff", borderRadius: 24, maxWidth: 500, width: "100%", padding: 32,
+              textAlign: "center", boxShadow: "0 20px 50px rgba(0,0,0,0.3)"
+            }}>
+              <div style={{ fontSize: 64, marginBottom: 16 }}>🚛</div>
+              <h2 style={{ fontSize: 24, fontWeight: 900, color: "#111827", marginBottom: 12 }}>¡Atención Chofer!</h2>
+              <p style={{ fontSize: 16, color: "#4b5563", lineHeight: 1.6, marginBottom: 24 }}>
+                Debes realizar el <strong>Checklist del Camión</strong> antes de comenzar tu jornada.
+                Es obligatorio para poder usar el sistema.
+              </p>
+              <div style={{ display: "grid", gap: 12 }}>
+                <a
+                  href="https://forms.gle/FJmEb7dEcvTrDrga9"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-action btn-primary-action"
+                  style={{ textDecoration: "none", display: "block", fontSize: 16, padding: "14px" }}
+                >
+                  📝 Abrir Formulario Checklist
+                </a>
+                <button
+                  onClick={handleChecklistConfirm}
+                  className="btn-action btn-secondary-action"
+                  style={{ fontSize: 16, padding: "14px", background: "#dcfce7", color: "#166534", border: "2px solid #4ade80" }}
+                >
+                  ✅ Ya lo completé en Google Forms
+                </button>
+                <button
+                  onClick={() => handleChecklistConfirm("sin_ruta")}
+                  style={{
+                    background: "none", border: "none", color: "#64748b", textDecoration: "underline",
+                    fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 8
+                  }}
+                >
+                  No tengo ruta asignada para el día de hoy
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab === "dashboard" && (
           <TDash
             K={K}
@@ -1241,6 +1396,7 @@ export default function App() {
             foxtrotKpis={foxtrotKpis}
             onNavFoxtrot={() => setTab("foxtrot")}
             loggedInUser={loggedInUser}
+            checklistsHoy={checklistsHoy}
           />
         )}
         {tab === "registros" && (

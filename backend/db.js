@@ -265,6 +265,20 @@ async function initDB() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_int_archivo ON foxtrot_intentos(archivo)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_int_status  ON foxtrot_intentos(aggregate_visit_status)`);
 
+    // Tabla checklists diaria (para control de chóferes)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS checklists (
+        id          BIGSERIAL PRIMARY KEY,
+        fecha       DATE NOT NULL DEFAULT CURRENT_DATE,
+        chofer      TEXT NOT NULL,
+        dni         TEXT NOT NULL,
+        estado      TEXT DEFAULT 'completado', -- 'completado' | 'sin_ruta'
+        creado_en   TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chk_fecha ON checklists(fecha)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_chk_dni   ON checklists(dni)`);
+
     await client.query('COMMIT');
     console.log('✅ Base de datos inicializada correctamente');
   } catch (err) {

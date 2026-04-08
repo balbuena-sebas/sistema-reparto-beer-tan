@@ -260,6 +260,65 @@ const WidgetFoxtrot = ({ kpis = [], onNavFoxtrot }) => {
   );
 };
 
+const WidgetChecklist = ({ checklists = [], cfg = {} }) => {
+  const hoyStr = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+  const todosLosChoferes = [...new Set([
+    ...(cfg.choferes || []),
+    ...(cfg.operarios || []),
+    ...(cfg.temporada || [])
+  ])].sort();
+
+  const completados = checklists.filter(c => c.estado === 'completado').map(c => c.chofer);
+  const sinRuta = checklists.filter(c => c.estado === 'sin_ruta').map(c => c.chofer);
+  const faltantes = todosLosChoferes.filter(c => !completados.includes(c) && !sinRuta.includes(c));
+
+  return (
+    <div className="dash-card">
+      <div className="card-header">
+        <span className="card-title">📋 Control de Checklist Diario ({hoyStr})</span>
+        <span className="card-badge">{completados.length + sinRuta.length} / {todosLosChoferes.length}</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#166534', textTransform: 'uppercase', marginBottom: 10 }}>✅ Reportados</div>
+          {(completados.length === 0 && sinRuta.length === 0) ? (
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>Nadie reportó aún</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {completados.map(c => (
+                <div key={c} style={{ fontSize: 13, fontWeight: 700, color: '#166534', background: '#dcfce7', padding: '6px 12px', borderRadius: 8, display: 'flex', justifyContent: 'space-between' }}>
+                  <span>✓ {c}</span>
+                  <span style={{ fontSize: 10, opacity: 0.8 }}>CHECKLIST OK</span>
+                </div>
+              ))}
+              {sinRuta.map(c => (
+                <div key={c} style={{ fontSize: 13, fontWeight: 700, color: '#475569', background: '#f1f5f9', padding: '6px 12px', borderRadius: 8, display: 'flex', justifyContent: 'space-between', border: '1px dashed #cbd5e1' }}>
+                  <span>⚪ {c}</span>
+                  <span style={{ fontSize: 10, opacity: 0.8 }}>SIN RUTA</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 800, color: '#b91c1c', textTransform: 'uppercase', marginBottom: 10 }}>⏳ Faltantes</div>
+          {faltantes.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#166534', fontWeight: 700 }}>¡Todos al día! 👏</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {faltantes.map(c => (
+                <div key={c} style={{ fontSize: 13, fontWeight: 700, color: '#b91c1c', background: '#fee2e2', padding: '6px 12px', borderRadius: 8 }}>
+                  ⚠ {c}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const RepCard = ({ r, onClose, onEdit, onDel, loggedInUser }) => {
   if (!r) return null;
 
@@ -511,7 +570,7 @@ export const RepCard = ({ r, onClose, onEdit, onDel, loggedInUser }) => {
 };
 
 // ── FIRMA ACTUALIZADA: acepta foxtrotKpis y onNavFoxtrot ─────────────────────
-export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, onDel, onNav, rechazos=[], onNavRechazos, regsAll=[], foxtrotKpis=[], onNavFoxtrot, loggedInUser }) => {
+export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, onDel, onNav, rechazos=[], onNavRechazos, regsAll=[], foxtrotKpis=[], onNavFoxtrot, loggedInUser, checklistsHoy = [] }) => {
   const [selected, setSelected] = useState(null);
   const dt = diasT(mes, cfg.diasNoTrabajados || []);
 
@@ -733,6 +792,11 @@ export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, 
       </div>
 
       <WidgetRechazos rechazos={rechazosDelMes} bultosTotal={bultosEntregadosMes||0} onNavRechazos={onNavRechazos}/>
+      
+      {loggedInUser?.role === 'admin' && (
+        <WidgetChecklist checklists={checklistsHoy} cfg={cfg} />
+      )}
+
       <WidgetFoxtrot kpis={foxtrotKpis} onNavFoxtrot={onNavFoxtrot} />
 
       <div className="dash-card">

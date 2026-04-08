@@ -198,3 +198,13 @@ export async function verificarArchivoFoxtrot(archivo) {
 export async function eliminarArchivoFoxtrot(archivo) {
   return apiFetch(`/api/foxtrot/archivo/${encodeURIComponent(archivo)}`, { method: 'DELETE' });
 }
+
+// ── CHECKLISTS ───────────────────────────────────────────────────────────────
+export async function getChecklists(fecha) {
+  const r = await apiFetch(`/api/checklists?fecha=${fecha}`);
+  return r.data || r || [];
+}
+export async function guardarChecklist(datos) {
+  const r = await apiFetch('/api/checklists', { method: 'POST', body: JSON.stringify(datos) });
+  return r.data || r;
+}

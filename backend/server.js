@@ -51,6 +51,7 @@ const migracionRouter = require('./routes/migracion');
 const { router: rechazosRouter } = require('./routes/rechazos');
 const notasRouter = require('./routes/notas');
 const foxtrotRouter = require('./routes/foxtrot');
+const checklistsRouter = require('./routes/checklists');
 
 app.use('/api/registros', autenticar, registrosRouter);
 app.use('/api/ausencias', autenticar, ausenciasRouter);
@@ -59,6 +60,7 @@ app.use('/api/migracion', autenticar, migracionRouter);
 app.use('/api/rechazos', autenticar, rechazosRouter);
 app.use('/api/notas', autenticar, notasRouter);
 app.use('/api/foxtrot', autenticar, foxtrotRouter);
+app.use('/api/checklists', autenticar, checklistsRouter);
 
 app.get('/health', (req, res) => res.json({ ok: true, status: 'online' }));
 app.get('/', (req, res) => res.json({ ok: true, msg: 'API Sistema de Reparto' }));
