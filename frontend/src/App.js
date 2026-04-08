@@ -143,6 +143,7 @@ export default function App() {
   const [loginError, setLoginError] = useState("");
 
   const [cargandoFoxtrotKpis, setCargandoFoxtrotKpis] = useState(false);
+  const [foxtrotKpis, setFoxtrotKpis] = useState([]);
   const [checklistCompletado, setChecklistCompletado] = useState(true); // Bloqueo si es false
   const [checklistsHoy, setChecklistsHoy] = useState([]);
 
