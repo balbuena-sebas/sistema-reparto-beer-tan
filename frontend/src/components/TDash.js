@@ -264,8 +264,6 @@ const WidgetChecklist = ({ checklists = [], cfg = {} }) => {
   const hoyStr = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
   const todosLosChoferes = [...new Set([
     ...(cfg.choferes || []),
-    ...(cfg.operarios || []),
-    ...(cfg.temporada || [])
   ])].sort();
 
   const completados = checklists.filter(c => c.estado === 'completado').map(c => c.chofer);
@@ -678,9 +676,6 @@ export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, 
 
   return (
     <div className="dash-container">
-      <div style={{ background: 'red', color: 'white', padding: 10, textAlign: 'center', fontWeight: 900, borderRadius: 10 }}>
-        ⚠️ SI VES ESTO, EL CÓDIGO NUEVO ESTÁ CARGADO (VERSIÓN CHECKLIST) ⚠️
-      </div>
       <div className="dash-header">
         <div>
           <h2 className="dash-title">Panel Operativo</h2>
