@@ -793,7 +793,8 @@ export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, 
 
       <WidgetRechazos rechazos={rechazosDelMes} bultosTotal={bultosEntregadosMes||0} onNavRechazos={onNavRechazos}/>
       
-      {String(loggedInUser?.role || '').toLowerCase() === 'admin' && (
+      {/* Widget de Control de Checklist (Solo para Admins) */}
+      {(String(loggedInUser?.role || '').toLowerCase() === 'admin' || loggedInUser?.nombre === 'Administrador') && (
         <WidgetChecklist checklists={checklistsHoy} cfg={cfg} />
       )}
 

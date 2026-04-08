@@ -170,7 +170,8 @@ export default function App() {
 
   // ── Recordatorio de Checklist (07:15 AM) ──────────────────
   useEffect(() => {
-    if (!loggedInUser || loggedInUser.role !== "chofer") return;
+    const role = String(loggedInUser?.role || "").toLowerCase();
+    if (!loggedInUser || role !== "chofer") return;
 
     // Solicitar permiso de notificaciones solo la primera vez que inicia sesión como chofer
     if ("Notification" in window && Notification.permission === "default") {
@@ -276,7 +277,8 @@ export default function App() {
 
   // ── Sincronización Checklist (Choferes) ──────────────────
   useEffect(() => {
-    if (!loggedInUser || loggedInUser.role !== "chofer") {
+    const role = String(loggedInUser?.role || "").toLowerCase();
+    if (!loggedInUser || role !== "chofer") {
       setChecklistCompletado(true);
       return;
     }
@@ -394,7 +396,8 @@ export default function App() {
     setLoginNombre("");
     setLoginDni("");
     // Para choferes y ayudantes, mostrar primero la pestaña de Links
-    if (user.role === "chofer" || user.role === "ayudante") {
+    const role = String(user.role || "").toLowerCase();
+    if (role === "chofer" || role === "ayudante") {
       setTab("biolinks");
     }
     notify(`✓ Bienvenido ${result.user.nombre}`);
@@ -1254,7 +1257,7 @@ export default function App() {
             <span className="nav-title">
               {cfg.empresa || "Sistema de Reparto"}
             </span>
-            <span className="nav-sub">Panel Operativo · v3</span>
+            <span className="nav-sub">Panel Operativo · v4 (Checklist)</span>
           </div>
         </div>
         <div className="nav-tabs">
@@ -1279,9 +1282,9 @@ export default function App() {
                 </div>
                 <div
                   style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>
-                  {loggedInUser.role === "admin"
+                  {String(loggedInUser.role || '').toLowerCase() === "admin"
                     ? "🔑 Admin"
-                    : loggedInUser.role === "chofer"
+                    : String(loggedInUser.role || '').toLowerCase() === "chofer"
                       ? "🚗 Chofer"
                       : "🤝 Ayudante"}
                 </div>
