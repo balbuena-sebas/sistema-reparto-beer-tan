@@ -29,7 +29,8 @@ router.post('/', async (req, res) => {
     );
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Error en POST /api/checklists:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

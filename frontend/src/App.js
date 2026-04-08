@@ -309,7 +309,8 @@ export default function App() {
       );
       refrescarDatos(true); // Refrescar para que el admin lo vea
     } catch (err) {
-      notify("❌ Error al guardar estado", "w");
+      console.error("Error confirmando checklist:", err);
+      notify(`❌ Error al guardar estado: ${err.message}`, "w");
     }
   };
 
