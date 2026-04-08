@@ -1123,6 +1123,8 @@ export default function App() {
   // Filtrar tabs según permisos del usuario loguado (TODOS incluido admin)
   const tabsVisibles = useMemo(() => {
     if (!loggedInUser) return tabs;
+    const role = String(loggedInUser.role || "").toLowerCase();
+    if (role === "admin") return tabs; // Admin ve todo
     const permisos = loggedInUser.permisos || {};
     return tabs.filter((t) => permisos[t.id] === true);
   }, [loggedInUser, tabs]);
@@ -1134,7 +1136,7 @@ export default function App() {
       return;
     }
 
-    if (loggedInUser.role === "admin") return; // admin ve todo
+    if (String(loggedInUser.role || "").toLowerCase() === "admin") return; // admin ve todo
 
     const permisos = loggedInUser.permisos || {};
     const tabPermitido = permisos[tab] === true;
@@ -1253,7 +1255,10 @@ export default function App() {
     <div className="app-root">
       <nav className="app-nav">
         <div className="nav-brand">
-          <span className="nav-logo">🚛</span>
+          <div className="nav-logo">
+            <img src="/icon-day.png" alt="logo" style={{ height: 32, display: "block" }} 
+                 onError={(e) => { e.target.style.display='none'; e.target.parentElement.textContent='🚛'; }} />
+          </div>
           <div>
             <span className="nav-title">
               {cfg.empresa || "Sistema de Reparto"}
@@ -1342,7 +1347,7 @@ export default function App() {
 
       <main className="app-main">
         {/* BLOQUEO PARA CHOFERES (CHECKLIST) */}
-        {!checklistCompletado && loggedInUser?.role === "chofer" && (
+        {!checklistCompletado && String(loggedInUser?.role || "").toLowerCase() === "chofer" && (
           <div style={{
             position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)",
             zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20
