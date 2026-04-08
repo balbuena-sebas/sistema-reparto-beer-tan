@@ -274,14 +274,6 @@ export default function App() {
       : { ok: false, msg: "Usuario o DNI incorrecto." };
   };
 
-  const handleLogin = () => {
-    const result = validarCredenciales(loginNombre, loginDni);
-    if (!result.ok) {
-      setLoginError(result.msg);
-      return;
-    }
-    const user = result.user;
-
   // ── Sincronización Checklist (Choferes) ──────────────────
   useEffect(() => {
     if (!loggedInUser || loggedInUser.role !== "chofer") {
@@ -289,10 +281,12 @@ export default function App() {
       return;
     }
     const hoy = new Date().toISOString().split("T")[0];
-    getChecklists(hoy).then(res => {
-      const yaLoHizo = res.some(c => c.dni === loggedInUser.dni);
-      setChecklistCompletado(yaLoHizo);
-    }).catch(() => setChecklistCompletado(true)); // En caso de error api no bloquear compulsivamente
+    getChecklists(hoy)
+      .then((res) => {
+        const yaLoHizo = res.some((c) => c.dni === loggedInUser.dni);
+        setChecklistCompletado(yaLoHizo);
+      })
+      .catch(() => setChecklistCompletado(true)); // En caso de error api no bloquear compulsivamente
   }, [loggedInUser]);
 
   const handleChecklistConfirm = async (estado = "completado") => {
@@ -302,14 +296,28 @@ export default function App() {
         chofer: loggedInUser.nombre,
         dni: loggedInUser.dni,
         fecha: hoy,
-        estado: estado
+        estado: estado,
       });
       setChecklistCompletado(true);
-      notify(estado === "completado" ? "✓ Checklist confirmado" : "ℹ️ Registrado como 'Sin ruta'");
+      notify(
+        estado === "completado"
+          ? "✓ Checklist confirmado"
+          : "ℹ️ Registrado como 'Sin ruta'",
+      );
+      refrescarDatos(true); // Refrescar para que el admin lo vea
     } catch (err) {
       notify("❌ Error al guardar estado", "w");
     }
   };
+
+  const handleLogin = () => {
+    const result = validarCredenciales(loginNombre, loginDni);
+    if (!result.ok) {
+      setLoginError(result.msg);
+      return;
+    }
+    const user = result.user;
+
     if (user.nombre === "Administrador" && user.dni === "admin") {
       user.role = "admin";
       // El admin principal siempre tiene permiso de editar contenido
@@ -416,7 +424,7 @@ export default function App() {
         }).catch(() => {});
       }
 
-      const [todosRegs, todosAus, cfgGuardada, todosRechazos, xMes] =
+      const [todosRegs, todosAus, cfgGuardada, todosRechazos, xMes, todosChk] =
         await Promise.all([
           getRegistros(),
           getAusencias(),
@@ -428,7 +436,7 @@ export default function App() {
 
       setRegs(todosRegs || []);
       setAus(todosAus || []);
-      setChecklistsHoy(Array.isArray(todosChecklists) ? todosChecklists : []);
+      setChecklistsHoy(Array.isArray(todosChk) ? todosChk : []);
       
       const cfgFinal = { ...DC, ...(cfgGuardada || {}) };
       const keys = [

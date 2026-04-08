@@ -793,7 +793,7 @@ export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, 
 
       <WidgetRechazos rechazos={rechazosDelMes} bultosTotal={bultosEntregadosMes||0} onNavRechazos={onNavRechazos}/>
       
-      {loggedInUser?.role === 'admin' && (
+      {String(loggedInUser?.role || '').toLowerCase() === 'admin' && (
         <WidgetChecklist checklists={checklistsHoy} cfg={cfg} />
       )}
 
