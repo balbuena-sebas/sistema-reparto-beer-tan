@@ -1,4 +1,4 @@
-const CACHE_NAME = 'beer-tan-v2';
+const CACHE_NAME = 'beer-tan-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -14,6 +14,16 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Estrategia: Network First para index.html y navegación
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Para lo demás, Cache First
   event.respondWith(
     caches.match(event.request)
       .then((response) => response || fetch(event.request))

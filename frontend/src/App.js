@@ -1374,7 +1374,7 @@ export default function App() {
                   📝 Abrir Formulario Checklist
                 </a>
                 <button
-                  onClick={handleChecklistConfirm}
+                  onClick={() => handleChecklistConfirm("completado")}
                   className="btn-action btn-secondary-action"
                   style={{ fontSize: 16, padding: "14px", background: "#dcfce7", color: "#166534", border: "2px solid #4ade80" }}
                 >
