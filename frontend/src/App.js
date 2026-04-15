@@ -226,7 +226,14 @@ export default function App() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
-  const normalizarNombre = useCallback((s) => normalizarUsuario(s), []);
+  const normalizarNombre = useCallback((s) => {
+    if (!s) return "";
+    // Elimina caracteres invisibles y espacios de no-ruptura comunes en teclados móviles
+    const limpio = String(s)
+      .replace(/[\u200B-\u200D\uFEFF]/g, "")
+      .replace(/\u00A0/g, " ");
+    return normalizarUsuario(limpio);
+  }, []);
 
   const usuarioCoincide = useCallback((entrada, registro) => {
     const entradaNorm = normalizarNombre(entrada);
@@ -266,17 +273,22 @@ export default function App() {
         ok: false,
         msg: "No hay usuarios configurados. Agrega al menos uno en Config.",
       };
-    const dniClean = String(dni || "").trim();
+    const dniClean = String(dni || "").replace(/\D/g, ""); // Solo números
     if (!dniClean) return { ok: false, msg: "Ingrese DNI." };
+    
     const match = usuarios.find((u) => {
-      const userDni = String(u.dni || "").trim();
-      if (!userDni || userDni !== dniClean) return false;
+      const dbDni = String(u.dni || "").replace(/\D/g, "");
+      if (!dbDni || dbDni !== dniClean) return false;
       return usuarioCoincide(nombre, u.nombre);
     });
 
+    if (!match) {
+      console.warn("Login fallido:", { nombreTyped: nombre, dniTyped: dniClean });
+    }
+
     return match
       ? { ok: true, user: match }
-      : { ok: false, msg: "Usuario o DNI incorrecto." };
+      : { ok: false, msg: `Usuario o DNI incorrecto. (DNI detectado: ${dniClean})` };
   };
 
   // ── Sincronización Checklist (Choferes) ──────────────────
@@ -322,6 +334,8 @@ export default function App() {
     const result = validarCredenciales(loginNombre, loginDni);
     if (!result.ok) {
       setLoginError(result.msg);
+      // En móvil, a veces el usuario no ve el error, lo forzamos con un alert si es necesario
+      if (window.innerWidth < 768) alert("Error de acceso: " + result.msg);
       return;
     }
     const user = result.user;
@@ -332,67 +346,6 @@ export default function App() {
       if (!user.permisos) user.permisos = {};
       user.permisos.editar_contenido = true;
     }
-
-    // Detección robusta de login duplicado en otra pestaña/dispositivo
-    const sessionKey = `app_session_${user.dni}`;
-    const sessionId = Math.random().toString(36).substring(2, 15);
-    sessionStorage.setItem(sessionKey, sessionId);
-
-    // Guardar sessionId en window para poder verificarlo en el listener
-    if (!window.activeSessions) window.activeSessions = {};
-    window.activeSessions[user.dni] = sessionId;
-
-    // Escuchar cambios de sesión en otras pestañas
-    const handleStorageChange = (e) => {
-      if (
-        e.key === sessionKey &&
-        e.newValue &&
-        e.newValue !== window.activeSessions[user.dni]
-      ) {
-        setLoggedInUser(null);
-        setLoginError(
-          "⚠️ Sesión cerrada: iniciaste sesión en otro dispositivo/navegador",
-        );
-        setLoginNombre("");
-        setLoginDni("");
-      }
-    };
-
-    if (!window.sessionListenerAttached) {
-      window.addEventListener("storage", handleStorageChange);
-      window.sessionListenerAttached = true;
-    }
-
-    // Verificación periódica del sessionId (cada 2s) en caso de tabs del mismo navegador
-    const sessionCheckInterval = setInterval(() => {
-      const currentSessionId = sessionStorage.getItem(sessionKey);
-      if (
-        currentSessionId &&
-        currentSessionId !== window.activeSessions[user.dni]
-      ) {
-        setLoggedInUser(null);
-        setLoginError(
-          "⚠️ Sesión cerrada: iniciaste sesión en otro dispositivo/navegador",
-        );
-        setLoginNombre("");
-        setLoginDni("");
-        clearInterval(sessionCheckInterval);
-      }
-    }, 2000);
-
-    // Limpiar intervalo al logout
-    window.sessionCheckInterval = sessionCheckInterval;
-
-    // Llenar permisos faltantes del usuario con los defaults del rol
-    // Si el usuario ya tiene un permiso (incluso si es false), mantenerlo
-    const defaultsParaRole =
-      PERMISOS_DEFAULTS[user.role] || PERMISOS_DEFAULTS.chofer;
-    Object.keys(defaultsParaRole).forEach((perm) => {
-      if (!(perm in (user.permisos || {}))) {
-        if (!user.permisos) user.permisos = {};
-        user.permisos[perm] = defaultsParaRole[perm];
-      }
-    });
 
     setLoggedInUser(user);
     // Persistencia de sesión para móviles/PWA
@@ -409,11 +362,44 @@ export default function App() {
     notify(`✓ Bienvenido ${result.user.nombre}`);
   };
 
-  const handleLogout = () => {
-    // Limpiar intervalo de verificación de sesión
-    if (window.sessionCheckInterval) clearInterval(window.sessionCheckInterval);
-    if (loggedInUser?.dni) delete window.activeSessions?.[loggedInUser.dni];
+  // ── Seguridad de Sesión (Evitar doble login) ──────────────────
+  useEffect(() => {
+    if (!loggedInUser) return;
 
+    const userDni = loggedInUser.dni;
+    const sessionKey = `app_session_${userDni}`;
+    
+    // Si no hay sessionId en esta pestaña, creamos uno
+    let sessionId = sessionStorage.getItem(sessionKey);
+    if (!sessionId) {
+      sessionId = Math.random().toString(36).substring(2, 15);
+      sessionStorage.setItem(sessionKey, sessionId);
+    }
+
+    const handleStorageChange = (e) => {
+      if (e.key === sessionKey && e.newValue && e.newValue !== sessionId) {
+        handleLogout();
+        alert("⚠️ Sesión cerrada: se detectó inicio de sesión en otro dispositivo/navegador");
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+
+    // Verificación proactiva cada 5s por si el evento storage no llega
+    const interval = setInterval(() => {
+      const current = sessionStorage.getItem(sessionKey);
+      if (current && current !== sessionId) {
+        handleLogout();
+      }
+    }, 5000);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      clearInterval(interval);
+    };
+  }, [loggedInUser]);
+
+  const handleLogout = () => {
     localStorage.removeItem("bt_user_session");
     setLoggedInUser(null);
     setLoginError("");
@@ -437,9 +423,9 @@ export default function App() {
 
       const [todosRegs, todosAus, cfgGuardada, todosRechazos, xMes, todosChk] =
         await Promise.all([
-          getRegistros(fetchMes), // Solo traer el mes actual
+          getRegistros(fetchMes),
           getAusencias(fetchMes),
-          getConfig(),
+          getConfig(), 
           getRechazos({ desde: `${fetchMes}-01` }),
           getBultosPorMes(),
           getChecklists(new Date().toLocaleDateString('sv-SE')),
@@ -1236,8 +1222,10 @@ export default function App() {
             />
             <button
               className="btn-action btn-primary-action"
-              onClick={handleLogin}>
-              Entrar
+              onClick={handleLogin}
+              disabled={cargando || !cfg.usuarios || cfg.usuarios.length === 0}
+            >
+              {cargando ? "Cargando sistema..." : "Entrar"}
             </button>
             {loginError && (
               <div style={{ color: "#b91c1c", fontWeight: 700 }}>

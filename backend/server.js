@@ -62,6 +62,17 @@ app.use('/api/notas', autenticar, notasRouter);
 app.use('/api/foxtrot', autenticar, foxtrotRouter);
 app.use('/api/checklists', autenticar, checklistsRouter);
 
+const { optimizarNeon } = require('./scripts/optimize');
+app.post('/api/mantenimiento/optimizar', autenticar, async (req, res) => {
+  try {
+    // Ejecutar de forma asíncrona para no bloquear
+    optimizarNeon();
+    res.json({ ok: true, msg: 'Optimización iniciada en segundo plano' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/health', (req, res) => res.json({ ok: true, status: 'online' }));
 app.get('/', (req, res) => res.json({ ok: true, msg: 'API Sistema de Reparto' }));
 

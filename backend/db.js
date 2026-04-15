@@ -169,7 +169,8 @@ async function initDB() {
         transporte_id     TEXT,
         ruta              TEXT,
         ruta_desc         TEXT,
-        rechazo_total     BOOLEAN DEFAULT false
+        rechazo_total     BOOLEAN DEFAULT false,
+        metadata_gz       BYTEA
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rec_fecha   ON rechazos(fecha)`);
@@ -266,7 +267,8 @@ async function initDB() {
         aggregate_visit_status    TEXT,
         sequence_adherence_status TEXT,
         suspicious_drive_by       BOOLEAN DEFAULT false,
-        inferred_service_secs     NUMERIC DEFAULT 0
+        inferred_service_secs     NUMERIC DEFAULT 0,
+        metadata_gz               BYTEA
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_fox_int_fecha   ON foxtrot_intentos(fecha)`);

@@ -57,6 +57,16 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
   const [nuevoUsuario, setNuevoUsuario] = useState({ nombre: '', dni: '', role: 'chofer' });
   const [usuarioEditandoIdx, setUsuarioEditandoIdx] = useState(null);
 
+  // Sincronizar el formulario si cfg cambia externamente (ej: tras un refresh)
+  React.useEffect(() => {
+    setForm(prev => {
+      // Solo actualizar si no hay cambios manuales en el formulario actual
+      // para no pisar lo que el usuario está escribiendo.
+      if (JSON.stringify(prev) === JSON.stringify(cfg)) return prev;
+      return { ...cfg };
+    });
+  }, [cfg]);
+
   const addUsuario = () => {
     const nombre = (nuevoUsuario.nombre || '').trim();
     const dni = (nuevoUsuario.dni || '').trim();
@@ -391,17 +401,42 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
           )}
         </div>
       ) : (
-        <div className="dash-card" style={{ background:'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)', border:'2px solid #fca5a5' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-            <div style={{ fontSize:40 }}>🔐</div>
-            <div>
-              <div style={{ fontSize:14, fontWeight:800, color:'#b91c1c', marginBottom:4 }}>Sección Bloqueada</div>
-              <div style={{ fontSize:13, color:'#991b1b', fontWeight:600, lineHeight:1.6 }}>
-                Solo el <strong>ADMIN</strong> puede gestionar el mapeo de drivers.<br/>
-                Esta información es crítica para la sincronización del sistema.
-              </div>
-            </div>
+        </div>
+      )}
+
+      {/* ── MANTENIMIENTO NEON (SOLO ADMIN) ── */}
+      {loggedInUser?.dni === 'admin' && (
+        <div className="dash-card" style={{ border: '2px solid #b87c00', background: '#fffbeb' }}>
+          <div className="card-header">
+            <span className="card-title" style={{ color: '#92400e' }}>⚡ Mantenimiento de Datos (Neon)</span>
           </div>
+          <div style={{ padding: '0 0 16px 0', fontSize: 13, color: '#92400e', fontWeight: 600 }}>
+            Si el almacenamiento en Neon está casi lleno, podés comprimir los datos históricos (meses anteriores). 
+            Esto liberará espacio borrando detalles innecesarios de registros viejos.
+          </div>
+          <button 
+            className="btn-action" 
+            style={{ background: '#d97706', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 700, cursor: 'pointer' }}
+            onClick={async () => {
+              if (!window.confirm("¿Deseas iniciar la compactación de datos históricos?\n\nEste proceso comprimirá registros de Foxtrot y Rechazos de meses pasados.")) return;
+              try {
+                const res = await fetch(`${process.env.REACT_APP_API_URL}/mantenimiento/optimizar`, {
+                  method: 'POST',
+                  headers: { 
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.REACT_APP_API_KEY 
+                  }
+                });
+                const data = await res.json();
+                if (data.ok) alert("✅ Optimización iniciada. El espacio en Neon bajará gradualmente.");
+                else alert("❌ Error: " + data.error);
+              } catch (err) {
+                alert("❌ Fallo de conexión: " + err.message);
+              }
+            }}
+          >
+            🚀 Ejecutar Compactación Histórica
+          </button>
         </div>
       )}
 
