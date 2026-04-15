@@ -69,10 +69,15 @@ async function initDB() {
         bultos_clark  INTEGER DEFAULT 0,
         bultos_rec    INTEGER DEFAULT 0,
         destinos_gz   BYTEA,
+        created_by_dni TEXT DEFAULT '',
+        created_by_nombre TEXT DEFAULT '',
         created_at    TIMESTAMPTZ DEFAULT NOW(),
         updated_at    TIMESTAMPTZ DEFAULT NOW()
       )
     `);
+
+    await client.query(`ALTER TABLE registros ADD COLUMN IF NOT EXISTS created_by_dni TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE registros ADD COLUMN IF NOT EXISTS created_by_nombre TEXT DEFAULT ''`);
 
     await client.query(`CREATE INDEX IF NOT EXISTS idx_regs_fecha     ON registros(fecha)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_regs_chofer    ON registros(chofer)`);
@@ -85,12 +90,16 @@ async function initDB() {
         motivo        TEXT DEFAULT '',
         fecha_desde   DATE NOT NULL,
         fecha_hasta   DATE,
-        observaciones TEXT DEFAULT '',
+        observations TEXT DEFAULT '',
         dias          INTEGER DEFAULT 1,
+        created_by_dni TEXT DEFAULT '',
+        created_by_nombre TEXT DEFAULT '',
         created_at    TIMESTAMPTZ DEFAULT NOW(),
         updated_at    TIMESTAMPTZ DEFAULT NOW()
       )
     `);
+    await client.query(`ALTER TABLE ausencias ADD COLUMN IF NOT EXISTS created_by_dni TEXT DEFAULT ''`);
+    await client.query(`ALTER TABLE ausencias ADD COLUMN IF NOT EXISTS created_by_nombre TEXT DEFAULT ''`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_aus_persona ON ausencias(persona)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_aus_fecha   ON ausencias(fecha_desde)`);
 

@@ -183,7 +183,7 @@ export default function App() {
       const ahora = new Date();
       const hora = ahora.getHours();
       const mins = ahora.getMinutes();
-      const hoy = ahora.toISOString().split("T")[0];
+      const hoy = ahora.toLocaleDateString('sv-SE');
 
       // Verificamos si ya pasó el horario límite (07:15) y no notificamos hoy
       if (
@@ -207,6 +207,7 @@ export default function App() {
               badge: "/icon-day.png",
               tag: "checklist-reminder",
               vibrate: [200, 100, 200],
+              data: { url: window.location.origin }
             });
             localStorage.setItem("last_checklist_notify", hoy);
           });
@@ -238,14 +239,16 @@ export default function App() {
     const tokensE = entradaNorm.split(" ").filter(Boolean);
     const tokensR = registroNorm.split(" ").filter(Boolean);
 
-    // Si ambos tienen al menos 2 palabras, verificar que compartan apellido y nombre
+    // Verificación por tokens (orden indistinto)
     if (tokensE.length >= 2 && tokensR.length >= 2) {
-      // Mismo apellido (primer token)
-      if (tokensE[0] === tokensR[0]) {
-        // Mismo nombre (segundo token)
-        if (tokensE[1] === tokensR[1]) return true;
-      }
+      // Si todos los tokens de la entrada están en el registro, o viceversa
+      const matchE = tokensE.every(t => tokensR.includes(t));
+      const matchR = tokensR.every(t => tokensE.includes(t));
+      if (matchE || matchR) return true;
     }
+
+    // Fallback: si uno contiene al otro
+    if (entradaNorm.includes(registroNorm) || registroNorm.includes(entradaNorm)) return true;
 
     // Single token match: si uno tiene 1 token y el otro lo contiene
     if (tokensE.length === 1 && tokensR.some((t) => t === tokensE[0]))
@@ -254,7 +257,7 @@ export default function App() {
       return true;
 
     return false;
-  }, []);
+  }, [normalizarNombre]);
 
   const validarCredenciales = (nombre, dni) => {
     const usuarios = Array.isArray(cfg.usuarios) ? cfg.usuarios : [];
@@ -283,7 +286,8 @@ export default function App() {
       setChecklistCompletado(true);
       return;
     }
-    const hoy = new Date().toISOString().split("T")[0];
+    // Usar fecha local (Argentina) para el checklist, no UTC
+    const hoy = new Date().toLocaleDateString('sv-SE'); // sv-SE da YYYY-MM-DD
     getChecklists(hoy)
       .then((res) => {
         const yaLoHizo = res.some((c) => c.dni === loggedInUser.dni);
@@ -293,7 +297,7 @@ export default function App() {
   }, [loggedInUser]);
 
   const handleChecklistConfirm = async (estado = "completado") => {
-    const hoy = new Date().toISOString().split("T")[0];
+    const hoy = new Date().toLocaleDateString('sv-SE');
     try {
       await guardarChecklist({
         chofer: loggedInUser.nombre,
@@ -429,14 +433,16 @@ export default function App() {
         }).catch(() => {});
       }
 
+      const fetchMes = mes || new Date().toLocaleDateString('sv-SE').slice(0, 7);
+
       const [todosRegs, todosAus, cfgGuardada, todosRechazos, xMes, todosChk] =
         await Promise.all([
-          getRegistros(),
-          getAusencias(),
+          getRegistros(fetchMes), // Solo traer el mes actual
+          getAusencias(fetchMes),
           getConfig(),
-          getRechazos(),
+          getRechazos({ desde: `${fetchMes}-01` }),
           getBultosPorMes(),
-          getChecklists(new Date().toISOString().split("T")[0]),
+          getChecklists(new Date().toLocaleDateString('sv-SE')),
         ]);
 
       setRegs(todosRegs || []);
@@ -506,7 +512,7 @@ export default function App() {
         setCargando(false);
       }
     }
-  }, []);
+  }, [mes]);
 
   // ── Carga inicial y Configuración del Polling (cada 30s) ──────────────────
   useEffect(() => {
@@ -838,18 +844,19 @@ export default function App() {
     async (f) => {
       try {
         const esEdicion = regs.some((r) => r.id === f.id);
-        const payload = { ...f };
-        // Si es nueva creación y hay usuario loguado, guardar DNI del creador
-        if (!esEdicion && loggedInUser) {
-          payload.createdByDni = loggedInUser.dni;
-        }
+        const sourceReg = esEdicion ? regs.find(r => r.id === f.id) : null;
+        const payload = { 
+          ...f,
+          createdByDni: esEdicion ? (sourceReg.createdByDni || loggedInUser?.dni) : loggedInUser?.dni,
+          createdByNombre: esEdicion ? (sourceReg.createdByNombre || loggedInUser?.nombre) : loggedInUser?.nombre
+        };
         const guardado = esEdicion
           ? await actualizarRegistro(f.id, payload)
           : await crearRegistro(payload);
         setRegs((prev) =>
           esEdicion
             ? prev.map((r) => (r.id === guardado.id ? guardado : r))
-            : [...prev, guardado],
+            : [guardado, ...prev],
         );
         notify(esEdicion ? "✓ Registro actualizado" : "✓ Registro guardado");
       } catch (err) {
@@ -877,18 +884,19 @@ export default function App() {
     async (f) => {
       try {
         const esEdicion = aus.some((a) => a.id === f.id);
-        const payload = { ...f };
-        // Si es nueva creación y hay usuario loguado, guardar DNI del creador
-        if (!esEdicion && loggedInUser) {
-          payload.createdByDni = loggedInUser.dni;
-        }
+        const sourceAus = esEdicion ? aus.find(a => a.id === f.id) : null;
+        const payload = { 
+          ...f,
+          createdByDni: esEdicion ? (sourceAus.createdByDni || loggedInUser?.dni) : loggedInUser?.dni,
+          createdByNombre: esEdicion ? (sourceAus.createdByNombre || loggedInUser?.nombre) : loggedInUser?.nombre
+        };
         const guardada = esEdicion
           ? await actualizarAusencia(f.id, payload)
           : await crearAusencia(payload);
         setAus((prev) =>
           esEdicion
             ? prev.map((a) => (a.id === guardada.id ? guardada : a))
-            : [...prev, guardada],
+            : [guardada, ...prev],
         );
         notify("✓ Ausencia guardada");
       } catch (err) {

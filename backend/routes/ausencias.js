@@ -12,6 +12,8 @@ function filaAausencia(fila) {
     fechaHasta:   fila.fecha_hasta ? fila.fecha_hasta.toISOString().split('T')[0] : '',
     observaciones: fila.observaciones || '',
     dias:         fila.dias || 1,
+    createdByDni: fila.created_by_dni || '',
+    createdByNombre: fila.created_by_nombre || '',
   };
 }
 
@@ -26,6 +28,9 @@ router.get('/', async (req, res) => {
       const ultimoDia = new Date(mes.slice(0, 4), mes.slice(5, 7), 0).toISOString().split('T')[0];
       sql += " WHERE fecha_desde <= $2 AND (fecha_hasta IS NULL OR fecha_hasta >= $1)";
       params = [primerDia, ultimoDia];
+    } else {
+      // Limitar histórico a 1 año por defecto para ahorrar transferencia
+      sql += " WHERE fecha_desde >= CURRENT_DATE - INTERVAL '1 year'";
     }
     sql += ' ORDER BY fecha_desde DESC';
     const result = await query(sql, params);
@@ -42,8 +47,8 @@ router.post('/', async (req, res) => {
     if (!a.persona)    return res.status(400).json({ ok: false, error: 'Persona es obligatoria' });
     if (!a.fechaDesde) return res.status(400).json({ ok: false, error: 'Fecha desde es obligatoria' });
     const result = await query(`
-      INSERT INTO ausencias (id, persona, motivo, fecha_desde, fecha_hasta, observaciones, dias)
-      VALUES ($1,$2,$3,$4,$5,$6,$7)
+      INSERT INTO ausencias (id, persona, motivo, fecha_desde, fecha_hasta, observaciones, dias, created_by_dni, created_by_nombre)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
       RETURNING *
     `, [
       a.id || Date.now(),
@@ -51,6 +56,8 @@ router.post('/', async (req, res) => {
       a.fechaDesde, a.fechaHasta || a.fechaDesde,
       a.observaciones || '',
       a.dias || 1,
+      a.createdByDni || '',
+      a.createdByNombre || '',
     ]);
     res.status(201).json({ ok: true, data: filaAausencia(result.rows[0]) });
   } catch (err) {
@@ -66,13 +73,14 @@ router.put('/:id', async (req, res) => {
     const result = await query(`
       UPDATE ausencias SET
         persona=$1, motivo=$2, fecha_desde=$3, fecha_hasta=$4,
-        observaciones=$5, dias=$6, updated_at=NOW()
-      WHERE id=$7
+        observaciones=$5, dias=$6, created_by_dni=$7, created_by_nombre=$8, updated_at=NOW()
+      WHERE id=$9
       RETURNING *
     `, [
       a.persona, a.motivo || '',
       a.fechaDesde, a.fechaHasta || a.fechaDesde,
       a.observaciones || '', a.dias || 1,
+      a.createdByDni || '', a.createdByNombre || '',
       req.params.id,
     ]);
     if (result.rows.length === 0)

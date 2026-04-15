@@ -24,6 +24,8 @@ async function filaARegistro(fila) {
     bultosClark:  fila.bultos_clark || 0,
     bultosRec:    fila.bultos_rec || 0,
     destinos:     destinos || [],
+    createdByDni: fila.created_by_dni || '',
+    createdByNombre: fila.created_by_nombre || '',
   };
 }
 
@@ -35,6 +37,9 @@ router.get('/', async (req, res) => {
     if (mes) {
       sql += " WHERE TO_CHAR(fecha, 'YYYY-MM') = $1";
       params  = [mes];
+    } else {
+      // Si no hay mes, limitar a los últimos 6 meses para no saturar Neon
+      sql += " WHERE fecha >= CURRENT_DATE - INTERVAL '6 months'";
     }
     sql += ' ORDER BY fecha DESC';
     const result = await query(sql, params);
@@ -56,8 +61,8 @@ router.post('/', async (req, res) => {
       INSERT INTO registros
         (id, fecha, chofer, ay1, ay2, patente, localidad, destino,
          bultos, costo_reparto, rec_sn, n_recargas, rec_cant, fte,
-         bultos_clark, bultos_rec, destinos_gz)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       bultos_clark, bultos_rec, destinos_gz, created_by_dni, created_by_nombre)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
       RETURNING *
     `, [
       r.id || Date.now(),
@@ -69,6 +74,8 @@ router.post('/', async (req, res) => {
       r.recSN || 'NO', r.nRecargas || 0, r.recCant || '',
       r.fte || 1, r.bultosClark || 0, r.bultosRec || 0,
       destinosGz,
+      r.createdByDni || '',
+      r.createdByNombre || '',
     ]);
     const nuevo = await filaARegistro(result.rows[0]);
     res.status(201).json({ ok: true, data: nuevo });
@@ -90,8 +97,9 @@ router.put('/:id', async (req, res) => {
         destino=$7, bultos=$8, costo_reparto=$9, rec_sn=$10,
         n_recargas=$11, rec_cant=$12, fte=$13,
         bultos_clark=$14, bultos_rec=$15, destinos_gz=$16,
+        created_by_dni=$17, created_by_nombre=$18,
         updated_at=NOW()
-      WHERE id=$17
+      WHERE id=$19
       RETURNING *
     `, [
       r.fecha, r.chofer,
@@ -101,7 +109,10 @@ router.put('/:id', async (req, res) => {
       r.bultos || 0, r.costoReparto || 0,
       r.recSN || 'NO', r.nRecargas || 0, r.recCant || '',
       r.fte || 1, r.bultosClark || 0, r.bultosRec || 0,
-      destinosGz, id,
+      destinosGz, 
+      r.createdByDni || '',
+      r.createdByNombre || '',
+      id,
     ]);
     if (result.rows.length === 0)
       return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
