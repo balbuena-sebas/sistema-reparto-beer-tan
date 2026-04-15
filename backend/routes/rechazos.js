@@ -3,7 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const { pool, query } = require("../db");
-const { comprimir } = require("../compress");
+const { comprimir, descomprimirSafe } = require("../compress");
 
 function clasificarMotivo(motivo) {
   const m = String(motivo || "")
@@ -56,12 +56,19 @@ async function filaARec(f) {
 // ── GET /api/rechazos ─────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   try {
-    const { desde, hasta, chofer, tipo } = req.query;
+    const { desde, hasta, chofer, tipo, mes } = req.query;
     let q = "SELECT * FROM rechazos WHERE 1=1";
     const params = [];
     let i = 1;
-    if (desde)  { q += ` AND fecha >= $${i++}`;              params.push(desde); }
-    if (hasta)  { q += ` AND fecha <= $${i++}`;              params.push(hasta); }
+
+    if (mes) {
+      q += ` AND TO_CHAR(fecha, 'YYYY-MM') = $${i++}`;
+      params.push(mes);
+    } else {
+      if (desde)  { q += ` AND fecha >= $${i++}`; params.push(desde); }
+      if (hasta)  { q += ` AND fecha <= $${i++}`; params.push(hasta); }
+    }
+    
     if (chofer) { q += ` AND chofer_desc ILIKE $${i++}`;     params.push(`%${chofer}%`); }
     if (tipo)   { q += ` AND tipo_motivo = $${i++}`;         params.push(tipo); }
     q += " ORDER BY fecha DESC, id DESC LIMIT 10000";
