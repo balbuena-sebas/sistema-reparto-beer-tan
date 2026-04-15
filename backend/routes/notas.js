@@ -2,15 +2,20 @@
 const express = require('express');
 const router  = express.Router();
 const { pool, query } = require('../db');
+const { comprimir, descomprimirSafe } = require('../compress');
 
-function filaNota(f) {
+async function filaNota(f) {
+  let meta = {};
+  if (f.metadata_gz) {
+    meta = await descomprimirSafe(f.metadata_gz, {});
+  }
   return {
     id:        Number(f.id),
     persona:   f.persona,
     mes:       f.mes,           // 'YYYY-MM'
     fecha:     f.fecha ? new Date(f.fecha).toISOString().split('T')[0] : null,
     categoria: f.categoria,
-    texto:     f.texto || '',
+    texto:     meta.txt || f.texto || '',
     prioridad: f.prioridad || 'normal',   // normal | urgente
     estado:    f.estado || 'activa',      // activa | resuelta | eliminada
     creadoEn:  f.creado_en,
@@ -30,7 +35,11 @@ router.get('/', async (req, res) => {
     if (estado)  { q += ` AND estado = $${i++}`;                 params.push(estado); }
     q += ' ORDER BY creado_en DESC';
     const result = await query(q, params);
-    res.json({ ok: true, data: result.rows.map(filaNota) });
+    const data = [];
+    for (const r of result.rows) {
+      data.push(await filaNota(r));
+    }
+    res.json({ ok: true, data });
   } catch (err) {
     if (err.message.includes('does not exist')) return res.json({ ok: true, data: [] });
     res.status(500).json({ ok: false, error: err.message });
@@ -43,19 +52,20 @@ router.post('/', async (req, res) => {
     const { persona, mes, fecha, categoria, texto, prioridad } = req.body;
     if (!persona) return res.status(400).json({ ok: false, error: 'Persona es obligatoria' });
     if (!texto)   return res.status(400).json({ ok: false, error: 'Texto es obligatorio' });
+    const gz = await comprimir({ txt: texto });
     const result = await query(`
-      INSERT INTO notas (persona, mes, fecha, categoria, texto, prioridad, estado)
-      VALUES ($1, $2, $3, $4, $5, $6, 'activa')
+      INSERT INTO notas (persona, mes, fecha, categoria, texto, prioridad, estado, metadata_gz)
+      VALUES ($1, $2, $3, $4, '(comprimido)', $5, 'activa', $6)
       RETURNING *
     `, [
       persona,
       mes || new Date().toISOString().slice(0, 7),
       fecha || new Date().toISOString().split('T')[0],
       categoria || 'Nota libre',
-      texto,
       prioridad || 'normal',
+      gz
     ]);
-    res.status(201).json({ ok: true, data: filaNota(result.rows[0]) });
+    res.status(201).json({ ok: true, data: await filaNota(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -67,6 +77,9 @@ router.put('/:id', async (req, res) => {
   if (!id) return res.status(400).json({ ok: false, error: 'ID inválido' });
   try {
     const { persona, mes, fecha, categoria, texto, prioridad, estado } = req.body;
+    let gz = null;
+    if (texto) gz = await comprimir({ txt: texto });
+    
     const result = await query(`
       UPDATE notas SET
         persona   = COALESCE($1, persona),
@@ -76,12 +89,13 @@ router.put('/:id', async (req, res) => {
         texto     = COALESCE($5, texto),
         prioridad = COALESCE($6, prioridad),
         estado    = COALESCE($7, estado),
+        metadata_gz = COALESCE($8, metadata_gz),
         updated_at = NOW()
-      WHERE id = $8
+      WHERE id = $9
       RETURNING *
-    `, [persona, mes, fecha, categoria, texto, prioridad, estado, id]);
+    `, [persona, mes, fecha, categoria, texto ? '(comprimido)' : null, prioridad, estado, gz, id]);
     if (result.rowCount === 0) return res.status(404).json({ ok: false, error: 'Nota no encontrada' });
-    res.json({ ok: true, data: filaNota(result.rows[0]) });
+    res.json({ ok: true, data: await filaNota(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

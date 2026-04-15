@@ -3,6 +3,7 @@
 const express = require("express");
 const router = express.Router();
 const { pool, query } = require("../db");
+const { comprimir } = require("../compress");
 
 function clasificarMotivo(motivo) {
   const m = String(motivo || "")
@@ -17,14 +18,18 @@ function clasificarMotivo(motivo) {
   return "otro";
 }
 
-function filaARec(f) {
+async function filaARec(f) {
+  let meta = {};
+  if (f.metadata_gz) {
+    meta = await descomprimirSafe(f.metadata_gz, {});
+  }
   return {
     id:               Number(f.id),
     archivo:          f.archivo,
     fechaImport:      f.fecha_import,
     fecha:            f.fecha ? new Date(f.fecha).toISOString().split("T")[0] : null,
     articulo:         f.articulo,
-    articuloDesc:     f.articulo_desc,
+    articuloDesc:     (meta && meta.ad) || f.articulo_desc,
     bultos:           Number(f.bultos) || 0,
     bultosRechazados: Number(f.bultos_rechazados) || 0,
     hl:               Number(f.hl) || 0,
@@ -32,17 +37,17 @@ function filaARec(f) {
     importeNeto:      Number(f.importe_neto) || 0,
     importeRechazado: Number(f.importe_rechazado) || 0,
     motivo:           f.motivo,
-    motivoDesc:       f.motivo_desc,
+    motivoDesc:       (meta && meta.md) || f.motivo_desc,
     tipoMotivo:       f.tipo_motivo,
     clienteId:        f.cliente_id,
-    clienteDesc:      f.cliente_desc,
-    domicilio:        f.domicilio,
+    clienteDesc:      (meta && meta.cd) || f.cliente_desc,
+    domicilio:        (meta && meta.dm) || f.domicilio,
     canal:            f.canal,
     canalDesc:        f.canal_desc,
     chofer:           f.chofer,
     choferDesc:       f.chofer_desc,
     ruta:             f.ruta,
-    rutaDesc:         f.ruta_desc,
+    rutaDesc:         (meta && meta.rd) || f.ruta_desc,
     rechazoTotal:     f.rechazo_total,
     transporteId:     f.transporte_id,
   };
@@ -61,7 +66,11 @@ router.get("/", async (req, res) => {
     if (tipo)   { q += ` AND tipo_motivo = $${i++}`;         params.push(tipo); }
     q += " ORDER BY fecha DESC, id DESC LIMIT 10000";
     const result = await query(q, params);
-    res.json({ ok: true, data: result.rows.map(filaARec) });
+    const data = [];
+    for (const r of result.rows) {
+      data.push(await filaARec(r));
+    }
+    res.json({ ok: true, data });
   } catch (err) {
     if (err.message.includes("does not exist")) return res.json({ ok: true, data: [] });
     res.status(500).json({ ok: false, error: err.message });
@@ -200,9 +209,9 @@ router.post("/importar", async (req, res) => {
     archivo:[], fecha:[], articulo:[], articuloDesc:[],
     bultos:[], bultosR:[], hl:[], hlRech:[],
     impNeto:[], impRech:[], motivo:[], motivoDesc:[],
-    tipo:[], clienteId:[], clienteDesc:[], domicilio:[],
     canal:[], canalDesc:[], chofer:[], choferDesc:[],
     transporteId:[], ruta:[], rutaDesc:[], recTotal:[],
+    metadata_gz: [],
   };
 
   for (const r of rows) {
@@ -230,6 +239,17 @@ router.post("/importar", async (req, res) => {
     cols.ruta.push(String(r.ruta || ""));
     cols.rutaDesc.push(String(r.rutaDesc || ""));
     cols.recTotal.push(r.rechazoTotal === true || r.rechazoTotal === "true" || r.rechazoTotal === "SI");
+
+    // Compresión de detalles
+    const meta = {
+      ad: String(r.articuloDesc || ""),
+      md: String(r.motivoDesc || ""),
+      cd: String(r.clienteDesc || ""),
+      dm: String(r.domicilio || ""),
+      rd: String(r.rutaDesc || "")
+    };
+    const gz = await comprimir(meta);
+    cols.metadata_gz.push(gz);
   }
 
   const client = await pool.connect();
@@ -240,21 +260,26 @@ router.post("/importar", async (req, res) => {
         (archivo, fecha_import, fecha, articulo, articulo_desc, bultos, bultos_rechazados,
          hl, hl_rechazado, importe_neto, importe_rechazado, motivo, motivo_desc, tipo_motivo,
          cliente_id, cliente_desc, domicilio, canal, canal_desc,
-         chofer, chofer_desc, transporte_id, ruta, ruta_desc, rechazo_total)
+         chofer, chofer_desc, transporte_id, ruta, ruta_desc, rechazo_total, metadata_gz)
       SELECT
-        unnest($1::text[]), NOW(), unnest($2::date[]), unnest($3::text[]), unnest($4::text[]),
-        unnest($5::numeric[]), unnest($6::numeric[]), unnest($7::numeric[]), unnest($8::numeric[]),
-        unnest($9::numeric[]), unnest($10::numeric[]), unnest($11::text[]), unnest($12::text[]), unnest($13::text[]),
-        unnest($14::text[]), unnest($15::text[]), unnest($16::text[]), unnest($17::text[]), unnest($18::text[]),
-        unnest($19::text[]), unnest($20::text[]), unnest($21::text[]), unnest($22::text[]), unnest($23::text[]),
-        unnest($24::boolean[])
+        unnest($1::text[]), NOW(), unnest($2::date[]), unnest($3::text[]), 
+        '(comprimido)', -- Vaciamos original
+        unnest($4::numeric[]), unnest($5::numeric[]), unnest($6::numeric[]), unnest($7::numeric[]),
+        unnest($8::numeric[]), unnest($9::numeric[]), unnest($10::text[]), 
+        '(comprimido)', -- Vaciamos original
+        unnest($11::text[]), unnest($12::text[]), 
+        '(comprimido)', '(comprimido)', -- Vaciamos original
+        unnest($13::text[]), unnest($14::text[]),
+        unnest($15::text[]), unnest($16::text[]), unnest($17::text[]), unnest($18::text[]), 
+        '(comprimido)', -- Vaciamos original
+        unnest($19::boolean[]), unnest($20::bytea[])
     `, [
-      cols.archivo, cols.fecha, cols.articulo, cols.articuloDesc,
+      cols.archivo, cols.fecha, cols.articulo,
       cols.bultos, cols.bultosR, cols.hl, cols.hlRech,
-      cols.impNeto, cols.impRech, cols.motivo, cols.motivoDesc, cols.tipo,
-      cols.clienteId, cols.clienteDesc, cols.domicilio, cols.canal, cols.canalDesc,
-      cols.chofer, cols.choferDesc, cols.transporteId, cols.ruta, cols.rutaDesc,
-      cols.recTotal,
+      cols.impNeto, cols.impRech, cols.motivo, cols.tipo,
+      cols.clienteId, cols.canal, cols.canalDesc,
+      cols.chofer, cols.choferDesc, cols.transporteId, cols.ruta,
+      cols.recTotal, cols.metadata_gz
     ]);
     await client.query("COMMIT");
     console.log(`[rechazos/importar] OK=${rows.length}`);

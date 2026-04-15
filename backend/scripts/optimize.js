@@ -1,97 +1,51 @@
-// backend/scripts/optimize.js — Comprime datos antiguos en Neon para ahorrar Storage
+// backend/scripts/optimize.js — Compactador Universal para Neon
 const { pool, query } = require('../db');
 const { comprimir } = require('../compress');
 
 async function optimizarNeon() {
-  console.log('🚀 Iniciando optimización de almacenamiento en Neon...');
+  console.log('🚀 Iniciando Compactación Universal en Neon...');
   const client = await pool.connect();
   
   try {
-    // 1. COMPRIMIR REGISTROS ANTIGUOS QUE NO TENGAN destinos_gz (si existen)
-    // No hay mucho que hacer aquí ya que destinos_gz es el estándar ahora.
-
-    // 2. COMPRIMIR FOXTROT_INTENTOS (La tabla más pesada)
-    // Agrupamos datos de meses pasados que aún no estén optimizados
-    const resultIntentos = await client.query(`
-      SELECT * FROM foxtrot_intentos 
-      WHERE metadata_gz IS NULL 
-      AND fecha < CURRENT_DATE - INTERVAL '1 month'
-      LIMIT 1000
-    `);
-
-    console.log(`📦 Procesando ${resultIntentos.rows.length} intentos antiguos...`);
-    
-    for (const row of resultIntentos.rows) {
-      // Guardamos columnas pesadas en un objeto para comprimir
-      const metadata = {
-        cn: row.customer_name,
-        lc: row.location_confidence,
-        ts: row.visit_start_ts,
-        vd: row.visit_duration_secs,
-        vm: row.visit_meters_from_cust,
-        as: row.aggregate_visit_status,
-        sa: row.sequence_adherence_status,
-        sd: row.suspicious_drive_by,
-        is: row.inferred_service_secs,
-        ar: row.archivo,
-        dn: row.dc_name
-      };
-
-      const gz = await comprimir(metadata);
-      
-      await client.query(`
-        UPDATE foxtrot_intentos SET 
-          metadata_gz = $1,
-          customer_name = '(comprimido)',
-          dc_name = '',
-          archivo = '',
-          visit_start_ts = NULL
-        WHERE id = $2
-      `, [gz, row.id]);
+    // 1. FOXTROT_INTENTOS
+    const resultIntentos = await client.query('SELECT * FROM foxtrot_intentos WHERE metadata_gz IS NULL LIMIT 2000');
+    console.log(`📦 Procesando ${resultIntentos.rows.length} intentos Foxtrot...`);
+    for (const r of resultIntentos.rows) {
+      const gz = await comprimir({ cn: r.customer_name, lc: r.location_confidence, ts: r.visit_start_ts, as: r.aggregate_visit_status, sa: r.sequence_adherence_status });
+      await client.query('UPDATE foxtrot_intentos SET metadata_gz = $1, customer_name = \'(comprimido)\', location_confidence = \'\', visit_start_ts = NULL WHERE id = $2', [gz, r.id]);
     }
 
-    // 3. COMPRIMIR RECHAZOS ANTIGUOS
-    const resultRechazos = await client.query(`
-      SELECT * FROM rechazos 
-      WHERE metadata_gz IS NULL 
-      AND fecha < CURRENT_DATE - INTERVAL '1 month'
-      LIMIT 1000
-    `);
-
-    console.log(`📦 Procesando ${resultRechazos.rows.length} rechazos antiguos...`);
-
-    for (const row of resultRechazos.rows) {
-      const metadata = {
-        art: row.articulo,
-        ard: row.articulo_desc,
-        md:  row.motivo_desc,
-        cd:  row.cliente_desc,
-        dom: row.domicilio,
-        cad: row.canal_desc,
-        chd: row.chofer_desc,
-        rud: row.ruta_desc
-      };
-
-      const gz = await comprimir(metadata);
-
-      await client.query(`
-        UPDATE rechazos SET 
-          metadata_gz = $1,
-          articulo_desc = '(comprimido)',
-          cliente_desc = '(comprimido)',
-          domicilio = '',
-          ruta_desc = ''
-        WHERE id = $2
-      `, [gz, row.id]);
+    // 2. RECHAZOS
+    const resultRechazos = await client.query('SELECT * FROM rechazos WHERE metadata_gz IS NULL LIMIT 2000');
+    console.log(`📦 Procesando ${resultRechazos.rows.length} rechazos...`);
+    for (const r of resultRechazos.rows) {
+      const gz = await comprimir({ ad: r.articulo_desc, md: r.motivo_desc, cd: r.cliente_desc, dm: r.domicilio, rd: r.ruta_desc });
+      await client.query('UPDATE rechazos SET metadata_gz = $1, articulo_desc = \'(comprimido)\', motivo_desc = \'(comprimido)\', cliente_desc = \'(comprimido)\', domicilio = \'\', ruta_desc = \'\' WHERE id = $2', [gz, r.id]);
     }
 
-    console.log('✅ Optimización completada. Neon debería empezar a bajar el uso de Storage pronto.');
-    
+    // 3. NOTAS
+    const resultNotas = await client.query('SELECT * FROM notas WHERE metadata_gz IS NULL LIMIT 500');
+    console.log(`📦 Procesando ${resultNotas.rows.length} notas...`);
+    for (const r of resultNotas.rows) {
+      const gz = await comprimir({ txt: r.texto });
+      await client.query('UPDATE notas SET metadata_gz = $1, texto = \'(comprimido)\' WHERE id = $2', [gz, r.id]);
+    }
+
+    // 4. FOXTROT_RUTAS (Opcional, pero ayuda)
+    const resultRutas = await client.query('SELECT * FROM foxtrot_rutas WHERE metadata_gz IS NULL LIMIT 500');
+    console.log(`📦 Procesando ${resultRutas.rows.length} rutas Foxtrot...`);
+    for (const r of resultRutas.rows) {
+      const gz = await comprimir({ r_id: r.route_id, r_name: r.route_name, d_name: r.driver_name });
+      await client.query('UPDATE foxtrot_rutas SET metadata_gz = $1 WHERE id = $2', [gz, r.id]);
+    }
+
+    console.log('✅ Compactación completada.');
   } catch (err) {
-    console.error('❌ Error en optimización:', err.message);
+    console.error('❌ Error en compactación:', err.message);
   } finally {
     client.release();
+    process.exit();
   }
 }
 
-module.exports = { optimizarNeon };
+optimizarNeon();

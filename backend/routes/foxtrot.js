@@ -2,6 +2,7 @@
 const express = require('express');
 const router  = express.Router();
 const { pool, query } = require('../db');
+const { comprimir, descomprimirSafe } = require('../compress');
 
 // ── Mapper fila → objeto limpio ───────────────────────────────────────────────
 function filaARuta(f) {
@@ -39,7 +40,11 @@ function filaARuta(f) {
   };
 }
 
-function filaAIntento(f) {
+async function filaAIntento(f) {
+  let meta = {};
+  if (f.metadata_gz) {
+    meta = await descomprimirSafe(f.metadata_gz, {});
+  }
   return {
     id:                   Number(f.id),
     routeId:              f.route_id,
@@ -48,13 +53,13 @@ function filaAIntento(f) {
     choferMapeado:        f.chofer_mapeado || null,
     fecha:                f.fecha ? new Date(f.fecha).toISOString().split('T')[0] : null,
     customerId:           f.customer_id,
-    customerName:         f.customer_name,
-    locationConfidence:   f.location_confidence,
-    visitStartTs:         f.visit_start_ts,
+    customerName:         (meta && meta.cn) || f.customer_name,
+    locationConfidence:   (meta && meta.lc) || f.location_confidence,
+    visitStartTs:         (meta && meta.ts) || f.visit_start_ts,
     visitDurationSecs:    Number(f.visit_duration_secs)  || 0,
     visitMetersFromCust:  Number(f.visit_meters_from_cust) || 0,
-    aggregateVisitStatus: f.aggregate_visit_status,
-    sequenceAdherenceStatus: f.sequence_adherence_status,
+    aggregateVisitStatus: (meta && meta.as) || f.aggregate_visit_status,
+    sequenceAdherenceStatus: (meta && meta.sa) || f.sequence_adherence_status,
     suspiciousDriveBy:    f.suspicious_drive_by,
     inferredServiceSecs:  Number(f.inferred_service_secs) || 0,
     archivo:              f.archivo,
@@ -106,7 +111,11 @@ router.get('/intentos', async (req, res) => {
     if (archivo)  { q += ` AND archivo = $${i++}`; params.push(archivo); }
     q += ' ORDER BY fecha DESC, driver_id ASC LIMIT 20000';
     const result = await query(q, params);
-    res.json({ ok: true, data: result.rows.map(filaAIntento) });
+    const data = [];
+    for (const r of result.rows) {
+      data.push(await filaAIntento(r));
+    }
+    res.json({ ok: true, data });
   } catch (err) {
     if (err.message.includes('does not exist')) return res.json({ ok: true, data: [] });
     res.status(500).json({ ok: false, error: err.message });
@@ -477,7 +486,7 @@ router.post('/importar', async (req, res) => {
         fecha:[], customerId:[], customerName:[], locationConfidence:[],
         visitStartTs:[], visitDurationSecs:[], visitMetersFromCust:[],
         aggregateVisitStatus:[], sequenceAdherenceStatus:[],
-        suspiciousDriveBy:[], inferredServiceSecs:[],
+        suspiciousDriveBy:[], inferredServiceSecs:[], metadata_gz:[],
       };
 
       for (const r of intentosRows) {
@@ -499,6 +508,17 @@ router.post('/importar', async (req, res) => {
         ic.sequenceAdherenceStatus.push(String(r['Sequence Adherence Status'] ?? r.sequenceAdherenceStatus ?? ''));
         ic.suspiciousDriveBy.push(toBool(r['Beta: Suspicious Drive By Attempt Flag'] ?? r.suspiciousDriveBy));
         ic.inferredServiceSecs.push(toNum(r['Beta: Inferred Service Duration Seconds'] ?? r.inferredServiceSecs));
+        
+        // Empaquetamos columnas pesadas
+        const meta = {
+          cn: String(r['Customer Name'] ?? r.customerName ?? ''),
+          lc: String(r['Customer Location Confidence'] ?? r.locationConfidence ?? ''),
+          ts: r['Visit Start Timestamp'] ?? r.visitStartTs ?? null,
+          as: String(r['Aggregate Visit Status'] ?? r.aggregateVisitStatus ?? ''),
+          sa: String(r['Sequence Adherence Status'] ?? r.sequenceAdherenceStatus ?? '')
+        };
+        const gz = await comprimir(meta);
+        ic.metadata_gz.push(gz);
       }
 
       await client.query(`
@@ -507,21 +527,23 @@ router.post('/importar', async (req, res) => {
           fecha, customer_id, customer_name, location_confidence,
           visit_start_ts, visit_duration_secs, visit_meters_from_cust,
           aggregate_visit_status, sequence_adherence_status,
-          suspicious_drive_by, inferred_service_secs
+          suspicious_drive_by, inferred_service_secs, metadata_gz
         )
         SELECT
           unnest($1::text[]), unnest($2::text[]), unnest($3::text[]),
           unnest($4::text[]), unnest($5::text[]), unnest($6::text[]),
-          unnest($7::date[]), unnest($8::text[]), unnest($9::text[]), unnest($10::text[]),
-          unnest($11::text[]), unnest($12::numeric[]), unnest($13::numeric[]),
-          unnest($14::text[]), unnest($15::text[]),
-          unnest($16::boolean[]), unnest($17::numeric[])
+          unnest($7::date[]), unnest($8::text[]), 
+          '(comprimido)', '', NULL, -- Vaciamos columnas de texto redundantes
+          unnest($9::numeric[]), unnest($10::numeric[]),
+          '', '', -- Status redundantes
+          unnest($11::boolean[]), unnest($12::numeric[]),
+          unnest($13::bytea[]) -- Usamos metadata_gz
       `, [
         ic.archivo, ic.dcName, ic.routeId, ic.driverId, ic.driverName, ic.choferMapeado,
-        ic.fecha, ic.customerId, ic.customerName, ic.locationConfidence,
-        ic.visitStartTs, ic.visitDurationSecs, ic.visitMetersFromCust,
-        ic.aggregateVisitStatus, ic.sequenceAdherenceStatus,
+        ic.fecha, ic.customerId,
+        ic.visitDurationSecs, ic.visitMetersFromCust,
         ic.suspiciousDriveBy, ic.inferredServiceSecs,
+        ic.metadata_gz
       ]);
     }
 
