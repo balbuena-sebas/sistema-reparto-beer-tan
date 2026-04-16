@@ -74,12 +74,19 @@ router.get("/", async (req, res) => {
     q += " ORDER BY fecha DESC, id DESC LIMIT 10000";
     const result = await query(q, params);
     const data = [];
+    const logs = [];
+    logs.push(`Rows found: ${result.rowCount}`);
+
     for (const r of result.rows) {
-      data.push(await filaARec(r));
+      try {
+        data.push(await filaARec(r));
+      } catch (e) {
+        logs.push(`Error in row ${r.id}: ${e.message}`);
+      }
     }
-    res.json({ ok: true, data });
+    res.json({ ok: true, data, debug: logs });
   } catch (err) {
-    if (err.message.includes("does not exist")) return res.json({ ok: true, data: [] });
+    console.error("GET /api/rechazos ERROR:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
