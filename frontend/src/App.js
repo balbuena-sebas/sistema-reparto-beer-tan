@@ -426,7 +426,7 @@ export default function App() {
           getRegistros(fetchMes),
           getAusencias(fetchMes),
           getConfig(), 
-          getRechazos({ desde: `${fetchMes}-01` }),
+          getRechazos(),
           getBultosPorMes(),
           getChecklists(new Date().toLocaleDateString('sv-SE')),
         ]);
