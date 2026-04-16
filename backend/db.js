@@ -3,7 +3,7 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 const { Pool } = require('pg');
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: process.env.DATABASE_URL + (process.env.DATABASE_URL.includes('?') ? '&' : '?') + 'sslmode=verify-full',
   ssl: { rejectUnauthorized: false },
   max: 3,                         // Neon free: máx 3 conexiones simultáneas
   idleTimeoutMillis:  30000,
