@@ -27,7 +27,7 @@ async function filaARec(f) {
     id:               Number(f.id),
     archivo:          f.archivo,
     fechaImport:      f.fecha_import,
-    fecha:            f.fecha ? new Date(f.fecha).toISOString().split("T")[0] : null,
+    fecha:            f.fecha ? new Date(f.fecha).toISOString().substring(0, 10) : null,
     articulo:         f.articulo,
     articuloDesc:     (meta && meta.ad) || f.articulo_desc,
     bultos:           Number(f.bultos) || 0,

@@ -540,8 +540,11 @@ export const TRechazos = ({ rechazos = [], regs = [], cfg = {}, embebido = false
 
   const mesesDisponibles = useMemo(() => {
     const set = new Set();
-    rechazos.forEach(r => { if (r.fecha) set.add(r.fecha.slice(0,7)); });
-    return [...set].sort();
+    rechazos.forEach(r => { 
+      const f = String(r.fecha || '');
+      if (f.includes('-')) set.add(f.substring(0, 7)); 
+    });
+    return [...set].sort().filter(m => m.length === 7);
   }, [rechazos]);
 
   // Mes único — contexto para bultosXMes cuando no hay mesSel activo
