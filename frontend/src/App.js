@@ -129,6 +129,7 @@ export default function App() {
   const [aus, setAus] = useState([]);
   const [cfg, setCfg] = useState(DC);
   const [rechazos, setRechazos] = useState([]);
+  const [debugRechazos, setDebugRechazos] = useState([]);
   const [bultosXMes, setBultosXMes] = useState({});
   const [mes, setMes] = useState(mesN());
   const [toast, setToast] = useState(null);
@@ -426,7 +427,10 @@ export default function App() {
           getRegistros(fetchMes),
           getAusencias(fetchMes),
           getConfig(), 
-          getRechazos(),
+          getRechazos().then(res => {
+            setRechazos(res.data || []);
+            setDebugRechazos(res.debug || []);
+          }),
           getBultosPorMes(),
           getChecklists(new Date().toLocaleDateString('sv-SE')),
         ]);
@@ -1501,6 +1505,7 @@ export default function App() {
         {tab === "rechazos" && (
           <TRechazos
             rechazos={rechazosM}
+            debug={debugRechazos}
             regs={regs}
             cfg={cfgConMes}
             loggedInUser={loggedInUser}

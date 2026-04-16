@@ -425,7 +425,7 @@ const ListaItems = ({ items, maxBultos, color, onClickItem, renderExtra }) => (
 // ══════════════════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ══════════════════════════════════════════════════════════════════════════════
-export const TRechazos = ({ rechazos = [], regs = [], cfg = {}, embebido = false, loggedInUser, onEditar, onEliminar }) => {
+export const TRechazos = ({ rechazos = [], debug = [], regs = [], cfg = {}, embebido = false, loggedInUser, onEditar, onEliminar }) => {
 
   // ── Exportar rechazos filtrados a Excel ───────────────────────────────────
   const exportarRechazosXLSX = useCallback((filas, nombreArchivo = 'rechazos_export') => {
@@ -708,6 +708,13 @@ export const TRechazos = ({ rechazos = [], regs = [], cfg = {}, embebido = false
         <div style={{ fontSize:56, marginBottom:16 }}>❌</div>
         <div style={{ fontSize:18, fontWeight:800, color:'#475569', marginBottom:8 }}>No hay datos de rechazos</div>
         <div style={{ fontSize:14, maxWidth:380, margin:'0 auto', lineHeight:1.7 }}>Importá el Excel de rechazos y hacé click en <strong>Guardar Rechazos</strong></div>
+
+        {debug && debug.length > 0 && (
+          <div style={{ marginTop:40, textAlign:'left', background:'#f8fafc', padding:16, borderRadius:12, border:'2px solid #e2e8f0', fontSize:11, fontFamily:'monospace', color:'#64748b' }}>
+            <div style={{ fontWeight:800, color:'#475569', marginBottom:6 }}>DIAGNÓSTICO DEL SERVIDOR:</div>
+            {debug.map((l,i) => <div key={i}>· {l}</div>)}
+          </div>
+        )}
       </div>
     </div>
   );
