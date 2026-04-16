@@ -216,6 +216,7 @@ router.post("/importar", async (req, res) => {
     archivo:[], fecha:[], articulo:[], articuloDesc:[],
     bultos:[], bultosR:[], hl:[], hlRech:[],
     impNeto:[], impRech:[], motivo:[], motivoDesc:[], tipo: [],
+    clienteId:[], clienteDesc:[], domicilio:[],
     canal:[], canalDesc:[], chofer:[], choferDesc:[],
     transporteId:[], ruta:[], rutaDesc:[], recTotal:[],
     metadata_gz: [],
