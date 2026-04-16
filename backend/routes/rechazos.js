@@ -215,7 +215,7 @@ router.post("/importar", async (req, res) => {
   const cols = {
     archivo:[], fecha:[], articulo:[], articuloDesc:[],
     bultos:[], bultosR:[], hl:[], hlRech:[],
-    impNeto:[], impRech:[], motivo:[], motivoDesc:[],
+    impNeto:[], impRech:[], motivo:[], motivoDesc:[], tipo: [],
     canal:[], canalDesc:[], chofer:[], choferDesc:[],
     transporteId:[], ruta:[], rutaDesc:[], recTotal:[],
     metadata_gz: [],
