@@ -2,12 +2,13 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 const { Pool } = require('pg');
 
+const dbUrl = process.env.DATABASE_URL || '';
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL + (process.env.DATABASE_URL.includes('?') ? '&' : '?') + 'sslmode=verify-full',
+  connectionString: dbUrl.includes('?') ? `${dbUrl}&sslmode=verify-full` : `${dbUrl}?sslmode=verify-full`,
   ssl: { rejectUnauthorized: false },
-  max: 3,                         // Neon free: máx 3 conexiones simultáneas
+  max: 3,                         
   idleTimeoutMillis:  30000,
-  connectionTimeoutMillis: 15000, // 15s para el cold start de Neon (era 10s)
+  connectionTimeoutMillis: 15000, 
   query_timeout: 20000,
 });
 
