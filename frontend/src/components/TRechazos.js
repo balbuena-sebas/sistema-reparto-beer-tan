@@ -719,7 +719,7 @@ export const TRechazos = ({ rechazos = [], regs = [], cfg = {}, embebido = false
           </div>
           <div className="dash-header-right" style={{ flexWrap:'wrap', gap:8 }}>
             {/* Selector de mes */}
-            {mesesDisponibles.length > 1 && (
+            {mesesDisponibles.length >= 1 && (
               <>
                 <span style={{ fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase' }}>Mes:</span>
                 {mesesDisponibles.map(m => {

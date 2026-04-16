@@ -179,10 +179,30 @@ async function initDB() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rec_chofer  ON rechazos(chofer)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_rec_archivo ON rechazos(archivo)`);
 
-    // Columnas nuevas por si la tabla ya existía sin ellas
+    // Columnas nuevas por si las tablas ya existían
     await client.query(`ALTER TABLE rechazos ADD COLUMN IF NOT EXISTS hl            NUMERIC DEFAULT 0`);
     await client.query(`ALTER TABLE rechazos ADD COLUMN IF NOT EXISTS hl_rechazado  NUMERIC DEFAULT 0`);
     await client.query(`ALTER TABLE rechazos ADD COLUMN IF NOT EXISTS transporte_id TEXT`);
+    await client.query(`ALTER TABLE rechazos ADD COLUMN IF NOT EXISTS metadata_gz   BYTEA`);
+    
+    await client.query(`ALTER TABLE foxtrot_intentos ADD COLUMN IF NOT EXISTS metadata_gz BYTEA`);
+    await client.query(`ALTER TABLE foxtrot_rutas    ADD COLUMN IF NOT EXISTS metadata_gz BYTEA`);
+    await client.query(`ALTER TABLE notas            ADD COLUMN IF NOT EXISTS metadata_gz BYTEA`);
+    await client.query(`ALTER TABLE ausencias        ADD COLUMN IF NOT EXISTS metadata_gz BYTEA`);
+    await client.query(`ALTER TABLE checklists       ADD COLUMN IF NOT EXISTS metadata_gz BYTEA`);
+    
+    // Tabla checklists (por si no existía)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS checklists (
+        id         BIGSERIAL PRIMARY KEY,
+        fecha      DATE NOT NULL,
+        chofer     TEXT NOT NULL,
+        dni        TEXT NOT NULL,
+        estado     TEXT DEFAULT 'completado',
+        creado_en  TIMESTAMPTZ DEFAULT NOW(),
+        metadata_gz BYTEA
+      )
+    `);
 
     // Tabla notas — por persona, mes, categoría
     await client.query(`
