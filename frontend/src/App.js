@@ -433,6 +433,8 @@ export default function App() {
 
       setRegs(todosRegs || []);
       setAus(todosAus || []);
+      setRechazos(todosRechazos || []);
+      setBultosXMes(xMes || {});
       setChecklistsHoy(Array.isArray(todosChk) ? todosChk : []);
       
       const cfgFinal = { ...DC, ...(cfgGuardada || {}) };
