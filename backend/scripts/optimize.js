@@ -4,9 +4,10 @@ const { comprimir } = require('../compress');
 
 async function optimizarNeon() {
   console.log('🚀 Iniciando Compactación Universal en Neon...');
-  const client = await pool.connect();
-  
+  let client;
   try {
+    client = await pool.connect();
+    
     // 1. FOXTROT_INTENTOS
     const resultIntentos = await client.query('SELECT * FROM foxtrot_intentos WHERE metadata_gz IS NULL LIMIT 2000');
     console.log(`📦 Procesando ${resultIntentos.rows.length} intentos Foxtrot...`);
@@ -31,7 +32,7 @@ async function optimizarNeon() {
       await client.query('UPDATE notas SET metadata_gz = $1, texto = \'(comprimido)\' WHERE id = $2', [gz, r.id]);
     }
 
-    // 4. FOXTROT_RUTAS (Opcional, pero ayuda)
+    // 4. FOXTROT_RUTAS
     const resultRutas = await client.query('SELECT * FROM foxtrot_rutas WHERE metadata_gz IS NULL LIMIT 500');
     console.log(`📦 Procesando ${resultRutas.rows.length} rutas Foxtrot...`);
     for (const r of resultRutas.rows) {
@@ -43,9 +44,14 @@ async function optimizarNeon() {
   } catch (err) {
     console.error('❌ Error en compactación:', err.message);
   } finally {
-    client.release();
-    process.exit();
+    if (client) client.release();
   }
 }
 
-optimizarNeon();
+// Exportar para usar en el servidor sin que se ejecute solo
+module.exports = { optimizarNeon };
+
+// Permitir ejecución manual desde consola
+if (require.main === module) {
+  optimizarNeon().then(() => process.exit(0));
+}
