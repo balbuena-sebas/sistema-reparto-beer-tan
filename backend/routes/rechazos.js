@@ -72,9 +72,12 @@ router.get("/", async (req, res) => {
     if (chofer) { q += ` AND chofer_desc ILIKE $${i++}`;     params.push(`%${chofer}%`); }
     if (tipo)   { q += ` AND tipo_motivo = $${i++}`;         params.push(tipo); }
     q += " ORDER BY fecha DESC, id DESC LIMIT 10000";
+    console.log("[GET /api/rechazos] Q:", q, "P:", params);
     const result = await query(q, params);
     const data = [];
     const logs = [];
+    logs.push(`Query: ${q}`);
+    logs.push(`Params: ${JSON.stringify(params)}`);
     logs.push(`Rows found: ${result.rowCount}`);
 
     for (const r of result.rows) {
