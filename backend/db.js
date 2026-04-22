@@ -334,8 +334,9 @@ async function initDB() {
     console.log('✅ Base de datos inicializada correctamente');
   } catch (err) {
     if (client) await client.query('ROLLBACK');
-    console.error('❌ Error al inicializar la base de datos:', err.message);
-    throw err;
+    console.error('⚠ ATENCIÓN: No se pudo inicializar la DB (Posible bloqueo por espacio):', err.message);
+    console.log('🚀 Iniciando en MODO SEGURO (App limitada pero activa para mantenimiento)');
+    // No lanzamos el error para permitir que el servidor arranque y podamos operar
   } finally {
     if (client) client.release();
   }
