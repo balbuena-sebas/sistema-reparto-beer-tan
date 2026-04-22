@@ -400,9 +400,7 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
             </div>
           )}
         </div>
-      ) : (
-        </div>
-      )}
+      ) : null}
 
       {/* ── MANTENIMIENTO NEON (SOLO ADMIN) ── */}
       {loggedInUser?.dni === 'admin' && (
