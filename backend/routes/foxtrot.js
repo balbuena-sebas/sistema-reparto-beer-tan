@@ -3,6 +3,8 @@ const express = require('express');
 const router  = express.Router();
 const { pool, query } = require('../db');
 const { comprimir, descomprimirSafe } = require('../compress');
+const storage = require('../storage');
+const { actualizarKPIMensual } = require('../utils/kpi_utils');
 
 // ── Mapper fila → objeto limpio ───────────────────────────────────────────────
 function filaARuta(f) {
@@ -362,6 +364,11 @@ router.post('/importar', async (req, res) => {
     return res.status(400).json({ ok: false, error: 'No se enviaron rutas' });
   }
 
+  // Respaldar en Cloudflare R2 (Asíncrono)
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  storage.upload(`foxtrot/backup_${timestamp}_${archivo.replace(/\s+/g, '_')}.json`, { rutasRows, intentosRows })
+    .catch(err => console.error("⚠ Falló el backup Foxtrot en R2:", err.message));
+
   // Construir mapa driverId → nombre/zona del chofer mapeado
   const driverById = {};
   driverMap.forEach(d => { driverById[String(d.id)] = d.nombre || null; });
@@ -549,6 +556,20 @@ router.post('/importar', async (req, res) => {
 
     await client.query('COMMIT');
     console.log(`[foxtrot/importar] OK rutas=${rutasRows.length} intentos=${intentosRows.length}`);
+
+    // Calcular KPIs resumidos (Asíncrono)
+    // Usamos choferMapeado o driverName si no hay mapeo
+    const choferesUnicos = [...new Set(rutasRows.map(r => {
+      const dId = String(r['Driver ID'] ?? r.driverId ?? '');
+      return driverById[dId] || r['Driver Name'] || r.driverName;
+    }))].filter(Boolean);
+    
+    const mes = rutasRows[0] ? parseFecha(rutasRows[0]['Planned Route Start Date'] ?? rutasRows[0].fecha)?.slice(0, 7) : null;
+    if (mes) {
+      Promise.all(choferesUnicos.map(c => actualizarKPIMensual(mes, c, 'foxtrot')))
+        .catch(err => console.error("⚠ Falló actualización de KPIs Foxtrot:", err.message));
+    }
+
     res.status(201).json({ ok: true, resultado: { rutas: rutasRows.length, intentos: intentosRows.length } });
 
   } catch (err) {

@@ -4,6 +4,8 @@ const express = require("express");
 const router = express.Router();
 const { pool, query } = require("../db");
 const { comprimir, descomprimirSafe } = require("../compress");
+const storage = require("../storage");
+const { actualizarKPIMensual } = require("../utils/kpi_utils");
 
 function clasificarMotivo(motivo) {
   const m = String(motivo || "")
@@ -208,6 +210,11 @@ router.post("/importar", async (req, res) => {
 
   console.log(`[rechazos/importar] archivo="${archivo}" rows=${rows.length}`);
 
+  // Respaldar en Cloudflare R2 (Asíncrono para no bloquear la respuesta)
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  storage.upload(`rechazos/backup_${timestamp}_${archivo.replace(/\s+/g, '_')}.json`, rows)
+    .catch(err => console.error("⚠ Falló el backup en R2:", err.message));
+
   function parseFecha(f) {
     if (!f) return null;
     const s = String(f).trim();
@@ -301,6 +308,15 @@ router.post("/importar", async (req, res) => {
     ]);
     await client.query("COMMIT");
     console.log(`[rechazos/importar] OK=${rows.length}`);
+    
+    // Calcular KPIs resumidos para este mes/choferes (Asíncrono)
+    const choferesUnicos = [...new Set(rows.map(r => String(r.choferDesc || '').trim()))].filter(Boolean);
+    const mes = rows[0]?.fecha ? rows[0].fecha.slice(0, 7) : null;
+    if (mes) {
+      Promise.all(choferesUnicos.map(c => actualizarKPIMensual(mes, c, 'rechazos')))
+        .catch(err => console.error("⚠ Falló actualización de KPIs Rechazos:", err.message));
+    }
+
     res.status(201).json({ ok: true, resultado: { ok: rows.length, fail: 0, errores: [] } });
   } catch (err) {
     await client.query("ROLLBACK");

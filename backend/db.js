@@ -315,14 +315,29 @@ async function initDB() {
     // Migración: Asegurar que existe la columna 'estado' si la tabla ya existía
     await client.query(`ALTER TABLE checklists ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'completado'`);
 
+    // ── Tabla KPIs Mensuales (Resumen Lite para Neon) ─────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS kpis_mensuales (
+        id                BIGSERIAL PRIMARY KEY,
+        mes               TEXT NOT NULL, -- 'YYYY-MM'
+        chofer            TEXT NOT NULL,
+        source            TEXT NOT NULL, -- 'foxtrot' | 'rechazos'
+        datos_json        JSONB,
+        updated_at        TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(mes, chofer, source)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_kpis_mes    ON kpis_mensuales(mes)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_kpis_chofer ON kpis_mensuales(chofer)`);
+
     await client.query('COMMIT');
     console.log('✅ Base de datos inicializada correctamente');
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK');
     console.error('❌ Error al inicializar la base de datos:', err.message);
     throw err;
   } finally {
-    client.release();
+    if (client) client.release();
   }
 }
 

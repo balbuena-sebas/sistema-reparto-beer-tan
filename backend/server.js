@@ -63,11 +63,14 @@ app.use('/api/foxtrot', autenticar, foxtrotRouter);
 app.use('/api/checklists', autenticar, checklistsRouter);
 
 const { optimizarNeon } = require('./scripts/optimize');
+const { realizarLimpiezaAutomatica } = require('./scripts/neon_cleanup');
+
 app.post('/api/mantenimiento/optimizar', autenticar, async (req, res) => {
   try {
     // Ejecutar de forma asíncrona para no bloquear
     optimizarNeon();
-    res.json({ ok: true, msg: 'Optimización iniciada en segundo plano' });
+    realizarLimpiezaAutomatica();
+    res.json({ ok: true, msg: 'Optimización y limpieza histórica iniciadas en segundo plano' });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
