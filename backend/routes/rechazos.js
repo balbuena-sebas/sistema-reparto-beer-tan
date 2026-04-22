@@ -102,6 +102,34 @@ router.get("/", async (req, res) => {
 // No requiere reimportar — usa lo que ya está en Neon.
 router.get("/bultos-por-mes", async (req, res) => {
   try {
+    // 1. Intentar obtener datos de la tabla de KPIs (mucho más rápido)
+    const kpiRes = await query(`
+      SELECT mes, chofer, (datos_json->>'bultos_pedidos')::numeric as bultos
+      FROM kpis_mensuales
+      WHERE source = 'rechazos'
+      ORDER BY mes, chofer
+    `);
+
+    const xMes = {};
+    
+    // Poblar con lo que ya tenemos resumido
+    kpiRes.rows.forEach(row => {
+      const mes = row.mes;
+      const cId = String(row.chofer || '').trim();
+      const b   = Number(row.bultos) || 0;
+      if (!xMes[mes]) xMes[mes] = { total: 0, porChofer: {} };
+      xMes[mes].total += b;
+      xMes[mes].porChofer[cId] = (xMes[mes].porChofer[cId] || 0) + b;
+    });
+
+    // 2. Para los meses que NO están en KPIs (probablemente los más recientes),
+    // consultamos la tabla real.
+    const mesesYaResumidos = Object.keys(xMes);
+    let condMeses = "";
+    if (mesesYaResumidos.length > 0) {
+      condMeses = `AND TO_CHAR(fecha, 'YYYY-MM') NOT IN (${mesesYaResumidos.map((_,idx)=>`$${idx+1}`).join(',')})`;
+    }
+
     const result = await query(`
       SELECT
         TO_CHAR(fecha, 'YYYY-MM') AS mes,
@@ -111,11 +139,11 @@ router.get("/bultos-por-mes", async (req, res) => {
       WHERE articulo NOT IN ('2776', '2705', '2731')
         AND fecha IS NOT NULL
         AND bultos > 0
+        ${condMeses}
       GROUP BY TO_CHAR(fecha, 'YYYY-MM'), chofer
       ORDER BY mes, chofer
-    `);
+    `, mesesYaResumidos);
 
-    const xMes = {};
     result.rows.forEach(row => {
       const mes = row.mes;
       const cId = String(row.chofer_id || '').trim();

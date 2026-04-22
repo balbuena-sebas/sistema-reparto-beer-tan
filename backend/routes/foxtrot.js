@@ -191,6 +191,24 @@ router.get('/kpis-por-chofer', async (req, res) => {
     if (hasta)   { cond += ` AND r.fecha <= $${i++}`;  params.push(hasta); }
     if (archivo) { cond += ` AND r.archivo = $${i++}`; params.push(archivo); }
 
+    // ── ESTRATEGIA LITE: Intentar leer desde Resúmenes primero ──
+    if (mes && !archivo) {
+      const summaryRes = await query(`
+        SELECT chofer, datos_json FROM kpis_mensuales 
+        WHERE mes = $1 AND source = 'foxtrot'
+      `, [mes]);
+      
+      if (summaryRes.rows.length > 0) {
+        console.log(`🚀 [Foxtrot] Usando Resumen Lite para ${mes} (${summaryRes.rows.length} choferes)`);
+        const data = summaryRes.rows.map(r => ({
+          ...r.datos_json,
+          choferMapeado: r.chofer,
+          driverName: r.chofer, // Fallback
+        }));
+        return res.json({ ok: true, data, source: 'cache_lite' });
+      }
+    }
+
     const result = await query(`
       SELECT
         r.driver_id,
