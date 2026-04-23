@@ -479,10 +479,16 @@ export default function App() {
       setCfg(cfgFinal);
       setRechazos(todosRechazos || []);
       
-      const xMesDeConfig = cfgGuardada?.bultosXMes || {};
+      // Combinar datos: Prioridad a lo que viene de la DB real (xMes)
       const xMesFinal = { ...(xMes || {}) };
+      const xMesDeConfig = cfgGuardada?.bultosXMes || {};
+      
       Object.keys(xMesDeConfig).forEach((m) => {
-        xMesFinal[m] = xMesDeConfig[m];
+        // Solo usamos el dato de configuración si NO existe en la DB real
+        // o si el dato de la DB real está vacío.
+        if (!xMesFinal[m] || xMesFinal[m].total === 0) {
+          xMesFinal[m] = xMesDeConfig[m];
+        }
       });
       setBultosXMes(xMesFinal);
       
