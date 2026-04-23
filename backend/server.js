@@ -52,6 +52,7 @@ const { router: rechazosRouter } = require('./routes/rechazos');
 const notasRouter = require('./routes/notas');
 const foxtrotRouter = require('./routes/foxtrot');
 const checklistsRouter = require('./routes/checklists');
+const mantenimientoRouter = require('./routes/mantenimiento');
 
 app.use('/api/registros', autenticar, registrosRouter);
 app.use('/api/ausencias', autenticar, ausenciasRouter);
@@ -61,20 +62,7 @@ app.use('/api/rechazos', autenticar, rechazosRouter);
 app.use('/api/notas', autenticar, notasRouter);
 app.use('/api/foxtrot', autenticar, foxtrotRouter);
 app.use('/api/checklists', autenticar, checklistsRouter);
-
-const { optimizarNeon } = require('./scripts/optimize');
-const { realizarLimpiezaAutomatica } = require('./scripts/neon_cleanup');
-
-app.post('/api/mantenimiento/optimizar', autenticar, async (req, res) => {
-  try {
-    // Ejecutar de forma asíncrona para no bloquear
-    optimizarNeon();
-    realizarLimpiezaAutomatica();
-    res.json({ ok: true, msg: 'Optimización y limpieza histórica iniciadas en segundo plano' });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
+app.use('/api/mantenimiento', autenticar, mantenimientoRouter);
 
 app.get('/health', (req, res) => res.json({ ok: true, status: 'online' }));
 app.get('/', (req, res) => res.json({ ok: true, msg: 'API Sistema de Reparto' }));
