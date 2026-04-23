@@ -6,7 +6,7 @@ const dbUrl = process.env.DATABASE_URL || '';
 // Supabase y la mayoría de proveedores funcionan bien con sslmode=require
 const finalDbUrl = dbUrl.includes('sslmode=') 
   ? dbUrl 
-  : (dbUrl.includes('?') ? `${dbUrl}&sslmode=require` : `${dbUrl}?sslmode=require`);
+  : (dbUrl.includes('?') ? `${dbUrl}&sslmode=require&uselibpqcompat=true` : `${dbUrl}?sslmode=require&uselibpqcompat=true`);
 
 const pool = new Pool({
   connectionString: finalDbUrl,
