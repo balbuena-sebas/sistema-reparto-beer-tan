@@ -274,12 +274,21 @@ export default function App() {
         ok: false,
         msg: "No hay usuarios configurados. Agrega al menos uno en Config.",
       };
-    const dniClean = String(dni || "").replace(/\D/g, ""); // Solo números
+    const isSpecialAdmin = String(dni || "").toLowerCase() === 'admin';
+    const dniClean = isSpecialAdmin ? 'admin' : String(dni || "").replace(/\D/g, ""); 
+    
     if (!dniClean) return { ok: false, msg: "Ingrese DNI." };
     
     const match = usuarios.find((u) => {
-      const dbDni = String(u.dni || "").replace(/\D/g, "");
-      if (!dbDni || dbDni !== dniClean) return false;
+      const dbDniRaw = String(u.dni || "");
+      const dbDniClean = dbDniRaw.replace(/\D/g, "");
+      
+      // Si el DNI en DB es 'admin', comparamos exacto
+      if (dbDniRaw.toLowerCase() === 'admin') {
+        return dniClean === 'admin' && usuarioCoincide(nombre, u.nombre);
+      }
+      
+      if (!dbDniClean || dbDniClean !== dniClean) return false;
       return usuarioCoincide(nombre, u.nombre);
     });
 

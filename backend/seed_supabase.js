@@ -6,7 +6,10 @@ async function seed() {
   console.log('🌱 Iniciando siembra de datos en Supabase...');
   
   const usuarios = [
-    { nombre: 'Administrador', dni: 'admin', pass: 'admin', rol: 'admin' }
+    { nombre: 'Administrador', dni: 'admin', role: 'admin', permisos: {
+      editar_contenido: true, dashboard: true, registros: true, ausencias: true, personal: true,
+      costos: true, reportes: true, rechazos: true, foxtrot: true, importar: true, config: true, notas: true
+    }}
   ];
 
   const driverMap = [
