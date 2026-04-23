@@ -3,10 +3,22 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 const { Pool } = require('pg');
 
 const dbUrl = process.env.DATABASE_URL || '';
-// Supabase y la mayoría de proveedores funcionan bien con sslmode=require
-const finalDbUrl = dbUrl.includes('sslmode=') 
-  ? dbUrl 
-  : (dbUrl.includes('?') ? `${dbUrl}&sslmode=require&uselibpqcompat=true` : `${dbUrl}?sslmode=require&uselibpqcompat=true`);
+
+// Función para construir la URL de conexión de forma robusta
+function buildFinalDbUrl(url) {
+  if (!url) return '';
+  const urlObj = new URL(url);
+  
+  // Forzamos sslmode=require para Supabase/Render
+  urlObj.searchParams.set('sslmode', 'require');
+  
+  // Parámetro de compatibilidad para evitar el warning de seguridad de pg
+  urlObj.searchParams.set('uselibpqcompat', 'true');
+  
+  return urlObj.toString();
+}
+
+const finalDbUrl = buildFinalDbUrl(dbUrl);
 
 const pool = new Pool({
   connectionString: finalDbUrl,
