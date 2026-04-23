@@ -3,8 +3,13 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 const { Pool } = require('pg');
 
 const dbUrl = process.env.DATABASE_URL || '';
+// Supabase y la mayoría de proveedores funcionan bien con sslmode=require
+const finalDbUrl = dbUrl.includes('sslmode=') 
+  ? dbUrl 
+  : (dbUrl.includes('?') ? `${dbUrl}&sslmode=require` : `${dbUrl}?sslmode=require`);
+
 const pool = new Pool({
-  connectionString: dbUrl.includes('?') ? `${dbUrl}&sslmode=verify-full` : `${dbUrl}?sslmode=verify-full`,
+  connectionString: finalDbUrl,
   ssl: { rejectUnauthorized: false },
   max: 3,                         
   idleTimeoutMillis:  30000,
@@ -43,7 +48,7 @@ async function initDB() {
       client = await pool.connect();
       break;
     } catch (err) {
-      console.warn(`⚠ Neon no responde (intento ${intento}/3): ${err.message}`);
+      console.warn(`⚠ La base de datos no responde (intento ${intento}/3): ${err.message}`);
       if (intento === 3) throw err;
       await new Promise(r => setTimeout(r, 3000));
     }
