@@ -89,6 +89,23 @@ router.get("/", async (req, res) => {
         logs.push(`Error in row ${r.id}: ${e.message}`);
       }
     }
+
+    // --- FALLBACK R2 ---
+    if (data.length === 0 && mes) {
+      try {
+        const archived = await storage.download(`rechazos/detalle_${mes}.json`);
+        if (archived && Array.isArray(archived)) {
+          logs.push(`📦 Cargado desde R2 (mes ${mes})`);
+          for (const r of archived) {
+            // Adaptar nombres de campos si vienen de la tabla (S3 guarda el JSON de la fila SQL)
+            data.push(await filaARec(r));
+          }
+        }
+      } catch (err) {
+        logs.push(`⚠ Error buscando en R2: ${err.message}`);
+      }
+    }
+
     res.json({ ok: true, data, debug: logs });
   } catch (err) {
     console.error("GET /api/rechazos ERROR:", err);

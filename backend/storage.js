@@ -119,24 +119,27 @@ class StorageManager {
   }
 
   /**
-   * Obtiene una URL firmada para leer el archivo
-   * @param {string} key El key guardado (con prefijo de cuenta si es necesario)
+   * Descarga un archivo de R2 y devuelve su contenido parseado
    */
-  async getDownloadUrl(fileRef) {
-    // Si guardamos la referencia como "key?acc=account_2", la parseamos
-    const [key, query] = fileRef.split('?');
-    const accountId = query?.split('=')[1] || 'account_1';
-    
-    const storage = this.buckets.find(b => b.id === accountId) || this.buckets[0];
-    if (!storage) throw new Error("Storage no encontrado");
+  async download(key) {
+    if (this.buckets.length === 0) throw new Error("No hay storage configurado");
 
-    const command = new GetObjectCommand({
-      Bucket: storage.bucketName,
-      Key: key,
-    });
+    let lastError;
+    for (const storage of this.buckets) {
+      try {
+        const command = new GetObjectCommand({
+          Bucket: storage.bucketName,
+          Key: key,
+        });
 
-    // La URL expira en 1 hora por seguridad
-    return await getSignedUrl(storage.client, command, { expiresIn: 3600 });
+        const response = await storage.client.send(command);
+        const bodyContents = await response.Body.transformToString();
+        return JSON.parse(bodyContents);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    return null; // Si no se encuentra en ninguna cuenta
   }
 }
 
