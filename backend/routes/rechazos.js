@@ -6,6 +6,7 @@ const { pool, query } = require("../db");
 const { comprimir, descomprimirSafe } = require("../compress");
 const storage = require("../storage");
 const { actualizarKPIMensual } = require("../utils/kpi_utils");
+const { realizarLimpiezaAutomatica } = require("../scripts/neon_cleanup");
 
 function clasificarMotivo(motivo) {
   const m = String(motivo || "")
@@ -109,6 +110,21 @@ router.get("/", async (req, res) => {
     res.json({ ok: true, data, debug: logs });
   } catch (err) {
     console.error("GET /api/rechazos ERROR:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Devuelve los meses que tienen datos (ya sea en DB o archivados)
+router.get("/meses-disponibles", async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT DISTINCT mes FROM kpis_mensuales WHERE source = 'rechazos'
+      UNION
+      SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM') as mes FROM rechazos
+      ORDER BY mes DESC
+    `);
+    res.json({ ok: true, data: result.rows.map(r => r.mes).filter(Boolean) });
+  } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -359,6 +375,10 @@ router.post("/importar", async (req, res) => {
     const mes = rows[0]?.fecha ? rows[0].fecha.slice(0, 7) : null;
     if (mes) {
       Promise.all(choferesUnicos.map(c => actualizarKPIMensual(mes, c, 'rechazos')))
+        .then(() => {
+          // Después de actualizar KPIs, disparamos limpieza automática de meses viejos
+          realizarLimpiezaAutomatica().catch(e => console.error("⚠ Falló limpieza automática post-import:", e.message));
+        })
         .catch(err => console.error("⚠ Falló actualización de KPIs Rechazos:", err.message));
     }
 

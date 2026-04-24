@@ -1,3 +1,4 @@
+require('dotenv').config();
 const { query } = require('../db');
 const { actualizarKPIMensual } = require('../utils/kpi_utils');
 const storage = require('../storage');

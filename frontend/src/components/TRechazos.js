@@ -420,12 +420,17 @@ const ListaItems = ({ items, maxBultos, color, onClickItem, renderExtra }) => (
     ))}
     {items.length===0 && <div style={{ textAlign:'center', padding:'32px', color:'#94a3b8', fontSize:14 }}>Sin resultados para este filtro</div>}
   </div>
-);
-
-// ══════════════════════════════════════════════════════════════════════════════
-// COMPONENTE PRINCIPAL
-// ══════════════════════════════════════════════════════════════════════════════
-export const TRechazos = ({ rechazos = [], debug = [], regs = [], cfg = {}, embebido = false, loggedInUser, onEditar, onEliminar }) => {
+export const TRechazos = ({ 
+  rechazos = [], 
+  debug = [], 
+  regs = [], 
+  cfg = {}, 
+  onEditar, 
+  onEliminar, 
+  loggedInUser,
+  mesesGlobales = [],
+  embebido = false 
+}) => {
 
   // ── Exportar rechazos filtrados a Excel ───────────────────────────────────
   const exportarRechazosXLSX = useCallback((filas, nombreArchivo = 'rechazos_export') => {
@@ -539,13 +544,14 @@ export const TRechazos = ({ rechazos = [], debug = [], regs = [], cfg = {}, embe
   },[rechazos]);
 
   const mesesDisponibles = useMemo(() => {
+    if (mesesGlobales && mesesGlobales.length > 0) return mesesGlobales;
     const set = new Set();
     rechazos.forEach(r => { 
       const f = String(r.fecha || '');
       if (f.includes('-')) set.add(f.substring(0, 7)); 
     });
     return [...set].sort().filter(m => m.length === 7);
-  }, [rechazos]);
+  }, [rechazos, mesesGlobales]);
 
   // Mes único — contexto para bultosXMes cuando no hay mesSel activo
   const mesDelExcel = useMemo(() => {

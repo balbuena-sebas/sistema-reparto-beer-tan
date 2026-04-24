@@ -586,7 +586,7 @@ const TablaComparativa = ({ choferes, onVerDetalle }) => {
 // ══════════════════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ══════════════════════════════════════════════════════════════════════════════
-export const TFoxtrot = ({ cfg = {}, mes: mesProp, setMes: setMesProp, kpisExternos, kpisAllForRanking, cargandoExterno, loggedInUser }) => {
+export const TFoxtrot = ({ cfg = {}, mes: mesProp, setMes: setMesProp, kpisExternos, kpisAllForRanking, cargandoExterno, loggedInUser, mesesGlobales = [] }) => {
   // ── Mes seleccionado ──────────────────────────────────────────────────────
   // Si viene mes/setMes del padre (App.js via handleSetMes) los usamos,
   // sino manejamos estado propio. En ambos casos el cambio de mes recarga KPIs.
@@ -630,20 +630,22 @@ export const TFoxtrot = ({ cfg = {}, mes: mesProp, setMes: setMesProp, kpisExter
   // Ahora también incluye el mes actual y, si el padre pasó un mes válido,
   // lo garantiza como opción para que el selector nunca quede vacío.
   const mesesDisponibles = useMemo(() => {
+    if (mesesGlobales && mesesGlobales.length > 0) {
+      return mesesGlobales.map(v => ({ value: v, label: labelMes(v) }));
+    }
     const hoy = new Date();
     const mesHoy = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
     const conDatos = new Set([
       ...historial.map(h => (h.fechaDesde || '').slice(0, 7)).filter(m => m.length === 7),
       ...historial.map(h => (h.fechaHasta || '').slice(0, 7)).filter(m => m.length === 7),
       mesHoy,
-      // Garantizar que el mes actual (venga del padre o del estado propio) esté siempre
       mes,
     ].filter(Boolean));
     return [...conDatos]
       .sort((a, b) => b.localeCompare(a))
       .slice(0, 18)
       .map(v => ({ value: v, label: labelMes(v) }));
-  }, [historial, mes]);
+  }, [historial, mes, mesesGlobales]);
 
   // ── Cargar historial ──────────────────────────────────────────────────────
   const cargarHistorial = useCallback(async () => {

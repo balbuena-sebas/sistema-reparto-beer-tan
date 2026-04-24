@@ -5,6 +5,7 @@ const { pool, query } = require('../db');
 const { comprimir, descomprimirSafe } = require('../compress');
 const storage = require('../storage');
 const { actualizarKPIMensual } = require('../utils/kpi_utils');
+const { realizarLimpiezaAutomatica } = require('../scripts/neon_cleanup');
 
 // ── Mapper fila → objeto limpio ───────────────────────────────────────────────
 function filaARuta(f) {
@@ -585,6 +586,9 @@ router.post('/importar', async (req, res) => {
     const mes = rutasRows[0] ? parseFecha(rutasRows[0]['Planned Route Start Date'] ?? rutasRows[0].fecha)?.slice(0, 7) : null;
     if (mes) {
       Promise.all(choferesUnicos.map(c => actualizarKPIMensual(mes, c, 'foxtrot')))
+        .then(() => {
+          realizarLimpiezaAutomatica().catch(e => console.error("⚠ Falló limpieza automática Foxtrot:", e.message));
+        })
         .catch(err => console.error("⚠ Falló actualización de KPIs Foxtrot:", err.message));
     }
 
@@ -623,6 +627,21 @@ router.get('/verificar/:archivo', async (req, res) => {
     res.json({ ok: true, existe: cantidad > 0, cantidad });
   } catch (err) {
     if (err.message.includes('does not exist')) return res.json({ ok: true, existe: false, cantidad: 0 });
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Devuelve los meses que tienen datos (ya sea en DB o archivados)
+router.get("/meses-disponibles", async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT DISTINCT mes FROM kpis_mensuales WHERE source = 'foxtrot'
+      UNION
+      SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM') as mes FROM foxtrot_rutas
+      ORDER BY mes DESC
+    `);
+    res.json({ ok: true, data: result.rows.map(r => r.mes).filter(Boolean) });
+  } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });

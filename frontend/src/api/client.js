@@ -65,9 +65,14 @@ export async function guardarConfig(cfg) {
 
 // ── RECHAZOS ─────────────────────────────────────────────────────────────────
 export async function getRechazos(filtros = {}) {
-  const q = new URLSearchParams(filtros).toString();
+  let q = '';
+  if (typeof filtros === 'string') {
+    q = `mes=${filtros}`;
+  } else {
+    q = new URLSearchParams(filtros).toString();
+  }
   const r = await apiFetch(`/api/rechazos${q ? '?' + q : ''}`);
-  return r.data || [];
+  return r; // Devolvemos el objeto completo { ok, data, debug }
 }
 
 export async function importarRechazos(rows, archivo, totalesArchivo = null) {

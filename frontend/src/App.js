@@ -130,6 +130,7 @@ export default function App() {
   const [cfg, setCfg] = useState(DC);
   const [rechazos, setRechazos] = useState([]);
   const [debugRechazos, setDebugRechazos] = useState([]);
+  const [mesesDisponibles, setMesesDisponibles] = useState([]);
   const [bultosXMes, setBultosXMes] = useState({});
   const [mes, setMes] = useState(mesN());
   const [toast, setToast] = useState(null);
@@ -422,21 +423,24 @@ export default function App() {
     try {
       if (!silencioso) setCargando(true);
       
-      // En la carga inicial (no silenciosa), intentamos despertar el servidor
-      if (!silencioso) {
-        await fetch(`${process.env.REACT_APP_API_URL}/health`, {
-          headers: { "x-api-key": process.env.REACT_APP_API_KEY },
-        }).catch(() => {});
-      }
-
-      const fetchMes = mes || new Date().toLocaleDateString('sv-SE').slice(0, 7);
+      // Obtener meses con datos para el selector (Rechazos y Foxtrot)
+      const resMeses = await fetch(`${process.env.REACT_APP_API_URL}/api/rechazos/meses-disponibles`, {
+        headers: { "x-api-key": process.env.REACT_APP_API_KEY },
+      }).then(r => r.json()).catch(() => ({ data: [] }));
+      
+      const mesesConDatos = resMeses.data || [];
+      setMesesDisponibles(mesesConDatos);
+      const fetchMes = mes || mesesConDatos[0] || new Date().toLocaleDateString('sv-SE').slice(0, 7);
+      
+      // Si no hay mes seleccionado y encontramos uno con datos, lo seteamos
+      if (!mes && mesesConDatos[0]) setMes(mesesConDatos[0]);
 
       const [todosRegs, todosAus, cfgGuardada, todosRechazos, xMes, todosChk] =
         await Promise.all([
           getRegistros(fetchMes),
           getAusencias(fetchMes),
           getConfig(), 
-          getRechazos().then(res => {
+          getRechazos(fetchMes).then(res => {
             setRechazos(res.data || []);
             setDebugRechazos(res.debug || []);
           }),
@@ -1042,8 +1046,7 @@ export default function App() {
     async (rows, archivo, totalesArchivo) => {
       try {
         const res = await importarRechazos(rows, archivo);
-        const todos = await getRechazos();
-        setRechazos(Array.isArray(todos) ? todos : []);
+        
         const mesesEnRows = [
           ...new Set(
             rows
@@ -1051,7 +1054,13 @@ export default function App() {
               .filter((m) => m.length === 7),
           ),
         ];
-        const mesArchivo = mesesEnRows.length === 1 ? mesesEnRows[0] : null;
+        const mesArchivo = mesesEnRows.length === 1 ? mesesEnRows[0] : mesesEnRows[0] || null;
+        
+        // Si el archivo tiene un mes claro, saltamos a ese mes automáticamente
+        if (mesArchivo) {
+          setMes(mesArchivo);
+        }
+
         if (mesArchivo && totalesArchivo?.bultosTotal > 0) {
           const cfgActual = await getConfig();
           const bultosXMesActual = { ...(cfgActual?.bultosXMes || {}) };
@@ -1069,6 +1078,10 @@ export default function App() {
           setCfg((prev) => ({ ...prev, ...cfgActualizada }));
           setBultosXMes(bultosXMesActual);
         }
+
+        // Refrescar todo el sistema
+        await refrescarDatos(true);
+
         const r = res?.resultado;
         notify(
           r
@@ -1079,7 +1092,7 @@ export default function App() {
         notify(`❌ Error al guardar rechazos: ${err.message}`, "w");
       }
     },
-    [notify],
+    [notify, refrescarDatos],
   );
 
   const editRec = useCallback(
@@ -1526,6 +1539,7 @@ export default function App() {
             loggedInUser={loggedInUser}
             onEditar={editRec}
             onEliminar={delRec}
+            mesesGlobales={mesesDisponibles}
           />
         )}
         {tab === "foxtrot" && (
@@ -1540,6 +1554,7 @@ export default function App() {
             kpisAllForRanking={foxtrotKpis}
             cargandoExterno={cargandoFoxtrotKpis}
             loggedInUser={loggedInUser}
+            mesesGlobales={mesesDisponibles}
           />
         )}
         {tab === "importar" && (
