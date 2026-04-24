@@ -132,7 +132,9 @@ export default function App() {
   const [debugRechazos, setDebugRechazos] = useState([]);
   const [mesesDisponibles, setMesesDisponibles] = useState([]);
   const [bultosXMes, setBultosXMes] = useState({});
-  const [mes, setMes] = useState(mesN());
+  const [mes, setMes] = useState(() => {
+    return localStorage.getItem("bt_selected_mes") || mesN();
+  });
   const [toast, setToast] = useState(null);
   const [modal, setModal] = useState(null);
   const [cargando, setCargando] = useState(true);
@@ -430,10 +432,16 @@ export default function App() {
       
       const mesesConDatos = resMeses.data || [];
       setMesesDisponibles(mesesConDatos);
-      const fetchMes = mes || mesesConDatos[0] || new Date().toLocaleDateString('sv-SE').slice(0, 7);
+      const savedMes = localStorage.getItem("bt_selected_mes");
+      const fetchMes = mes || savedMes || mesesConDatos[0] || mesN();
       
-      // Si no hay mes seleccionado y encontramos uno con datos, lo seteamos
-      if (!mes && mesesConDatos[0]) setMes(mesesConDatos[0]);
+      if (!mes) {
+        if (savedMes && mesesConDatos.includes(savedMes)) {
+          setMes(savedMes);
+        } else if (mesesConDatos[0]) {
+          setMes(mesesConDatos[0]);
+        }
+      }
 
       const [todosRegs, todosAus, cfgGuardada, resRechazos, xMes, todosChk] =
         await Promise.all([
@@ -552,6 +560,7 @@ export default function App() {
   // TFoxtrot y TDash usan este mismo setter, así el mes queda siempre sincronizado.
   const handleSetMes = useCallback((nuevoMes) => {
     setMes(nuevoMes);
+    localStorage.setItem("bt_selected_mes", nuevoMes);
   }, []);
 
   const onMigracionCompletada = async () => {
