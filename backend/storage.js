@@ -141,6 +141,23 @@ class StorageManager {
     }
     return null; // Si no se encuentra en ninguna cuenta
   }
+  async list(prefix = "") {
+    if (this.buckets.length === 0) return [];
+    const allKeys = new Set();
+    for (const storage of this.buckets) {
+      try {
+        const command = new ListObjectsV2Command({
+          Bucket: storage.bucketName,
+          Prefix: prefix,
+        });
+        const data = await storage.client.send(command);
+        (data.Contents || []).forEach(obj => allKeys.add(obj.Key));
+      } catch (err) {
+        console.error(`❌ Error listando R2 ${storage.id}:`, err.message);
+      }
+    }
+    return [...allKeys];
+  }
 }
 
 module.exports = new StorageManager();

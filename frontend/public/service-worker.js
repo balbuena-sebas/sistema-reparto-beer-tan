@@ -1,4 +1,4 @@
-const CACHE_NAME = 'beer-tan-v3';
+const CACHE_NAME = 'beer-tan-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

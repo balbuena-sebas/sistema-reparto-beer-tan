@@ -121,9 +121,17 @@ router.get("/meses-disponibles", async (req, res) => {
       SELECT DISTINCT mes FROM kpis_mensuales WHERE source = 'rechazos'
       UNION
       SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM') as mes FROM rechazos
-      ORDER BY mes DESC
     `);
-    res.json({ ok: true, data: result.rows.map(r => r.mes).filter(Boolean) });
+    
+    // 2. También listar R2 para mayor seguridad (por si falló el KPI)
+    const files = await storage.list('rechazos/detalle_');
+    const mesesR2 = files.map(f => f.replace('rechazos/detalle_', '').replace('.json', ''));
+    
+    const todos = new Set([...result.rows.map(r => r.mes), ...mesesR2]);
+    const data = [...todos].filter(Boolean).sort().reverse();
+    
+    console.log(`📊 Meses disponibles Rechazos: ${data.join(', ')}`);
+    res.json({ ok: true, data });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

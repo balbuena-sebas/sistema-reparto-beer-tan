@@ -1622,7 +1622,7 @@ export default function App() {
       )}
 
       <footer className="app-footer">
-        © {new Date().getFullYear()} Beer Tan SA · Todos los derechos reservados
+        © {new Date().getFullYear()} Beer Tan SA · v4.1
       </footer>
     </div>
   );
