@@ -46,6 +46,7 @@ import {
   getFoxtrotKpisPorChofer,
   getChecklists,
   guardarChecklist,
+  getMesesDisponiblesRechazos,
 } from "./api/client";
 
 // ─── Pantalla de carga / error ────────────────────────────────────────────────
@@ -133,7 +134,7 @@ export default function App() {
   const [mesesDisponibles, setMesesDisponibles] = useState([]);
   const [bultosXMes, setBultosXMes] = useState({});
   const [mes, setMes] = useState(() => {
-    return localStorage.getItem("bt_selected_mes") || mesN();
+    return localStorage.getItem("bt_selected_mes") || "";
   });
   const [toast, setToast] = useState(null);
   const [modal, setModal] = useState(null);
@@ -426,14 +427,11 @@ export default function App() {
       if (!silencioso) setCargando(true);
       
       // Obtener meses con datos para el selector (Rechazos y Foxtrot)
-      const resMeses = await fetch(`${process.env.REACT_APP_API_URL}/api/rechazos/meses-disponibles`, {
-        headers: { "x-api-key": process.env.REACT_APP_API_KEY },
-      }).then(r => r.json()).catch(() => ({ data: [] }));
-      
-      const mesesConDatos = resMeses.data || [];
+      const mesesConDatos = await getMesesDisponiblesRechazos().catch(() => []);
       setMesesDisponibles(mesesConDatos);
       const savedMes = localStorage.getItem("bt_selected_mes");
-      const fetchMes = mes || savedMes || mesesConDatos[0] || mesN();
+      const currentMes = mesN();
+      let fetchMes = mes || savedMes || mesesConDatos[0] || currentMes;
       
       if (!mes) {
         if (savedMes && mesesConDatos.includes(savedMes)) {

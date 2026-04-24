@@ -112,6 +112,11 @@ export async function deduplicarRechazos() {
   return apiFetch('/api/rechazos/deduplicar', { method: 'POST' });
 }
 
+export async function getMesesDisponiblesRechazos() {
+  const r = await apiFetch('/api/rechazos/meses-disponibles');
+  return r.data || [];
+}
+
 export async function eliminarRechazosArchivo(nombre) {
   return apiFetch(`/api/rechazos/archivo/${encodeURIComponent(nombre)}`, { method: 'DELETE' });
 }

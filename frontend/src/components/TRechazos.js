@@ -482,7 +482,7 @@ export const TRechazos = ({
   const [editando,        setEditando]        = useState(null);
   // Si loggedInUser es chofer, desactiva automáticamente el filtro de soloMisChoferes
   // porque los datos ya vienen filtrados desde App.js
-  const [soloMisChoferes, setSoloMisChoferes] = useState(!loggedInUser || loggedInUser.role !== 'chofer');
+  const [soloMisChoferes, setSoloMisChoferes] = useState(false);
   const [mesSel,          setMesSel]          = useState('');
 
   const norm = (s) => String(s||'').toUpperCase()
@@ -707,23 +707,6 @@ export const TRechazos = ({
   ];
   const colorActivo = TABS.find(t=>t.id===tabActiva)?.color||'#b91c1c';
 
-  if (rechazos.length===0) return (
-    <div className={embebido?'':'dash-container'}>
-      {!embebido && <div className="dash-header"><div><h2 className="dash-title">Rechazos</h2><p className="dash-sub">Importá el Excel desde Importar → Guardar Rechazos</p></div></div>}
-      <div style={{ textAlign:'center', padding:'64px 24px', color:'#94a3b8' }}>
-        <div style={{ fontSize:56, marginBottom:16 }}>❌</div>
-        <div style={{ fontSize:18, fontWeight:800, color:'#475569', marginBottom:8 }}>No hay datos de rechazos</div>
-        <div style={{ fontSize:14, maxWidth:380, margin:'0 auto', lineHeight:1.7 }}>Importá el Excel de rechazos y hacé click en <strong>Guardar Rechazos</strong></div>
-
-        {debug && debug.length > 0 && (
-          <div style={{ marginTop:40, textAlign:'left', background:'#f8fafc', padding:16, borderRadius:12, border:'2px solid #e2e8f0', fontSize:11, fontFamily:'monospace', color:'#64748b' }}>
-            <div style={{ fontWeight:800, color:'#475569', marginBottom:6 }}>DIAGNÓSTICO DEL SERVIDOR:</div>
-            {debug.map((l,i) => <div key={i}>· {l}</div>)}
-          </div>
-        )}
-      </div>
-    </div>
-  );
 
   return (
     <div className={embebido?'':'dash-container'}>
@@ -941,10 +924,25 @@ export const TRechazos = ({
 
       {/* Lista */}
       <div className="dash-card">
-        <ListaItems items={itemsActivos} maxBultos={maxBultos} color={colorActivo}
-          onClickItem={item=>setCardAbierta({tipo:tabActiva,item})}
-          renderExtra={tabActiva==='motivo'?(item=><Badge tipo={clasificarMotivo(item.nombre)}/>):null}
-        />
+        {rechazos.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'64px 24px', color:'#94a3b8' }}>
+            <div style={{ fontSize:56, marginBottom:16 }}>❌</div>
+            <div style={{ fontSize:18, fontWeight:800, color:'#475569', marginBottom:8 }}>No hay datos de rechazos para {mesSel || 'este período'}</div>
+            <div style={{ fontSize:14, maxWidth:380, margin:'0 auto', lineHeight:1.7 }}>Importá el Excel de rechazos o seleccioná otro mes en los botones de arriba.</div>
+            
+            {debug && debug.length > 0 && (
+              <div style={{ marginTop:40, textAlign:'left', background:'#f1f5f9', padding:16, borderRadius:12, border:'1px solid #e2e8f0', fontSize:11, fontFamily:'monospace', color:'#64748b' }}>
+                <div style={{ fontWeight:800, color:'#475569', marginBottom:6 }}>DIAGNÓSTICO DEL SERVIDOR:</div>
+                {debug.map((l,i) => <div key={i}>· {l}</div>)}
+              </div>
+            )}
+          </div>
+        ) : (
+          <ListaItems items={itemsActivos} maxBultos={maxBultos} color={colorActivo}
+            onClickItem={item=>setCardAbierta({tipo:tabActiva,item})}
+            renderExtra={tabActiva==='motivo'?(item=><Badge tipo={clasificarMotivo(item.nombre)}/>):null}
+          />
+        )}
       </div>
 
       {/* Cards */}
