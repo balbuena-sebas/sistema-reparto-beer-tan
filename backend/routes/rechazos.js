@@ -94,16 +94,21 @@ router.get("/", async (req, res) => {
     // --- FALLBACK R2 ---
     if (data.length === 0 && mes) {
       try {
-        const archived = await storage.download(`rechazos/detalle_${mes}.json`);
-        if (archived && Array.isArray(archived)) {
-          logs.push(`📦 Cargado desde R2 (mes ${mes})`);
-          for (const r of archived) {
-            // Adaptar nombres de campos si vienen de la tabla (S3 guarda el JSON de la fila SQL)
-            data.push(await filaARec(r));
+        if (storage.buckets.length > 0) {
+          const archived = await storage.download(`rechazos/detalle_${mes}.json`);
+          if (archived && Array.isArray(archived)) {
+            logs.push(`📦 Cargado desde R2 (${archived.length} registros para ${mes})`);
+            for (const r of archived) {
+              data.push(await filaARec(r));
+            }
+          } else {
+            logs.push(`ℹ No se encontró archivo en R2 para ${mes}`);
           }
+        } else {
+          logs.push(`⚠️ Cloudflare R2 no está configurado (faltan env vars en RENDER)`);
         }
       } catch (err) {
-        logs.push(`⚠ Error buscando en R2: ${err.message}`);
+        logs.push(`❌ Error buscando en R2: ${err.message}`);
       }
     }
 
@@ -118,7 +123,12 @@ router.get("/", async (req, res) => {
 router.get("/meses-disponibles", async (req, res) => {
   try {
     const result = await query(`
-      SELECT DISTINCT mes FROM kpis_mensuales WHERE source = 'rechazos'
+      SELECT DISTINCT mes FROM kpis_mensuales 
+      WHERE source = 'rechazos' 
+      AND (
+        (datos_json->>'bultos_pedidos')::numeric > 0 OR 
+        (datos_json->>'bultos_rechazados')::numeric > 0
+      )
       UNION
       SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM') as mes FROM rechazos
     `);
