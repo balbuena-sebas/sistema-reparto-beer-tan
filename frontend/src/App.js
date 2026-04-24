@@ -435,22 +435,20 @@ export default function App() {
       // Si no hay mes seleccionado y encontramos uno con datos, lo seteamos
       if (!mes && mesesConDatos[0]) setMes(mesesConDatos[0]);
 
-      const [todosRegs, todosAus, cfgGuardada, todosRechazos, xMes, todosChk] =
+      const [todosRegs, todosAus, cfgGuardada, resRechazos, xMes, todosChk] =
         await Promise.all([
           getRegistros(fetchMes),
           getAusencias(fetchMes),
           getConfig(), 
-          getRechazos(fetchMes).then(res => {
-            setRechazos(res.data || []);
-            setDebugRechazos(res.debug || []);
-          }),
+          getRechazos(fetchMes),
           getBultosPorMes(),
           getChecklists(new Date().toLocaleDateString('sv-SE')),
         ]);
 
       setRegs(todosRegs || []);
       setAus(todosAus || []);
-      setRechazos(todosRechazos || []);
+      setRechazos(resRechazos?.data || []);
+      setDebugRechazos(resRechazos?.debug || []);
       setBultosXMes(xMes || {});
       setChecklistsHoy(Array.isArray(todosChk) ? todosChk : []);
       
@@ -481,7 +479,6 @@ export default function App() {
       }
       
       setCfg(cfgFinal);
-      setRechazos(todosRechazos || []);
       
       // Combinar datos: Prioridad a lo que viene de la DB real (xMes)
       const xMesFinal = { ...(xMes || {}) };
