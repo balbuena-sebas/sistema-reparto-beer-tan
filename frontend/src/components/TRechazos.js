@@ -420,6 +420,8 @@ const ListaItems = ({ items, maxBultos, color, onClickItem, renderExtra }) => (
     ))}
     {items.length===0 && <div style={{ textAlign:'center', padding:'32px', color:'#94a3b8', fontSize:14 }}>Sin resultados para este filtro</div>}
   </div>
+);
+
 export const TRechazos = ({ 
   rechazos = [], 
   debug = [], 
