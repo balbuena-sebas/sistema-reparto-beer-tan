@@ -414,7 +414,23 @@ router.post("/importar", async (req, res) => {
 router.delete("/archivo/:nombre", async (req, res) => {
   try {
     const archivo = decodeURIComponent(req.params.nombre);
+    
+    // 1. Identificar meses y choferes afectados para actualizar KPIs después
+    const afectados = await query(
+      "SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM') as mes, chofer_desc as chofer FROM rechazos WHERE archivo = $1",
+      [archivo]
+    );
+
+    // 2. Eliminar
     const result = await query("DELETE FROM rechazos WHERE archivo = $1 RETURNING id", [archivo]);
+    
+    // 3. Recalcular KPIs para limpiar los botones si ya no quedan datos
+    for (const af of afectados.rows) {
+      if (af.mes && af.chofer) {
+        await actualizarKPIMensual(af.mes, af.chofer, 'rechazos').catch(e => console.error("Error recalculo KPI:", e.message));
+      }
+    }
+
     res.json({ ok: true, eliminados: result.rowCount });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -457,7 +473,20 @@ router.delete("/:id", async (req, res) => {
   const id = Number(req.params.id);
   if (!id) return res.status(400).json({ ok: false, error: "ID inválido" });
   try {
+    // 1. Identificar mes y chofer antes de borrar
+    const ref = await query("SELECT TO_CHAR(fecha, 'YYYY-MM') as mes, chofer_desc as chofer FROM rechazos WHERE id=$1", [id]);
+    
+    // 2. Borrar
     await query("DELETE FROM rechazos WHERE id=$1", [id]);
+    
+    // 3. Recalcular KPI
+    if (ref.rows[0]) {
+      const { mes, chofer } = ref.rows[0];
+      if (mes && chofer) {
+        await actualizarKPIMensual(mes, chofer, 'rechazos').catch(e => console.error("Error recalculo KPI:", e.message));
+      }
+    }
+
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -476,6 +505,17 @@ router.post("/deduplicar", async (req, res) => {
       ) RETURNING id
     `);
     res.json({ ok: true, eliminados: result.rowCount, mensaje: `Se eliminaron ${result.rowCount} registros duplicados` });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ── POST /api/rechazos/mantenimiento-kpis ──────────────────────────────────────
+router.post("/mantenimiento-kpis", async (req, res) => {
+  try {
+    const { cleanupEmptyKPIs } = require('../scripts/cleanup_kpis');
+    await cleanupEmptyKPIs();
+    res.json({ ok: true, mensaje: "Mantenimiento de KPIs completado. Los botones vacíos deberían desaparecer." });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

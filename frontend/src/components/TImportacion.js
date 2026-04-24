@@ -886,9 +886,19 @@ Si guardás de nuevo se DUPLICARÁN los datos.
                   }} style={{ padding:'5px 14px', background:'#fff7e0', border:'2px solid #f59e0b', borderRadius:7, fontSize:12, fontWeight:700, cursor:'pointer', color:'#78350f' }}>
                     🧹 Limpiar duplicados
                   </button>
+                  <button onClick={async () => {
+                    try {
+                      await apiFetch('/api/rechazos/mantenimiento-kpis', { method: 'POST' });
+                      notify('✓ KPIs actualizados y meses sincronizados');
+                      cargarHistorial();
+                      window.location.reload(); // Forzar recarga para limpiar el selector
+                    } catch(e) { notify('❌ ' + e.message, 'err'); }
+                  }} style={{ padding:'5px 14px', background:'#e0f2fe', border:'2px solid #7dd3fc', borderRadius:7, fontSize:12, fontWeight:700, cursor:'pointer', color:'#0369a1' }}>
+                    🔄 Refrescar meses
+                  </button>
                   <button onClick={cargarHistorial} disabled={cargandoHist}
                     style={{ padding:'5px 12px', background:'#f1f5f9', border:'2px solid #e2e8f0', borderRadius:7, fontSize:12, fontWeight:700, cursor:'pointer', color:'#475569' }}>
-                    {cargandoHist ? '⏳' : '🔄 Actualizar'}
+                    {cargandoHist ? '⏳' : '🔄 Actualizar Historial'}
                   </button>
                 </div>
               </div>
