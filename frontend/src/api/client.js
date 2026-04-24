@@ -3,7 +3,7 @@ const BASE_URL = process.env.REACT_APP_API_URL || "https://beer-tan-backend.onre
 const API_KEY  = process.env.REACT_APP_API_KEY || "heavy-behind-blush-will";
 
 
-async function apiFetch(path, options = {}) {
+export async function apiFetch(path, options = {}) {
   const res  = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {

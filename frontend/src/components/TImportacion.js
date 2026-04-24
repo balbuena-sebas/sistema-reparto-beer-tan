@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import { fn, tod } from '../utils/helpers';
 import * as XLSX from 'xlsx';
 import { TRechazos as VistaRechazosCompleta } from './TRechazos';
-import { getArchivosRechazos, eliminarArchivoRechazos, deduplicarRechazos } from '../api/client';
+import { getArchivosRechazos, eliminarArchivoRechazos, deduplicarRechazos, apiFetch } from '../api/client';
 
 // ─── Parsear CSV Foxtrot ──────────────────────────────────────────────────────
 function parseCSV(text) {
