@@ -428,6 +428,7 @@ export default function App() {
       
       // Obtener meses con datos para el selector (Rechazos y Foxtrot)
       const mesesConDatos = await getMesesDisponiblesRechazos().catch(() => []);
+      console.log("📊 Meses detectados por la API:", mesesConDatos);
       setMesesDisponibles(mesesConDatos);
       const savedMes = localStorage.getItem("bt_selected_mes");
       const currentMes = mesN();
