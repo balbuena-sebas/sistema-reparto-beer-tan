@@ -277,7 +277,7 @@ router.get("/verificar/:archivo", async (req, res) => {
 
 // ── POST /api/rechazos/importar ───────────────────────────────────────────────
 router.post("/importar", async (req, res) => {
-  const { rows = [], archivo = "sin nombre" } = req.body;
+  const { rows = [], archivo = "sin nombre", totalesArchivo = null } = req.body;
   if (!Array.isArray(rows) || rows.length === 0)
     return res.status(400).json({ ok: false, error: "No se enviaron filas" });
 
@@ -387,7 +387,36 @@ router.post("/importar", async (req, res) => {
     const mes = rows[0]?.fecha ? rows[0].fecha.slice(0, 7) : null;
     if (mes) {
       Promise.all(choferesUnicos.map(c => actualizarKPIMensual(mes, c, 'rechazos')))
-        .then(() => {
+        .then(async () => {
+          // Si el archivo traía totales globales (incluyendo bultos entregados OK),
+          // actualizamos la tabla de configuración para que el dashboard muestre el total real.
+          if (totalesArchivo && totalesArchivo.bultosTotal > 0) {
+            try {
+              const confRes = await query('SELECT listas_gz FROM configuracion WHERE id = 1');
+              const listas = await descomprimirSafe(confRes.rows[0]?.listas_gz, {});
+              if (!listas.bultosXMes) listas.bultosXMes = {};
+              
+              // Guardamos el total global del archivo para este mes
+              listas.bultosXMes[mes] = {
+                total: Math.round(totalesArchivo.bultosTotal),
+                porChofer: {}
+              };
+              
+              // También desglosar por chofer si viene en el totalesArchivo
+              if (totalesArchivo.bultosPorChofer) {
+                Object.keys(totalesArchivo.bultosPorChofer).forEach(cId => {
+                  listas.bultosXMes[mes].porChofer[cId] = Math.round(totalesArchivo.bultosPorChofer[cId]);
+                });
+              }
+
+              const gz = await comprimir(listas);
+              await query('UPDATE configuracion SET listas_gz = $1, updated_at = NOW() WHERE id = 1', [gz]);
+              console.log(`📊 Configuración actualizada con bultos totales de ${archivo} para ${mes}`);
+            } catch (errConf) {
+              console.error("⚠ Error actualizando config con totales del archivo:", errConf.message);
+            }
+          }
+
           // Después de actualizar KPIs, disparamos limpieza automática de meses viejos
           realizarLimpiezaAutomatica().catch(e => console.error("⚠ Falló limpieza automática post-import:", e.message));
         })

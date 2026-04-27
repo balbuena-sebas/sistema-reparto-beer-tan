@@ -1062,7 +1062,7 @@ export default function App() {
   const saveRechazos = useCallback(
     async (rows, archivo, totalesArchivo) => {
       try {
-        const res = await importarRechazos(rows, archivo);
+        const res = await importarRechazos(rows, archivo, totalesArchivo);
         
         const mesesEnRows = [
           ...new Set(
