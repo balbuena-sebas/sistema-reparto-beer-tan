@@ -434,7 +434,7 @@ export default function App() {
       const currentMes = mesN();
       let fetchMes = mes || savedMes || mesesConDatos[0] || currentMes;
       
-      if (!mes) {
+      if (mes === undefined || mes === null) {
         if (savedMes && mesesConDatos.includes(savedMes)) {
           setMes(savedMes);
         } else if (mesesConDatos[0]) {

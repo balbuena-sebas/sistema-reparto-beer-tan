@@ -724,14 +724,20 @@ export const TRechazos = ({
             {mesesDisponibles.length >= 1 && (
               <>
                 <span style={{ fontSize:11, fontWeight:800, color:'#64748b', textTransform:'uppercase' }}>Mes:</span>
+                {/* Botón TODOS */}
+                <button onClick={() => { setMes(''); setDesdeFecha(''); setHastaFecha(''); }}
+                  style={{ padding:'6px 14px', borderRadius:8, border:'2px solid', fontSize:13, fontWeight:700, cursor:'pointer',
+                    background: mes==='' ? '#b91c1c' : '#f1f5f9', color: mes==='' ? '#fff' : '#475569',
+                    borderColor: mes==='' ? '#b91c1c' : '#e2e8f0' }}>TODOS</button>
+                
                 {mesesDisponibles.map(m => {
                   const [y,mo] = m.split('-');
                   const lbl = new Date(+y,+mo-1,1).toLocaleString('es-AR',{month:'short',year:'numeric'}).replace('.','');
                   return (
-                    <button key={m} onClick={() => { setMesSel(m); setDesdeFecha(''); setHastaFecha(''); }}
+                    <button key={m} onClick={() => { setMes(m); setDesdeFecha(''); setHastaFecha(''); }}
                       style={{ padding:'6px 14px', borderRadius:8, border:'2px solid', fontSize:13, fontWeight:700, cursor:'pointer',
-                        background: mesSel===m ? '#b91c1c' : '#f1f5f9', color: mesSel===m ? '#fff' : '#475569',
-                        borderColor: mesSel===m ? '#b91c1c' : '#e2e8f0' }}>{lbl}</button>
+                        background: mes===m ? '#b91c1c' : '#f1f5f9', color: mes===m ? '#fff' : '#475569',
+                        borderColor: mes===m ? '#b91c1c' : '#e2e8f0' }}>{lbl}</button>
                   );
                 })}
               </>
@@ -878,7 +884,7 @@ export const TRechazos = ({
           <input type="text" className="filter-input" placeholder="Cliente, chofer, artículo, motivo..."
             value={buscar} onChange={e=>setBuscar(e.target.value)} style={{ width:'100%' }} />
         </div>
-        <button onClick={()=>{ setBuscar(''); setDesdeFecha(''); setHastaFecha(''); setMesSel(''); }}
+        <button onClick={()=>{ setBuscar(''); setDesdeFecha(''); setHastaFecha(''); setMes(''); }}
           style={{ padding:'8px 14px', background:'#f1f5f9', border:'2px solid #e2e8f0', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer', color:'#475569', alignSelf:'flex-end', height:38 }}>
           ✕
         </button>
