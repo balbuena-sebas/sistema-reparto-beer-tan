@@ -431,6 +431,8 @@ export const TRechazos = ({
   onEliminar, 
   loggedInUser,
   mesesGlobales = [],
+  mes = '',
+  setMes = () => {},
   embebido = false 
 }) => {
 
@@ -485,7 +487,6 @@ export const TRechazos = ({
   // Si loggedInUser es chofer, desactiva automáticamente el filtro de soloMisChoferes
   // porque los datos ya vienen filtrados desde App.js
   const [soloMisChoferes, setSoloMisChoferes] = useState(false);
-  const [mesSel,          setMesSel]          = useState('');
 
   const norm = (s) => String(s||'').toUpperCase()
     .replace(/Á/g,'A').replace(/É/g,'E').replace(/Í/g,'I')
@@ -564,7 +565,7 @@ export const TRechazos = ({
     return rechazos.filter(r => {
       if (ARTS_EXCLUIDOS.has(String(r.articulo||'').trim())) return false;
       if (!esChoferValido(r)) return false;
-      if (mesSel && !(r.fecha||'').startsWith(mesSel)) return false;
+      if (mes && !(r.fecha||'').startsWith(mes)) return false;
       if (desdeFecha && (r.fecha||'') < desdeFecha) return false;
       if (hastaFecha && (r.fecha||'') > hastaFecha) return false;
       if (buscar) {
@@ -615,7 +616,7 @@ export const TRechazos = ({
 
     // Sin filtro de choferes → total real del período (respetando desdeFecha/hastaFecha)
     if (!soloMisChoferes || misChoferes.ids.size === 0) {
-      if (mesSel && bxM[mesSel]?.total > 0) return Math.round(bxM[mesSel].total);
+      if (mes && bxM[mes]?.total > 0) return Math.round(bxM[mes].total);
 
       // Considerar rangos de fecha si están definidos
       let mesesEnRango = meses;
@@ -634,7 +635,7 @@ export const TRechazos = ({
     }
 
     // Con filtro ON → sumar solo mis chofer IDs desde porChofer
-    const mesEfectivo = mesSel || mesDelExcel;
+    const mesEfectivo = mes || mesDelExcel;
     if (mesEfectivo) {
       const dm = bxM[mesEfectivo];
       if (dm?.porChofer && Object.keys(dm.porChofer).length > 0) {
@@ -739,7 +740,7 @@ export const TRechazos = ({
             {(!loggedInUser || loggedInUser.role === 'admin') && (
             <button
               onClick={() => {
-                const fecha = mesSel || new Date().toISOString().slice(0,7);
+                const fecha = mes || new Date().toISOString().slice(0,7);
                 exportarRechazosXLSX(filtrados, `rechazos_${fecha}`);
               }}
               title={`Exportar ${filtrados.length} registros filtrados a CSV`}

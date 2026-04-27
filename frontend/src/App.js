@@ -1556,6 +1556,8 @@ export default function App() {
             loggedInUser={loggedInUser}
             onEditar={editRec}
             onEliminar={delRec}
+            mes={mes}
+            setMes={setMes}
             mesesGlobales={mesesDisponibles}
           />
         )}
