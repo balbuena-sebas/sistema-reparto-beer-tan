@@ -122,18 +122,12 @@ router.get("/", async (req, res) => {
 // Devuelve los meses que tienen datos (ya sea en DB o archivados)
 router.get("/meses-disponibles", async (req, res) => {
   try {
+    // 1. Solo meses que tengan registros reales en la tabla o en R2
     const result = await query(`
-      SELECT DISTINCT mes FROM kpis_mensuales 
-      WHERE source = 'rechazos' 
-      AND (
-        (datos_json->>'bultos_pedidos')::numeric > 0 OR 
-        (datos_json->>'bultos_rechazados')::numeric > 0
-      )
-      UNION
       SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM') as mes FROM rechazos
     `);
     
-    // 2. También listar R2 para mayor seguridad (por si falló el KPI)
+    // 2. También listar R2
     const files = await storage.list('rechazos/detalle_');
     const mesesR2 = files.map(f => f.replace('rechazos/detalle_', '').replace('.json', ''));
     
@@ -515,7 +509,36 @@ router.post("/mantenimiento-kpis", async (req, res) => {
   try {
     const { cleanupEmptyKPIs } = require('../scripts/cleanup_kpis');
     await cleanupEmptyKPIs();
-    res.json({ ok: true, mensaje: "Mantenimiento de KPIs completado. Los botones vacíos deberían desaparecer." });
+
+    // También limpiar bultos_x_mes en la configuracion para meses que ya no existen
+    try {
+      const { comprimir, descomprimirSafe } = require('../compress');
+      const confRes = await query('SELECT listas_gz FROM configuracion WHERE id = 1');
+      if (confRes.rows[0]?.listas_gz) {
+        const listas = await descomprimirSafe(confRes.rows[0].listas_gz, {});
+        if (listas.bultosXMes) {
+          const mesesActuales = await query("SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM') as mes FROM rechazos");
+          const setMeses = new Set(mesesActuales.rows.map(r => r.mes));
+          
+          let cambio = false;
+          Object.keys(listas.bultosXMes).forEach(m => {
+            if (!setMeses.has(m)) {
+              delete listas.bultosXMes[m];
+              cambio = true;
+            }
+          });
+
+          if (cambio) {
+            const gz = await comprimir(listas);
+            await query('UPDATE configuracion SET listas_gz = $1, updated_at = NOW() WHERE id = 1', [gz]);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error limpiando bultosXMes en config:", e.message);
+    }
+
+    res.json({ ok: true, mensaje: "Mantenimiento de KPIs y Configuración completado. Los meses vacíos han sido eliminados." });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
