@@ -134,7 +134,7 @@ export async function migrarDesdeLocalStorage(regs, aus, cfg) {
 // ── BULTOS POR MES ───────────────────────────────────────────────────────────
 export async function getBultosPorMes() {
   try {
-    const r = await apiFetch('/api/rechazos/bultos-por-mes');
+    const r = await apiFetch(`/api/rechazos/bultos-por-mes?t=${Date.now()}`);
     return r.data || {};
   } catch {
     return {};
