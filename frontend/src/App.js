@@ -487,17 +487,29 @@ export default function App() {
       
       setCfg(cfgFinal);
       
-      // Combinar datos: Prioridad a lo que viene de la DB real (xMes)
-      const xMesFinal = { ...(xMes || {}) };
+      // Sincronizar bultos: Solo mostrar meses que el backend reporta como disponibles
+      // Esto evita que aparezcan datos "huérfanos" que quedaron en el objeto de configuración
+      const xMesFinal = {};
       const xMesDeConfig = cfgGuardada?.bultosXMes || {};
-      
-      Object.keys(xMesDeConfig).forEach((m) => {
-        // Solo usamos el dato de configuración si NO existe en la DB real
-        // o si el dato de la DB real está vacío.
-        if (!xMesFinal[m] || xMesFinal[m].total === 0) {
-          xMesFinal[m] = xMesDeConfig[m];
+      const setMesesDisponibles = new Set(mesesGlobales);
+
+      // 1. Agregar lo que viene de la DB real (KPIs y Rechazos actuales)
+      Object.keys(xMes || {}).forEach(m => {
+        if (setMesesDisponibles.has(m)) {
+          xMesFinal[m] = xMes[m];
         }
       });
+
+      // 2. Agregar lo que está en Configuración SOLO si el mes es válido según meses-disponibles
+      Object.keys(xMesDeConfig).forEach((m) => {
+        if (setMesesDisponibles.has(m)) {
+          // Si no existe en xMesFinal (KPIs), usamos el de configuración como fallback
+          if (!xMesFinal[m] || xMesFinal[m].total === 0) {
+            xMesFinal[m] = xMesDeConfig[m];
+          }
+        }
+      });
+      
       setBultosXMes(xMesFinal);
       
       if (!silencioso) {
