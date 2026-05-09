@@ -491,18 +491,18 @@ export default function App() {
       // Esto evita que aparezcan datos "huérfanos" que quedaron en el objeto de configuración
       const xMesFinal = {};
       const xMesDeConfig = cfgGuardada?.bultosXMes || {};
-      const setMesesDisponibles = new Set(mesesGlobales);
+      const mesesDisponiblesSet = new Set(mesesConDatos);
 
       // 1. Agregar lo que viene de la DB real (KPIs y Rechazos actuales)
       Object.keys(xMes || {}).forEach(m => {
-        if (setMesesDisponibles.has(m)) {
+        if (mesesDisponiblesSet.has(m)) {
           xMesFinal[m] = xMes[m];
         }
       });
 
       // 2. Agregar lo que está en Configuración SOLO si el mes es válido según meses-disponibles
       Object.keys(xMesDeConfig).forEach((m) => {
-        if (setMesesDisponibles.has(m)) {
+        if (mesesDisponiblesSet.has(m)) {
           // Si no existe en xMesFinal (KPIs), usamos el de configuración como fallback
           if (!xMesFinal[m] || xMesFinal[m].total === 0) {
             xMesFinal[m] = xMesDeConfig[m];
@@ -555,13 +555,17 @@ export default function App() {
   // el mismo dato sin duplicar requests cuando el usuario está en el dashboard.
   useEffect(() => {
     if (cargando) return; // esperar a que la carga inicial termine
-    const [y, m] = mes.split("-");
-    const desde = `${y}-${m}-01`;
-    const ultimo = new Date(Number(y), Number(m), 0).getDate();
-    const hasta = `${y}-${m}-${String(ultimo).padStart(2, "0")}`;
-
     setCargandoFoxtrotKpis(true);
-    getFoxtrotKpisPorChofer({ desde, hasta })
+    let params = {};
+    if (mes) {
+      const [y, m] = mes.split("-");
+      const desde = `${y}-${m}-01`;
+      const ultimo = new Date(Number(y), Number(m), 0).getDate();
+      const hasta = `${y}-${m}-${String(ultimo).padStart(2, "0")}`;
+      params = { desde, hasta };
+    }
+
+    getFoxtrotKpisPorChofer(params)
       .then((data) => setFoxtrotKpis(Array.isArray(data) ? data : []))
       .catch(() => setFoxtrotKpis([]))
       .finally(() => setCargandoFoxtrotKpis(false));

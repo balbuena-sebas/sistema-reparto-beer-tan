@@ -578,7 +578,7 @@ export const TRechazos = ({
       }
       return true;
     });
-  },[rechazos, buscar, desdeFecha, hastaFecha, mesSel, esChoferValido]);
+  },[rechazos, buscar, desdeFecha, hastaFecha, mes, esChoferValido]);
 
   const agrupar = useCallback((keyFn) => {
     const m = {};
@@ -667,7 +667,7 @@ export const TRechazos = ({
 
     // Fallback final
     return cfg.bultosTotal || 0;
-  }, [cfg.bultosXMes, cfg.bultosTotal, soloMisChoferes, misChoferes, mesSel, mesDelExcel, desdeFecha, hastaFecha]);
+  }, [cfg.bultosXMes, cfg.bultosTotal, soloMisChoferes, misChoferes, mes, mesDelExcel, desdeFecha, hastaFecha]);
 
   const diasTrabajados = useMemo(() => {
     const fechas = filtrados.map(r => r.fecha).filter(Boolean).sort();
@@ -936,7 +936,7 @@ export const TRechazos = ({
         {rechazos.length === 0 ? (
           <div style={{ textAlign:'center', padding:'64px 24px', color:'#94a3b8' }}>
             <div style={{ fontSize:56, marginBottom:16 }}>❌</div>
-            <div style={{ fontSize:18, fontWeight:800, color:'#475569', marginBottom:8 }}>No hay datos de rechazos para {mesSel || 'este período'}</div>
+            <div style={{ fontSize:18, fontWeight:800, color:'#475569', marginBottom:8 }}>No hay datos de rechazos para {mes || 'este período'}</div>
             <div style={{ fontSize:14, maxWidth:380, margin:'0 auto', lineHeight:1.7 }}>Importá el Excel de rechazos o seleccioná otro mes en los botones de arriba.</div>
             
             {debug && debug.length > 0 && (
@@ -974,8 +974,8 @@ export const TRechazos = ({
             .filter(Boolean)
         )];
 
-        // Mes efectivo: mesSel activo o mes único en los datos
-        const mesEfectivo = mesSel || mesDelExcel;
+        // Mes efectivo: mes activo o mes único en los datos
+        const mesEfectivo = mes || mesDelExcel;
         const datosMes = mesEfectivo ? (cfg.bultosXMes || {})[mesEfectivo] : null;
 
         // FIX: sumar bultos entregados de TODOS los IDs del chofer, no solo el primero
