@@ -493,19 +493,18 @@ export default function App() {
       const xMesDeConfig = cfgGuardada?.bultosXMes || {};
       const mesesDisponiblesSet = new Set(mesesConDatos);
 
-      // 1. Agregar lo que viene de la DB real (KPIs y Rechazos actuales)
-      Object.keys(xMes || {}).forEach(m => {
+      // 1. Empezar con lo que está en Configuración (tiene los totales reales del Excel completo)
+      Object.keys(xMesDeConfig).forEach((m) => {
         if (mesesDisponiblesSet.has(m)) {
-          xMesFinal[m] = xMes[m];
+          xMesFinal[m] = xMesDeConfig[m];
         }
       });
 
-      // 2. Agregar lo que está en Configuración SOLO si el mes es válido según meses-disponibles
-      Object.keys(xMesDeConfig).forEach((m) => {
+      // 2. Fallback: agregar lo que viene de la DB real (KPIs) SOLO si no hay datos en configuración
+      Object.keys(xMes || {}).forEach(m => {
         if (mesesDisponiblesSet.has(m)) {
-          // Si no existe en xMesFinal (KPIs), usamos el de configuración como fallback
           if (!xMesFinal[m] || xMesFinal[m].total === 0) {
-            xMesFinal[m] = xMesDeConfig[m];
+            xMesFinal[m] = xMes[m];
           }
         }
       });

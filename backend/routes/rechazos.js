@@ -454,6 +454,43 @@ router.delete("/archivo/:nombre", async (req, res) => {
       }
     }
 
+    // 4. Limpiar bultosXMes si el mes ya no tiene datos en DB ni en R2
+    try {
+      const { comprimir, descomprimirSafe } = require('../compress');
+      const storage = require('../storage');
+      const confRes = await query('SELECT listas_gz FROM configuracion WHERE id = 1');
+      if (confRes.rows[0]?.listas_gz) {
+        const listas = await descomprimirSafe(confRes.rows[0].listas_gz, {});
+        if (listas.bultosXMes) {
+          const mesesActuales = await query("SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM') as mes FROM rechazos");
+          const setMeses = new Set(mesesActuales.rows.map(r => r.mes));
+          
+          try {
+            const files = await storage.list('rechazos/detalle_');
+            files.forEach(f => {
+              const m = f.replace('rechazos/detalle_', '').replace('.json', '');
+              if (m) setMeses.add(m);
+            });
+          } catch(e) {}
+
+          let cambio = false;
+          Object.keys(listas.bultosXMes).forEach(m => {
+            if (!setMeses.has(m)) {
+              delete listas.bultosXMes[m];
+              cambio = true;
+            }
+          });
+
+          if (cambio) {
+            const gz = await comprimir(listas);
+            await query('UPDATE configuracion SET listas_gz = $1, updated_at = NOW() WHERE id = 1', [gz]);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error limpiando configuracion post-eliminacion:", err.message);
+    }
+
     res.json({ ok: true, eliminados: result.rowCount });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -548,6 +585,17 @@ router.post("/mantenimiento-kpis", async (req, res) => {
         if (listas.bultosXMes) {
           const mesesActuales = await query("SELECT DISTINCT TO_CHAR(fecha, 'YYYY-MM') as mes FROM rechazos");
           const setMeses = new Set(mesesActuales.rows.map(r => r.mes));
+          
+          // Verificar si hay meses archivados en R2 para no borrarlos
+          try {
+            const files = await storage.list('rechazos/detalle_');
+            files.forEach(f => {
+              const m = f.replace('rechazos/detalle_', '').replace('.json', '');
+              if (m) setMeses.add(m);
+            });
+          } catch (e) {
+            console.error("Error listando R2 en mantenimiento:", e.message);
+          }
           
           let cambio = false;
           Object.keys(listas.bultosXMes).forEach(m => {
