@@ -611,6 +611,8 @@ export const TRechazos = ({
   // Filtro OFF → suma real de bultosXMes considerando filtros de fecha
   // Filtro ON  → suma de bultos de mis choferes mediante porChofer por mes
   const bultosEntregados = useMemo(() => {
+    if (filtrados.length === 0) return 0;
+
     const bxM   = cfg.bultosXMes || {};
     const meses = Object.keys(bxM).sort();
 
@@ -631,7 +633,7 @@ export const TRechazos = ({
       }
 
       const suma = mesesEnRango.reduce((s, m) => s + (bxM[m]?.total || 0), 0);
-      return suma > 0 ? Math.round(suma) : (cfg.bultosTotal || 0);
+      return suma > 0 ? Math.round(suma) : 0;
     }
 
     // Con filtro ON → sumar solo mis chofer IDs desde porChofer
@@ -665,9 +667,8 @@ export const TRechazos = ({
     });
     if (suma > 0) return Math.round(suma);
 
-    // Fallback final
-    return cfg.bultosTotal || 0;
-  }, [cfg.bultosXMes, cfg.bultosTotal, soloMisChoferes, misChoferes, mes, mesDelExcel, desdeFecha, hastaFecha]);
+    return 0;
+  }, [cfg.bultosXMes, soloMisChoferes, misChoferes, mes, mesDelExcel, desdeFecha, hastaFecha, filtrados.length]);
 
   const diasTrabajados = useMemo(() => {
     const fechas = filtrados.map(r => r.fecha).filter(Boolean).sort();
