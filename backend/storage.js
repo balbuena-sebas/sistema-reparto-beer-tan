@@ -1,5 +1,24 @@
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const zlib = require('zlib');
+const { promisify } = require('util');
+
+const gzip = promisify(zlib.gzip);
+const gunzip = promisify(zlib.gunzip);
+
+function bufferReplacer(key, value) {
+  if (Buffer.isBuffer(value)) {
+    return { __type: 'Buffer', data: value.toString('base64') };
+  }
+  return value;
+}
+
+function bufferReviver(key, value) {
+  if (value && value.__type === 'Buffer' && typeof value.data === 'string') {
+    return Buffer.from(value.data, 'base64');
+  }
+  return value;
+}
 
 /**
  * Gestor de almacenamiento multi-cuenta para Cloudflare R2
@@ -52,8 +71,24 @@ class StorageManager {
    * @param {any} body Contenido (Buffer o string)
    * @param {string} contentType Tipo de archivo
    */
-  async upload(key, body, contentType = "application/json") {
+  async upload(key, body, contentType = "application/json", options = {}) {
     if (this.buckets.length === 0) throw new Error("No hay storage configurado");
+
+    const isJsonObject = body !== null && typeof body === 'object' && !Buffer.isBuffer(body);
+    const shouldCompress = options.compress !== false && isJsonObject && contentType === 'application/json';
+    let payload = body;
+    const extraParams = {};
+
+    if (isJsonObject) {
+      const json = JSON.stringify(body, bufferReplacer);
+      if (shouldCompress) {
+        payload = await gzip(Buffer.from(json, 'utf8'));
+        extraParams.ContentEncoding = 'gzip';
+        if (!key.endsWith('.gz')) key = `${key}.gz`;
+      } else {
+        payload = json;
+      }
+    }
 
     let lastError;
     // Intentamos en cada bucket disponible
@@ -62,8 +97,9 @@ class StorageManager {
         const command = new PutObjectCommand({
           Bucket: storage.bucketName,
           Key: key,
-          Body: typeof body === 'object' ? JSON.stringify(body) : body,
+          Body: payload,
           ContentType: contentType,
+          ...extraParams,
         });
 
         await storage.client.send(command);
@@ -93,26 +129,32 @@ class StorageManager {
     if (!this.retentionDays || this.retentionDays <= 0) return;
 
     try {
-      const listCommand = new ListObjectsV2Command({
-        Bucket: storage.bucketName,
-        MaxKeys: 100 // Limpiamos de a poco para no saturar las operaciones de Clase A
-      });
-
-      const data = await storage.client.send(listCommand);
-      if (!data.Contents) return;
-
+      let continuationToken;
       const now = new Date();
       const expirationDate = new Date(now.getTime() - (this.retentionDays * 24 * 60 * 60 * 1000));
 
-      for (const object of data.Contents) {
-        if (object.LastModified < expirationDate) {
-          console.log(`🗑 Borrando archivo viejo para liberar espacio: ${object.Key} (Modificado: ${object.LastModified})`);
-          await storage.client.send(new DeleteObjectCommand({
-            Bucket: storage.bucketName,
-            Key: object.Key
-          }));
+      do {
+        const listCommand = new ListObjectsV2Command({
+          Bucket: storage.bucketName,
+          MaxKeys: 100,
+          ContinuationToken: continuationToken,
+        });
+
+        const data = await storage.client.send(listCommand);
+        if (!data.Contents) break;
+
+        for (const object of data.Contents) {
+          if (object.LastModified < expirationDate) {
+            console.log(`🗑 Borrando archivo viejo para liberar espacio: ${object.Key} (Modificado: ${object.LastModified})`);
+            await storage.client.send(new DeleteObjectCommand({
+              Bucket: storage.bucketName,
+              Key: object.Key
+            }));
+          }
         }
-      }
+
+        continuationToken = data.NextContinuationToken;
+      } while (continuationToken);
     } catch (err) {
       console.error("Error en autoCleanup:", err.message);
     }
@@ -124,34 +166,60 @@ class StorageManager {
   async download(key) {
     if (this.buckets.length === 0) throw new Error("No hay storage configurado");
 
+    const candidateKeys = key.endsWith('.gz') ? [key] : [key, `${key}.gz`];
     let lastError;
-    for (const storage of this.buckets) {
-      try {
-        const command = new GetObjectCommand({
-          Bucket: storage.bucketName,
-          Key: key,
-        });
 
-        const response = await storage.client.send(command);
-        const bodyContents = await response.Body.transformToString();
-        return JSON.parse(bodyContents);
-      } catch (err) {
-        lastError = err;
+    for (const storage of this.buckets) {
+      for (const candidateKey of candidateKeys) {
+        try {
+          const command = new GetObjectCommand({
+            Bucket: storage.bucketName,
+            Key: candidateKey,
+          });
+
+          const response = await storage.client.send(command);
+          let rawBody;
+
+          if (response.Body?.transformToByteArray) {
+            rawBody = Buffer.from(await response.Body.transformToByteArray());
+          } else if (response.Body?.transformToString) {
+            rawBody = Buffer.from(await response.Body.transformToString(), 'utf8');
+          } else if (Buffer.isBuffer(response.Body)) {
+            rawBody = response.Body;
+          } else if (typeof response.Body === 'string') {
+            rawBody = Buffer.from(response.Body, 'utf8');
+          } else {
+            throw new Error('No se pudo leer el cuerpo del archivo R2');
+          }
+
+          const isGzip = response.ContentEncoding === 'gzip' || candidateKey.endsWith('.gz') || response.ContentType === 'application/gzip';
+          const jsonText = isGzip ? (await gunzip(rawBody)).toString('utf8') : rawBody.toString('utf8');
+          return JSON.parse(jsonText, bufferReviver);
+        } catch (err) {
+          lastError = err;
+        }
       }
     }
     return null; // Si no se encuentra en ninguna cuenta
   }
+
   async list(prefix = "") {
     if (this.buckets.length === 0) return [];
     const allKeys = new Set();
     for (const storage of this.buckets) {
       try {
-        const command = new ListObjectsV2Command({
-          Bucket: storage.bucketName,
-          Prefix: prefix,
-        });
-        const data = await storage.client.send(command);
-        (data.Contents || []).forEach(obj => allKeys.add(obj.Key));
+        let continuationToken;
+        do {
+          const command = new ListObjectsV2Command({
+            Bucket: storage.bucketName,
+            Prefix: prefix,
+            MaxKeys: 1000,
+            ContinuationToken: continuationToken,
+          });
+          const data = await storage.client.send(command);
+          (data.Contents || []).forEach(obj => allKeys.add(obj.Key));
+          continuationToken = data.NextContinuationToken;
+        } while (continuationToken);
       } catch (err) {
         console.error(`❌ Error listando R2 ${storage.id}:`, err.message);
       }

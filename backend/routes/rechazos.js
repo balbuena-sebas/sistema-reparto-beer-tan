@@ -129,7 +129,9 @@ router.get("/meses-disponibles", async (req, res) => {
     
     // 2. También listar R2
     const files = await storage.list('rechazos/detalle_');
-    const mesesR2 = files.map(f => f.replace('rechazos/detalle_', '').replace('.json', ''));
+    const mesesR2 = files
+      .map(f => f.replace('rechazos/detalle_', '').replace(/\.json(?:\.gz)?$/, ''))
+      .filter(Boolean);
     
     const todos = new Set([...result.rows.map(r => r.mes), ...mesesR2]);
     const data = [...todos].filter(Boolean).sort().reverse();
@@ -468,7 +470,7 @@ router.delete("/archivo/:nombre", async (req, res) => {
           try {
             const files = await storage.list('rechazos/detalle_');
             files.forEach(f => {
-              const m = f.replace('rechazos/detalle_', '').replace('.json', '');
+              const m = f.replace('rechazos/detalle_', '').replace(/\.json(?:\.gz)?$/, '');
               if (m) setMeses.add(m);
             });
           } catch(e) {}
@@ -590,7 +592,7 @@ router.post("/mantenimiento-kpis", async (req, res) => {
           try {
             const files = await storage.list('rechazos/detalle_');
             files.forEach(f => {
-              const m = f.replace('rechazos/detalle_', '').replace('.json', '');
+              const m = f.replace('rechazos/detalle_', '').replace(/\.json(?:\.gz)?$/, '');
               if (m) setMeses.add(m);
             });
           } catch (e) {

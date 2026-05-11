@@ -17,7 +17,7 @@ async function archivarMes(mes) {
       return;
     }
 
-    // 2. Subir el "Snapshot" completo a Cloudflare R2
+    // 2. Subir el "Snapshot" completo a Cloudflare R2 (se almacena comprimido en .gz automáticamente)
     const fileName = `rechazos/detalle_${mes}.json`;
     const uploadResult = await storage.upload(fileName, result.rows);
     

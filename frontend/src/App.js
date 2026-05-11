@@ -1,23 +1,23 @@
 // src/App.js — Versión con backend Neon
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import "./styles/custom.css";
 import { exportarReporteXLSX } from "./utils/exportXLSX";
 
-import { TDash } from "./components/TDash";
-import { TRegs } from "./components/TRegs";
-import { TAus } from "./components/TAus";
-import { TConfig } from "./components/TConfig";
-import { MReg } from "./components/MReg";
-import { MAus } from "./components/MAus";
-import { TMigracion } from "./components/TMigracion";
-import { TPersonal } from "./components/TPersonal";
-import { TCostos } from "./components/TCostos";
-import { TReportes } from "./components/TReportes";
-import { TRechazos } from "./components/TRechazos";
-import { TFoxtrot } from "./components/TFoxtrot";
-import { TImportacion } from "./components/TImportacion";
-import { TNotas } from "./components/TNotas";
-import { TBiolinks } from "./components/TBiolinks";
+const TDash = lazy(() => import("./components/TDash").then(mod => ({ default: mod.TDash })));
+const TRegs = lazy(() => import("./components/TRegs").then(mod => ({ default: mod.TRegs })));
+const TAus = lazy(() => import("./components/TAus").then(mod => ({ default: mod.TAus })));
+const TConfig = lazy(() => import("./components/TConfig").then(mod => ({ default: mod.TConfig })));
+const MReg = lazy(() => import("./components/MReg").then(mod => ({ default: mod.MReg })));
+const MAus = lazy(() => import("./components/MAus").then(mod => ({ default: mod.MAus })));
+const TMigracion = lazy(() => import("./components/TMigracion").then(mod => ({ default: mod.TMigracion })));
+const TPersonal = lazy(() => import("./components/TPersonal").then(mod => ({ default: mod.TPersonal })));
+const TCostos = lazy(() => import("./components/TCostos").then(mod => ({ default: mod.TCostos })));
+const TReportes = lazy(() => import("./components/TReportes").then(mod => ({ default: mod.TReportes })));
+const TRechazos = lazy(() => import("./components/TRechazos").then(mod => ({ default: mod.TRechazos })));
+const TFoxtrot = lazy(() => import("./components/TFoxtrot").then(mod => ({ default: mod.TFoxtrot })));
+const TImportacion = lazy(() => import("./components/TImportacion").then(mod => ({ default: mod.TImportacion })));
+const TNotas = lazy(() => import("./components/TNotas").then(mod => ({ default: mod.TNotas })));
+const TBiolinks = lazy(() => import("./components/TBiolinks").then(mod => ({ default: mod.TBiolinks })));
 
 import { DC } from "./constants";
 import { PERMISOS_DEFAULTS, normalizarUsuario } from "./config/permissions";
@@ -1444,29 +1444,30 @@ export default function App() {
           </div>
         )}
 
-        {tab === "dashboard" && (
-          <TDash
-            K={K}
-            rM={rM}
-            aM={aM}
-            cfg={cfgConMes}
-            mes={mes}
-            setMes={handleSetMes}
-            alertas={alertas}
-            onR={() => setModal({ t: "reg" })}
-            onA={() => setModal({ t: "aus" })}
-            onEdit={(r) => setModal({ t: "reg", d: r })}
-            onDel={delReg}
-            onNav={(dest) => setTab(navMap[dest] || dest)}
-            regsAll={regs}
-            rechazos={rechazos}
-            onNavRechazos={() => setTab("rechazos")}
-            foxtrotKpis={foxtrotKpis}
-            onNavFoxtrot={() => setTab("foxtrot")}
-            loggedInUser={loggedInUser}
-            checklistsHoy={checklistsHoy}
-          />
-        )}
+        <Suspense fallback={<div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Cargando módulo...</div>}>
+          {tab === "dashboard" && (
+            <TDash
+              K={K}
+              rM={rM}
+              aM={aM}
+              cfg={cfgConMes}
+              mes={mes}
+              setMes={handleSetMes}
+              alertas={alertas}
+              onR={() => setModal({ t: "reg" })}
+              onA={() => setModal({ t: "aus" })}
+              onEdit={(r) => setModal({ t: "reg", d: r })}
+              onDel={delReg}
+              onNav={(dest) => setTab(navMap[dest] || dest)}
+              regsAll={regs}
+              rechazos={rechazos}
+              onNavRechazos={() => setTab("rechazos")}
+              foxtrotKpis={foxtrotKpis}
+              onNavFoxtrot={() => setTab("foxtrot")}
+              loggedInUser={loggedInUser}
+              checklistsHoy={checklistsHoy}
+            />
+          )}
         {tab === "registros" && (
           <TRegs
             rM={rM}
@@ -1607,6 +1608,7 @@ export default function App() {
           />
         )}
         {tab === "biolinks" && <TBiolinks />}
+      </Suspense>
       </main>
 
       {modal?.t === "reg" && (
