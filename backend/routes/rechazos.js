@@ -83,6 +83,16 @@ router.get("/", async (req, res) => {
     logs.push(`Params: ${JSON.stringify(params)}`);
     logs.push(`Rows found: ${result.rowCount}`);
 
+    const dbMeses = new Set(result.rows
+      .map((r) => {
+        if (!r.fecha) return null;
+        const d = new Date(r.fecha);
+        if (Number.isNaN(d.getTime())) return null;
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      })
+      .filter(Boolean)
+    );
+
     for (const r of result.rows) {
       try {
         data.push(await filaARec(r));
@@ -92,24 +102,50 @@ router.get("/", async (req, res) => {
     }
 
     // --- FALLBACK R2 ---
-    if (data.length === 0 && mes) {
+    if (storage.buckets.length > 0) {
       try {
-        if (storage.buckets.length > 0) {
-          const archived = await storage.download(`rechazos/detalle_${mes}.json`);
-          if (archived && Array.isArray(archived)) {
-            logs.push(`📦 Cargado desde R2 (${archived.length} registros para ${mes})`);
-            for (const r of archived) {
-              data.push(await filaARec(r));
+        const files = await storage.list('rechazos/detalle_');
+        const mesesR2 = [...new Set(files
+          .map((f) => f.replace('rechazos/detalle_', '').replace(/\.json(?:\.gz)?$/, ''))
+          .filter(Boolean)
+        )];
+
+        if (mes) {
+          if (data.length === 0) {
+            const archived = await storage.download(`rechazos/detalle_${mes}.json`);
+            if (archived && Array.isArray(archived)) {
+              logs.push(`📦 Cargado desde R2 (${archived.length} registros para ${mes})`);
+              for (const r of archived) {
+                data.push(await filaARec(r));
+              }
+            } else {
+              logs.push(`ℹ No se encontró archivo en R2 para ${mes}`);
             }
-          } else {
-            logs.push(`ℹ No se encontró archivo en R2 para ${mes}`);
           }
-        } else {
-          logs.push(`⚠️ Cloudflare R2 no está configurado (faltan env vars en RENDER)`);
+        } else if (mesesR2.length > 0) {
+          const mesesParaCargar = mesesR2.filter((m) => !dbMeses.has(m));
+          if (mesesParaCargar.length > 0) {
+            for (const archivedMes of mesesParaCargar) {
+              const archived = await storage.download(`rechazos/detalle_${archivedMes}.json`);
+              if (archived && Array.isArray(archived)) {
+                logs.push(`📦 Cargado desde R2 (${archived.length} registros para ${archivedMes})`);
+                for (const r of archived) {
+                  data.push(await filaARec(r));
+                }
+              } else {
+                logs.push(`ℹ No se encontró archivo en R2 para ${archivedMes}`);
+              }
+            }
+            logs.push(`📦 Cargado desde R2 (meses archivados: ${mesesParaCargar.join(', ')})`);
+          } else {
+            logs.push('ℹ No hay meses adicionales en R2 que no estén ya en la DB.');
+          }
         }
       } catch (err) {
         logs.push(`❌ Error buscando en R2: ${err.message}`);
       }
+    } else {
+      logs.push(`⚠️ Cloudflare R2 no está configurado (faltan env vars en RENDER)`);
     }
 
     res.json({ ok: true, data, debug: logs });

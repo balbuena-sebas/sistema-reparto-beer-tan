@@ -4,7 +4,7 @@ const API_KEY  = process.env.REACT_APP_API_KEY || "heavy-behind-blush-will";
 
 
 export async function apiFetch(path, options = {}) {
-  const res  = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -12,7 +12,23 @@ export async function apiFetch(path, options = {}) {
       ...(options.headers || {}),
     },
   });
-  const data = await res.json();
+
+  const text = await res.text();
+  const contentType = res.headers.get('content-type') || '';
+
+  if (!contentType.includes('application/json') && text.trim().startsWith('<')) {
+    throw new Error(
+      `Respuesta inesperada del backend: se recibió HTML en lugar de JSON. Verifica REACT_APP_API_URL y que el backend esté activo.`
+    );
+  }
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`No se pudo parsear JSON del backend: ${err.message}. Respuesta recibida: ${text.slice(0, 200)}`);
+  }
+
   if (!res.ok || !data.ok) throw new Error(data.error || `Error ${res.status}`);
   return data; // devuelve { ok, data, resultado, ... } completo
 }
