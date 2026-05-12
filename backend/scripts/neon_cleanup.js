@@ -45,12 +45,12 @@ async function realizarLimpiezaAutomatica() {
       // B. Respaldar detalle completo en R2 antes de borrar
       const detalleRechazos = await query("SELECT * FROM rechazos WHERE TO_CHAR(fecha, 'YYYY-MM') = $1", [mes]);
       if (detalleRechazos.rows.length > 0) {
-        await storage.upload(`rechazos/detalle_${mes}.json`, detalleRechazos.rows);
+        await storage.upload(`rechazos/detalle_${mes}.json.gz`, detalleRechazos.rows);
       }
 
       const detalleFoxtrot = await query("SELECT * FROM foxtrot_rutas WHERE TO_CHAR(fecha, 'YYYY-MM') = $1", [mes]);
       if (detalleFoxtrot.rows.length > 0) {
-        await storage.upload(`foxtrot/detalle_${mes}.json`, detalleFoxtrot.rows);
+        await storage.upload(`foxtrot/detalle_${mes}.json.gz`, detalleFoxtrot.rows);
       }
 
       // C. BORRAR de Supabase para liberar espacio real

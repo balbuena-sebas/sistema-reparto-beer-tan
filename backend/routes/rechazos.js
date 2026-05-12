@@ -287,7 +287,7 @@ router.post("/importar", async (req, res) => {
 
   // Respaldar en Cloudflare R2 (Asíncrono para no bloquear la respuesta)
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  storage.upload(`rechazos/backup_${timestamp}_${archivo.replace(/\s+/g, '_')}.json`, rows)
+  storage.upload(`rechazos/backup_${timestamp}_${archivo.replace(/\s+/g, '_')}.json.gz`, rows)
     .catch(err => console.error("⚠ Falló el backup en R2:", err.message));
 
   function parseFecha(f) {

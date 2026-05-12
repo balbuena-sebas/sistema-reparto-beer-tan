@@ -385,7 +385,7 @@ router.post('/importar', async (req, res) => {
 
   // Respaldar en Cloudflare R2 (Asíncrono)
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  storage.upload(`foxtrot/backup_${timestamp}_${archivo.replace(/\s+/g, '_')}.json`, { rutasRows, intentosRows })
+  storage.upload(`foxtrot/backup_${timestamp}_${archivo.replace(/\s+/g, '_')}.json.gz`, { rutasRows, intentosRows })
     .catch(err => console.error("⚠ Falló el backup Foxtrot en R2:", err.message));
 
   // Construir mapa driverId → nombre/zona del chofer mapeado
