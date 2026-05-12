@@ -83,7 +83,7 @@ export async function guardarConfig(cfg) {
 export async function getRechazos(filtros = {}) {
   let q = '';
   if (typeof filtros === 'string') {
-    q = `mes=${filtros}`;
+    q = filtros ? `mes=${filtros}` : '';
   } else {
     q = new URLSearchParams(filtros).toString();
   }

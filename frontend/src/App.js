@@ -432,7 +432,8 @@ export default function App() {
       setMesesDisponibles(mesesConDatos);
       const savedMes = localStorage.getItem("bt_selected_mes");
       const currentMes = mesN();
-      let fetchMes = mes || savedMes || mesesConDatos[0] || currentMes;
+      const hasMesValue = mes !== undefined && mes !== null;
+      let fetchMes = hasMesValue ? mes : (savedMes || mesesConDatos[0] || currentMes);
       
       if (mes === undefined || mes === null) {
         if (savedMes && mesesConDatos.includes(savedMes)) {
