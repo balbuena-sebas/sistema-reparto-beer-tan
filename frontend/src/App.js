@@ -2,23 +2,6 @@
 import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
 import "./styles/custom.css";
 import { exportarReporteXLSX } from "./utils/exportXLSX";
-
-const TDash = lazy(() => import("./components/TDash").then(mod => ({ default: mod.TDash })));
-const TRegs = lazy(() => import("./components/TRegs").then(mod => ({ default: mod.TRegs })));
-const TAus = lazy(() => import("./components/TAus").then(mod => ({ default: mod.TAus })));
-const TConfig = lazy(() => import("./components/TConfig").then(mod => ({ default: mod.TConfig })));
-const MReg = lazy(() => import("./components/MReg").then(mod => ({ default: mod.MReg })));
-const MAus = lazy(() => import("./components/MAus").then(mod => ({ default: mod.MAus })));
-const TMigracion = lazy(() => import("./components/TMigracion").then(mod => ({ default: mod.TMigracion })));
-const TPersonal = lazy(() => import("./components/TPersonal").then(mod => ({ default: mod.TPersonal })));
-const TCostos = lazy(() => import("./components/TCostos").then(mod => ({ default: mod.TCostos })));
-const TReportes = lazy(() => import("./components/TReportes").then(mod => ({ default: mod.TReportes })));
-const TRechazos = lazy(() => import("./components/TRechazos").then(mod => ({ default: mod.TRechazos })));
-const TFoxtrot = lazy(() => import("./components/TFoxtrot").then(mod => ({ default: mod.TFoxtrot })));
-const TImportacion = lazy(() => import("./components/TImportacion").then(mod => ({ default: mod.TImportacion })));
-const TNotas = lazy(() => import("./components/TNotas").then(mod => ({ default: mod.TNotas })));
-const TBiolinks = lazy(() => import("./components/TBiolinks").then(mod => ({ default: mod.TBiolinks })));
-
 import { DC } from "./constants";
 import { PERMISOS_DEFAULTS, normalizarUsuario } from "./config/permissions";
 import { mesN, isT } from "./utils/helpers";
@@ -48,6 +31,22 @@ import {
   guardarChecklist,
   getMesesDisponiblesRechazos,
 } from "./api/client";
+
+const TDash = lazy(() => import("./components/TDash").then(mod => ({ default: mod.TDash })));
+const TRegs = lazy(() => import("./components/TRegs").then(mod => ({ default: mod.TRegs })));
+const TAus = lazy(() => import("./components/TAus").then(mod => ({ default: mod.TAus })));
+const TConfig = lazy(() => import("./components/TConfig").then(mod => ({ default: mod.TConfig })));
+const MReg = lazy(() => import("./components/MReg").then(mod => ({ default: mod.MReg })));
+const MAus = lazy(() => import("./components/MAus").then(mod => ({ default: mod.MAus })));
+const TMigracion = lazy(() => import("./components/TMigracion").then(mod => ({ default: mod.TMigracion })));
+const TPersonal = lazy(() => import("./components/TPersonal").then(mod => ({ default: mod.TPersonal })));
+const TCostos = lazy(() => import("./components/TCostos").then(mod => ({ default: mod.TCostos })));
+const TReportes = lazy(() => import("./components/TReportes").then(mod => ({ default: mod.TReportes })));
+const TRechazos = lazy(() => import("./components/TRechazos").then(mod => ({ default: mod.TRechazos })));
+const TFoxtrot = lazy(() => import("./components/TFoxtrot").then(mod => ({ default: mod.TFoxtrot })));
+const TImportacion = lazy(() => import("./components/TImportacion").then(mod => ({ default: mod.TImportacion })));
+const TNotas = lazy(() => import("./components/TNotas").then(mod => ({ default: mod.TNotas })));
+const TBiolinks = lazy(() => import("./components/TBiolinks").then(mod => ({ default: mod.TBiolinks })));
 
 // ─── Pantalla de carga / error ────────────────────────────────────────────────
 const Cargando = ({ error }) => (
