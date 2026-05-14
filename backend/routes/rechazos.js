@@ -77,7 +77,6 @@ router.get("/", async (req, res) => {
     q += " ORDER BY fecha DESC, id DESC LIMIT 10000";
     console.log("[GET /api/rechazos] Q:", q, "P:", params);
     const result = await query(q, params);
-    const data = [];
     const logs = [];
     logs.push(`Query: ${q}`);
     logs.push(`Params: ${JSON.stringify(params)}`);
@@ -93,52 +92,68 @@ router.get("/", async (req, res) => {
       .filter(Boolean)
     );
 
-    for (const r of result.rows) {
+    const data = (await Promise.all(result.rows.map(async (r) => {
       try {
-        data.push(await filaARec(r));
+        return await filaARec(r);
       } catch (e) {
         logs.push(`Error in row ${r.id}: ${e.message}`);
+        return null;
       }
-    }
+    }))).filter(Boolean);
 
     // --- FALLBACK R2 ---
     if (storage.buckets.length > 0) {
       try {
-        const files = await storage.list('rechazos/detalle_');
-        const mesesR2 = [...new Set(files
-          .map((f) => f.replace('rechazos/detalle_', '').replace(/\.json(?:\.gz)?$/, ''))
-          .filter(Boolean)
-        )];
-
-        if (mes) {
-          if (data.length === 0) {
-            const archived = await storage.download(`rechazos/detalle_${mes}.json`);
-            if (archived && Array.isArray(archived)) {
-              logs.push(`📦 Cargado desde R2 (${archived.length} registros para ${mes})`);
-              for (const r of archived) {
-                data.push(await filaARec(r));
+        if (mes && data.length === 0) {
+          const archived = await storage.download(`rechazos/detalle_${mes}.json`);
+          if (archived && Array.isArray(archived)) {
+            logs.push(`📦 Cargado desde R2 (${archived.length} registros para ${mes})`);
+            const archivedData = (await Promise.all(archived.map(async (r) => {
+              try {
+                return await filaARec(r);
+              } catch (e) {
+                logs.push(`Error archived row: ${e.message}`);
+                return null;
               }
-            } else {
-              logs.push(`ℹ No se encontró archivo en R2 para ${mes}`);
-            }
-          }
-        } else if (mesesR2.length > 0) {
-          const mesesParaCargar = mesesR2.filter((m) => !dbMeses.has(m));
-          if (mesesParaCargar.length > 0) {
-            for (const archivedMes of mesesParaCargar) {
-              const archived = await storage.download(`rechazos/detalle_${archivedMes}.json`);
-              if (archived && Array.isArray(archived)) {
-                logs.push(`📦 Cargado desde R2 (${archived.length} registros para ${archivedMes})`);
-                for (const r of archived) {
-                  data.push(await filaARec(r));
-                }
-              } else {
-                logs.push(`ℹ No se encontró archivo en R2 para ${archivedMes}`);
-              }
-            }
-            logs.push(`📦 Cargado desde R2 (meses archivados: ${mesesParaCargar.join(', ')})`);
+            }))).filter(Boolean);
+            data.push(...archivedData);
           } else {
-            logs.push('ℹ No hay meses adicionales en R2 que no estén ya en la DB.');
+            logs.push(`ℹ No se encontró archivo en R2 para ${mes}`);
+          }
+        } else {
+          const files = await storage.list('rechazos/detalle_');
+          const mesesR2 = [...new Set(files
+            .map((f) => f.replace('rechazos/detalle_', '').replace(/\.json(?:\.gz)?$/, ''))
+            .filter(Boolean)
+          )];
+
+          if (!mesesR2.length) {
+            logs.push('ℹ No hay archivos archivados en R2.');
+          } else {
+            const mesesParaCargar = mesesR2.filter((m) => !dbMeses.has(m));
+            if (mesesParaCargar.length > 0) {
+              const archivedResults = await Promise.all(mesesParaCargar.map(async (archivedMes) => {
+                const archived = await storage.download(`rechazos/detalle_${archivedMes}.json`);
+                if (!archived || !Array.isArray(archived)) {
+                  logs.push(`ℹ No se encontró archivo en R2 para ${archivedMes}`);
+                  return [];
+                }
+                logs.push(`📦 Cargado desde R2 (${archived.length} registros para ${archivedMes})`);
+                return (await Promise.all(archived.map(async (r) => {
+                  try {
+                    return await filaARec(r);
+                  } catch (e) {
+                    logs.push(`Error archived row (${archivedMes}): ${e.message}`);
+                    return null;
+                  }
+                }))).filter(Boolean);
+              }));
+
+              archivedResults.forEach(rows => data.push(...rows));
+              logs.push(`📦 Cargado desde R2 (meses archivados: ${mesesParaCargar.join(', ')})`);
+            } else {
+              logs.push('ℹ No hay meses adicionales en R2 que no estén ya en la DB.');
+            }
           }
         }
       } catch (err) {
