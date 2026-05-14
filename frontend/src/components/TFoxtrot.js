@@ -66,6 +66,24 @@ function labelMes(valor) {
   return `${NOMBRES_MESES[+m - 1]} ${y}`;
 }
 
+function mesesEntre(desde, hasta) {
+  const [y1, m1] = String(desde || '').split('-').map(Number);
+  const [y2, m2] = String(hasta || '').split('-').map(Number);
+  if (!y1 || !m1 || !y2 || !m2) return [];
+  const meses = [];
+  let año = y1;
+  let mes = m1;
+  while (año < y2 || (año === y2 && mes <= m2)) {
+    meses.push(`${año}-${String(mes).padStart(2, '0')}`);
+    mes += 1;
+    if (mes > 12) {
+      mes = 1;
+      año += 1;
+    }
+  }
+  return meses;
+}
+
 // ── Zona de drop ─────────────────────────────────────────────────────────────
 const DropZone = ({ label, accept, icon, desc, onFile, loading, color, fileName }) => {
   const ref  = useRef();
@@ -633,8 +651,7 @@ export const TFoxtrot = ({ cfg = {}, mes: mesProp, setMes: setMesProp, kpisExter
     const mesHoy = mesActual();
     const conDatos = new Set([
       ...(mesesGlobales || []),
-      ...historial.map(h => (h.fechaDesde || '').slice(0, 7)).filter(m => m.length === 7),
-      ...historial.map(h => (h.fechaHasta || '').slice(0, 7)).filter(m => m.length === 7),
+      ...historial.flatMap(h => mesesEntre((h.fechaDesde || '').slice(0, 7), (h.fechaHasta || '').slice(0, 7))),
       mesHoy,
       mes,
     ].filter(Boolean));
