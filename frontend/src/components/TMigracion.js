@@ -12,7 +12,36 @@ export const TMigracion = ({ onCompletada }) => {
   const [errorMsg, setErrorMsg]  = useState('');
 
   useEffect(() => {
-    setDatos({ regs: [], aus: [], cfg: null, clave: null });
+    const claves = ['reparto_data', 'reparto', 'reparto-data', 'data'];
+    let found = null;
+
+    for (const key of claves) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        const source = parsed && parsed.data && typeof parsed.data === 'object' ? parsed.data : parsed;
+        if (!source || typeof source !== 'object') continue;
+
+        const regs = Array.isArray(source.regs) ? source.regs : [];
+        const aus  = Array.isArray(source.aus) ? source.aus : [];
+        const cfg  = source.cfg || null;
+        const clave = source.clave || null;
+
+        if (regs.length > 0 || aus.length > 0 || cfg) {
+          found = { regs, aus, cfg, clave };
+          break;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    if (found) {
+      setDatos(found);
+    } else {
+      setDatos({ regs: [], aus: [], cfg: null, clave: null });
+    }
   }, []);
 
   const totalRegistros = datos?.regs?.length  || 0;
