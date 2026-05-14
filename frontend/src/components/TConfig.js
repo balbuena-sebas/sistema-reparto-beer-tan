@@ -51,6 +51,7 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
     return cfgAjustada;
   });
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [newItems, setNewItems] = useState({
     choferes: '', ayudantes: '', operarios: '', temporada: '', patentes: '',
     localidades: '', destinos: '', motivosAusencia: '', personasNotas: '',
@@ -60,13 +61,10 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
 
   // Sincronizar el formulario si cfg cambia externamente (ej: tras un refresh)
   React.useEffect(() => {
-    setForm(prev => {
-      // Solo actualizar si no hay cambios manuales en el formulario actual
-      // para no pisar lo que el usuario está escribiendo.
-      if (JSON.stringify(prev) === JSON.stringify(cfg)) return prev;
-      return { ...cfg };
-    });
-  }, [cfg]);
+    if (!dirty) {
+      setForm({ ...cfg });
+    }
+  }, [cfg, dirty]);
 
   const addUsuario = () => {
     const nombre = (nuevoUsuario.nombre || '').trim();
@@ -91,6 +89,7 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
   const removeUsuario = (idx) => {
     const user = (form.usuarios || [])[idx];
     if (!window.confirm(`¿Estás seguro que deseas ELIMINAR a ${user.nombre}?\n\nEsta acción es irreversible.`)) return;
+    setDirty(true);
     setF('usuarios', (form.usuarios || []).filter((_, i) => i !== idx));
   };
 
@@ -136,11 +135,15 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
   // Driver map
   const [nuevoDriver, setNuevoDriver] = useState({ id: '', nombre: '', zona: '' });
 
-  const setF = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const setF = (k, v) => {
+    setDirty(true);
+    setForm(f => ({ ...f, [k]: v }));
+  };
 
   const addItem = useCallback((list) => {
     const val = newItems[list]?.trim();
     if (!val) return;
+    setDirty(true);
     setForm(f => {
       const current = f[list] || [];
       if (list === 'diasNoTrabajados') {
@@ -153,15 +156,16 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
     setNewItems(n => ({ ...n, [list]: '' }));
   }, [newItems]);
 
-  const removeItem = useCallback((list, val) =>
+  const removeItem = useCallback((list, val) => {
+    setDirty(true);
     setForm(f => {
       const current = f[list] || [];
       if (list === 'diasNoTrabajados') {
         return { ...f, [list]: current.filter(d => d.fecha !== (val.fecha || val)) };
       }
       return { ...f, [list]: current.filter(x => x !== val) };
-    })
-  , []);
+    });
+  }, []);
 
   const onNewVal = useCallback((list, val) =>
     setNewItems(n => ({ ...n, [list]: val }))
@@ -232,6 +236,7 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
     await onSave(formNormalizado);
     setSaving(false);
     setSaved(true);
+    setDirty(false);
     setTimeout(() => setSaved(false), 2000);
   };
 
