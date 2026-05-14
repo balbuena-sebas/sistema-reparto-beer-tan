@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { apiFetch } from '../api/client';
 import { PERMISOS_DEFAULTS, normalizarUsuario } from '../config/permissions';
 
 // ── ListEditor fuera del componente para evitar re-mount en cada keystroke ────
@@ -418,18 +419,10 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
             onClick={async () => {
               if (!window.confirm("¿Deseas iniciar la compactación de datos históricos?\n\nEste proceso comprimirá registros de Foxtrot y Rechazos de meses pasados.")) return;
               try {
-                const res = await fetch(`${process.env.REACT_APP_API_URL}/mantenimiento/optimizar`, {
-                  method: 'POST',
-                  headers: { 
-                    'Content-Type': 'application/json',
-                    'x-api-key': process.env.REACT_APP_API_KEY 
-                  }
-                });
-                const data = await res.json();
-                if (data.ok) alert("✅ Optimización iniciada. El espacio en Neon bajará gradualmente.");
-                else alert("❌ Error: " + data.error);
+                await apiFetch('/api/mantenimiento/optimizar', { method: 'POST' });
+                alert("✅ Optimización iniciada. El espacio en Neon bajará gradualmente.");
               } catch (err) {
-                alert("❌ Fallo de conexión: " + err.message);
+                alert("❌ Error al iniciar mantenimiento: " + err.message);
               }
             }}
           >
