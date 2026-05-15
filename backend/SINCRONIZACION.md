@@ -17,6 +17,15 @@ La tabla `registros` en Supabase tiene una **estructura incorrecta** que no coin
 
 ## 🚀 Pasos para Ejecutar la Sincronización
 
+### Scripts disponibles:
+```bash
+npm run sync-neon        # Sincronizar Neon → Supabase (migraciones de datos)
+npm run verify-schemas   # Verificar que los esquemas sean idénticos
+npm run fix-schemas      # Corregir inconsistencias en Neon
+npm run check-db         # Diagnosticar estado de la BD
+npm start                # Iniciar el servidor
+```
+
 ### 1️⃣ Verificar que tienes Neon en .env
 
 En `backend/.env`, asegúrate de tener:
@@ -30,19 +39,29 @@ Si **no tienes NEON_DATABASE_URL**, debes recuperarla:
 - Ve a "Connection Details"
 - Copia la connection string y agrégala a tu `.env`
 
-### 2️⃣ Ejecutar el script de sincronización
+### 2️⃣ Verificar esquemas
+IMPORTANTE: Ejecuta esto ANTES de sincronizar para identificar diferencias:
+```bash
+npm run verify-schemas
+```
 
-En la terminal, desde `backend/`:
+Si hay diferencias, ejecuta:
+```bash
+npm run fix-schemas
+```
+
+### 3️⃣ Ejecutar el script de sincronización
+
 ```bash
 npm run sync-neon
 ```
 
-O si no existe ese script en package.json:
+### 4️⃣ Iniciar el servidor
 ```bash
-node scripts/sync_neon_to_supabase.js
+npm start
 ```
 
-### 3️⃣ Qué hace el script
+### 5️⃣ Qué hace el script
 
 El script automáticamente:
 1. ✅ Reconstruye la tabla `registros` en Supabase con la estructura **CORRECTA**
@@ -50,38 +69,30 @@ El script automáticamente:
 3. ✅ Sincroniza también `ausencias` y `configuracion`
 4. ✅ Verifica que los datos se migraron correctamente
 
-### 4️⃣ Salida esperada
+### 6️⃣ Salida esperada
 
 ```
 🔄 Iniciando sincronización Neon → Supabase...
 ✅ Conexiones establecidas
-📋 Estructura en Neon:
-  - id: bigserial
-  - fecha: date
-  - chofer: text
-  ...
-
-📥 Obtenidas 1234 filas de Neon
+📋 Estructura en Neon: 21 columnas
+📥 Obtenidas 115 filas de Neon
 ⚠️  Reconstruyendo tabla registros en Supabase...
-  ✓ Tabla antigua movida
+  ✓ Tabla antigua eliminada
   ✓ Tabla registros creada con estructura correcta
 
 📤 Migrando datos a Supabase...
-  ⏳ Migrando... 100/1234
-  ⏳ Migrando... 200/1234
-  ...
-✅ Migración de REGISTROS completada: 1234 registros, 0 errores
+✅ Migración de REGISTROS completada: 115 registros, 0 errores
 
 🔄 Sincronizando tabla AUSENCIAS...
-  📥 50 ausencias en Neon
-  ✅ Ausencias: 50 migraron, 0 errores
+  📥 13 ausencias en Neon
+  ✅ Ausencias: 13 migraron, 0 errores
 
 🔄 Sincronizando tabla CONFIGURACION...
   ✅ Configuración sincronizada
 
 📊 Resultados finales en Supabase:
-  • Registros: 1234
-  • Ausencias: 50
+  • Registros: 115
+  • Ausencias: 13
 
 ✅ Sincronización EXITOSA - Todas las tablas están sincronizadas
 ```

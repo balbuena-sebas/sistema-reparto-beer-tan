@@ -51,8 +51,8 @@ async function sync() {
 
     // 3. Reconstruir tabla en Supabase (CUIDADO: Esto borra los datos actuales)
     console.log('\n⚠️  Reconstruyendo tabla registros en Supabase...');
-    await supabaseClient.query('DROP TABLE IF EXISTS registros_old CASCADE');
-    console.log('  ✓ Tabla antigua movida');
+    await supabaseClient.query('DROP TABLE IF EXISTS registros CASCADE');
+    console.log('  ✓ Tabla antigua eliminada');
 
     await supabaseClient.query(`
       CREATE TABLE registros (
