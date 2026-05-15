@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "sync-neon": "node scripts/sync_neon_to_supabase.js",
+    "check-db": "node scripts/diag.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1034.0",

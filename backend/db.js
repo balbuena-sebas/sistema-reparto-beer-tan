@@ -60,18 +60,27 @@ async function initDB() {
     // 1. CREAR TODAS LAS TABLAS PRIMERO
     await client.query(`
       CREATE TABLE IF NOT EXISTS registros (
-        id           BIGSERIAL PRIMARY KEY,
-        chofer       TEXT NOT NULL,
-        localidad    TEXT NOT NULL,
-        fecha        DATE NOT NULL,
-        bultos       INTEGER DEFAULT 0,
-        hl           NUMERIC DEFAULT 0,
-        recarga      BOOLEAN DEFAULT false,
-        ayudante     TEXT,
-        chofer_dni   TEXT,
-        ayudante_dni TEXT,
-        created_at   TIMESTAMPTZ DEFAULT NOW(),
-        metadata_gz  BYTEA
+        id                BIGSERIAL PRIMARY KEY,
+        fecha             DATE NOT NULL,
+        chofer            TEXT NOT NULL,
+        ay1               TEXT DEFAULT '',
+        ay2               TEXT DEFAULT '',
+        patente           TEXT DEFAULT '',
+        localidad         TEXT NOT NULL,
+        destino           TEXT DEFAULT '',
+        bultos            INTEGER DEFAULT 0,
+        costo_reparto     NUMERIC DEFAULT 0,
+        rec_sn            TEXT DEFAULT 'NO',
+        n_recargas        INTEGER DEFAULT 0,
+        rec_cant          TEXT DEFAULT '',
+        fte               INTEGER DEFAULT 1,
+        bultos_clark      INTEGER DEFAULT 0,
+        bultos_rec        INTEGER DEFAULT 0,
+        destinos_gz       BYTEA,
+        created_by_dni    TEXT DEFAULT '',
+        created_by_nombre TEXT DEFAULT '',
+        created_at        TIMESTAMPTZ DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ DEFAULT NOW()
       )
     `);
 
