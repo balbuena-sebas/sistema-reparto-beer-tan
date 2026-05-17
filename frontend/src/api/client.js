@@ -79,6 +79,40 @@ export async function guardarConfig(cfg) {
   return r.data || r;
 }
 
+// ── FILTROS DINÁMICOS (desde la BD, no hardcodeados) ──────────────────────────
+export async function getFiltrosDinamicos() {
+  try {
+    const r = await apiFetch('/api/filtros');
+    return r.data || {
+      choferes: [], ayudantes: [], patentes: [], localidades: [], 
+      destinos: [], motivosAusencia: [], usuarios: []
+    };
+  } catch (err) {
+    console.warn('Filtros dinámicos no disponibles:', err.message);
+    return null; // El frontend usará los defaults de constants/index.js
+  }
+}
+
+export async function getChoferesDisponibles() {
+  const r = await apiFetch('/api/filtros/choferes');
+  return r.data || [];
+}
+
+export async function getLocalidadesDisponibles() {
+  const r = await apiFetch('/api/filtros/localidades');
+  return r.data || [];
+}
+
+export async function getDestinosDisponibles() {
+  const r = await apiFetch('/api/filtros/destinos');
+  return r.data || [];
+}
+
+export async function getPatenteDisponibles() {
+  const r = await apiFetch('/api/filtros/patentes');
+  return r.data || [];
+}
+
 // ── RECHAZOS ─────────────────────────────────────────────────────────────────
 export async function getRechazos(filtros = {}) {
   let q = '';

@@ -9,7 +9,10 @@
     "sync-neon": "node scripts/sync_neon_to_supabase.js",
     "check-db": "node scripts/diag.js",
     "verify-schemas": "node scripts/verify_schemas.js",
-    "fix-schemas": "node scripts/fix_neon_schemas.js"
+    "fix-schemas": "node scripts/fix_neon_schemas.js",
+    "analyze-duplication": "node scripts/analyze_duplication.js",
+    "cleanup-neon": "node scripts/cleanup_neon_backup.js",
+    "replicate-supabase": "node scripts/replicate_supabase_to_neon.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1034.0",

@@ -17,6 +17,7 @@ import {
   eliminarAusencia,
   getConfig,
   guardarConfig,
+  getFiltrosDinamicos,
   getRechazos,
   importarRechazos,
   editarRechazo,
@@ -569,6 +570,45 @@ export default function App() {
       .catch(() => setFoxtrotKpis([]))
       .finally(() => setCargandoFoxtrotKpis(false));
   }, [mes, cargando]);
+
+  // ── Cargar Filtros Dinámicos desde la BD (reemplaza hardcodeados) ──────────
+  // Esto se ejecuta después de cargar la configuración inicial
+  useEffect(() => {
+    if (cargando) return;
+    
+    getFiltrosDinamicos()
+      .then((filtros) => {
+        if (!filtros) return; // Si fallan los filtros dinámicos, usar los por defecto
+        
+        setCfg((cfgAnterior) => {
+          const cfgActualizada = { ...cfgAnterior };
+          
+          // Reemplazar los filtros hardcodeados con los de la BD
+          if (filtros.choferes?.length > 0) cfgActualizada.choferes = filtros.choferes;
+          if (filtros.ayudantes?.length > 0) cfgActualizada.ayudantes = filtros.ayudantes;
+          if (filtros.patentes?.length > 0) cfgActualizada.patentes = filtros.patentes;
+          if (filtros.localidades?.length > 0) cfgActualizada.localidades = filtros.localidades;
+          if (filtros.destinos?.length > 0) cfgActualizada.destinos = filtros.destinos;
+          if (filtros.motivosAusencia?.length > 0) cfgActualizada.motivosAusencia = filtros.motivosAusencia;
+          
+          // También actualizar otros datos si vienen
+          if (filtros.usuarios?.length > 0) cfgActualizada.usuarios = filtros.usuarios;
+          if (filtros.driverMap?.length > 0) cfgActualizada.driverMap = filtros.driverMap;
+          if (filtros.empresa) cfgActualizada.empresa = filtros.empresa;
+          if (filtros.costoChofer) cfgActualizada.costoChofer = filtros.costoChofer;
+          if (filtros.costoAyudante) cfgActualizada.costoAyudante = filtros.costoAyudante;
+          if (filtros.objTandil) cfgActualizada.objTandil = filtros.objTandil;
+          if (filtros.objFlores) cfgActualizada.objFlores = filtros.objFlores;
+          if (filtros.alertaRecargas) cfgActualizada.alertaRecargas = filtros.alertaRecargas;
+          
+          return cfgActualizada;
+        });
+      })
+      .catch((err) => {
+        console.warn('No se pudieron cargar filtros dinámicos:', err.message);
+        // Continuar usando los del constants/index.js
+      });
+  }, [cargando]);
 
   // ── handleSetMes — cambia el mes global y recarga Foxtrot automáticamente ─
   // TFoxtrot y TDash usan este mismo setter, así el mes queda siempre sincronizado.

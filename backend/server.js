@@ -47,6 +47,7 @@ const autenticar = (req, res, next) => {
 const registrosRouter = require('./routes/registros');
 const ausenciasRouter = require('./routes/ausencias');
 const configRouter = require('./routes/config');
+const filtrosRouter = require('./routes/filtros');
 const migracionRouter = require('./routes/migracion');
 const { router: rechazosRouter } = require('./routes/rechazos');
 const notasRouter = require('./routes/notas');
@@ -57,6 +58,7 @@ const mantenimientoRouter = require('./routes/mantenimiento');
 app.use('/api/registros', autenticar, registrosRouter);
 app.use('/api/ausencias', autenticar, ausenciasRouter);
 app.use('/api/config', autenticar, configRouter);
+app.use('/api/filtros', autenticar, filtrosRouter);
 app.use('/api/migracion', autenticar, migracionRouter);
 app.use('/api/rechazos', autenticar, rechazosRouter);
 app.use('/api/notas', autenticar, notasRouter);
