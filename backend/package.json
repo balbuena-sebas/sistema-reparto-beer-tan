@@ -12,7 +12,8 @@
     "fix-schemas": "node scripts/fix_neon_schemas.js",
     "analyze-duplication": "node scripts/analyze_duplication.js",
     "cleanup-neon": "node scripts/cleanup_neon_backup.js",
-    "replicate-supabase": "node scripts/replicate_supabase_to_neon.js"
+    "replicate-supabase": "node scripts/replicate_supabase_to_neon.js",
+    "sync-tables": "node scripts/sync_tables_cross_db.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1034.0",
