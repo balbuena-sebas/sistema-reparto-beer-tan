@@ -20,6 +20,7 @@ La tabla `registros` en Supabase tiene una **estructura incorrecta** que no coin
 ### Scripts disponibles:
 ```bash
 npm run sync-neon        # Sincronizar Neon → Supabase (migraciones de datos)
+npm run sync-tables      # Completar tablas faltantes entre Supabase y Neon
 npm run verify-schemas   # Verificar que los esquemas sean idénticos
 npm run fix-schemas      # Corregir inconsistencias en Neon
 npm run check-db         # Diagnosticar estado de la BD

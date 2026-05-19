@@ -164,6 +164,7 @@ Retención 365 días:
 ```bash
 # Manual (cuando quieras):
 npm run sync-neon          # Supabase → Neon
+npm run sync-tables        # Completar tablas faltantes entre Supabase y Neon
 npm run verify-schemas     # Verificar que tengan el mismo esquema
 npm run fix-schemas        # Corregir inconsistencias automáticamente
 
