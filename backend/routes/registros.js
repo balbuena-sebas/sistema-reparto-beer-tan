@@ -57,26 +57,74 @@ router.post('/', async (req, res) => {
     if (!r.chofer) return res.status(400).json({ ok: false, error: 'Chofer es obligatorio' });
     if (!r.fecha)  return res.status(400).json({ ok: false, error: 'Fecha es obligatoria' });
     const destinosGz = await comprimir(r.destinos || []);
-    const result = await query(`
-      INSERT INTO registros
-        (id, fecha, chofer, ay1, ay2, patente, localidad, destino,
-         bultos, costo_reparto, rec_sn, n_recargas, rec_cant, fte,
-       bultos_clark, bultos_rec, destinos_gz, created_by_dni, created_by_nombre)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-      RETURNING *
-    `, [
-      r.id || Date.now(),
-      r.fecha, r.chofer,
-      r.ay1 || '', r.ay2 || '',
-      r.patente || '', r.localidad || '',
-      r.destino || '',
-      r.bultos || 0, r.costoReparto || 0,
-      r.recSN || 'NO', r.nRecargas || 0, r.recCant || '',
-      r.fte || 1, r.bultosClark || 0, r.bultosRec || 0,
-      destinosGz,
-      r.createdByDni || '',
-      r.createdByNombre || '',
-    ]);
+    const clientId = r.clientId || null;
+
+    let result;
+    if (clientId) {
+      // Upsert idempotente por client_id para evitar duplicados desde el cliente
+      result = await query(`
+        INSERT INTO registros
+          (client_id, fecha, chofer, ay1, ay2, patente, localidad, destino,
+           bultos, costo_reparto, rec_sn, n_recargas, rec_cant, fte,
+           bultos_clark, bultos_rec, destinos_gz, created_by_dni, created_by_nombre)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+        ON CONFLICT (client_id) DO UPDATE SET
+          fecha = EXCLUDED.fecha,
+          chofer = EXCLUDED.chofer,
+          ay1 = EXCLUDED.ay1,
+          ay2 = EXCLUDED.ay2,
+          patente = EXCLUDED.patente,
+          localidad = EXCLUDED.localidad,
+          destino = EXCLUDED.destino,
+          bultos = EXCLUDED.bultos,
+          costo_reparto = EXCLUDED.costo_reparto,
+          rec_sn = EXCLUDED.rec_sn,
+          n_recargas = EXCLUDED.n_recargas,
+          rec_cant = EXCLUDED.rec_cant,
+          fte = EXCLUDED.fte,
+          bultos_clark = EXCLUDED.bultos_clark,
+          bultos_rec = EXCLUDED.bultos_rec,
+          destinos_gz = EXCLUDED.destinos_gz,
+          created_by_dni = EXCLUDED.created_by_dni,
+          created_by_nombre = EXCLUDED.created_by_nombre,
+          updated_at = NOW()
+        RETURNING *
+      `, [
+        clientId,
+        r.fecha, r.chofer,
+        r.ay1 || '', r.ay2 || '',
+        r.patente || '', r.localidad || '',
+        r.destino || '',
+        r.bultos || 0, r.costoReparto || 0,
+        r.recSN || 'NO', r.nRecargas || 0, r.recCant || '',
+        r.fte || 1, r.bultosClark || 0, r.bultosRec || 0,
+        destinosGz,
+        r.createdByDni || '',
+        r.createdByNombre || '',
+      ]);
+    } else {
+      // Inserción normal: no usar id proporcionado por cliente (dejar que la BD use serial)
+      result = await query(`
+        INSERT INTO registros
+          (fecha, chofer, ay1, ay2, patente, localidad, destino,
+           bultos, costo_reparto, rec_sn, n_recargas, rec_cant, fte,
+           bultos_clark, bultos_rec, destinos_gz, created_by_dni, created_by_nombre)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        RETURNING *
+      `, [
+        r.fecha, r.chofer,
+        r.ay1 || '', r.ay2 || '',
+        r.patente || '', r.localidad || '',
+        r.destino || '',
+        r.bultos || 0, r.costoReparto || 0,
+        r.recSN || 'NO', r.nRecargas || 0, r.recCant || '',
+        r.fte || 1, r.bultosClark || 0, r.bultosRec || 0,
+        destinosGz,
+        r.createdByDni || '',
+        r.createdByNombre || '',
+      ]);
+    }
+
     const nuevo = await filaARegistro(result.rows[0]);
     res.status(201).json({ ok: true, data: nuevo });
   } catch (err) {

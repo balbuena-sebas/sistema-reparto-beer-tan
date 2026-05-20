@@ -921,6 +921,10 @@ export default function App() {
           createdByDni: esEdicion ? (sourceReg.createdByDni || loggedInUser?.dni) : loggedInUser?.dni,
           createdByNombre: esEdicion ? (sourceReg.createdByNombre || loggedInUser?.nombre) : loggedInUser?.nombre
         };
+        // Asignar clientId único para evitar duplicados por reintentos
+        if (!esEdicion) {
+          payload.clientId = payload.clientId || `c-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+        }
         const guardado = esEdicion
           ? await actualizarRegistro(f.id, payload)
           : await crearRegistro(payload);
