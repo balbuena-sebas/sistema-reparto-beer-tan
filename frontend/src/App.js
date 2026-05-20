@@ -960,6 +960,10 @@ export default function App() {
       try {
         const esEdicion = aus.some((a) => a.id === f.id);
         const sourceAus = esEdicion ? aus.find(a => a.id === f.id) : null;
+        // Asignar clientId único para evitar duplicados por reintentos
+        if (!esEdicion) {
+          f.clientId = f.clientId || `c-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+        }
         const payload = { 
           ...f,
           createdByDni: esEdicion ? (sourceAus.createdByDni || loggedInUser?.dni) : loggedInUser?.dni,

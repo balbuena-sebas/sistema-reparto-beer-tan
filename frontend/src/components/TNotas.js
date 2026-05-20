@@ -281,6 +281,8 @@ export const TNotas = ({ cfg, mes, setMes, regsAll = [], ausAll = [], loggedInUs
 
   const handleCrear = useCallback(async (form) => {
     try {
+      // Asignar clientId único para evitar duplicados por reintentos
+      form.clientId = form.clientId || `c-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
       const nueva = await crearNota(form);
       setNotas(prev => [nueva, ...prev]);
       setModal(null);

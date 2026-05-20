@@ -49,22 +49,53 @@ router.get('/', async (req, res) => {
 // POST /api/notas
 router.post('/', async (req, res) => {
   try {
-    const { persona, mes, fecha, categoria, texto, prioridad } = req.body;
+    const { persona, mes, fecha, categoria, texto, prioridad, clientId } = req.body;
     if (!persona) return res.status(400).json({ ok: false, error: 'Persona es obligatoria' });
     if (!texto)   return res.status(400).json({ ok: false, error: 'Texto es obligatorio' });
     const gz = await comprimir({ txt: texto });
-    const result = await query(`
-      INSERT INTO notas (persona, mes, fecha, categoria, texto, prioridad, estado, metadata_gz)
-      VALUES ($1, $2, $3, $4, '(comprimido)', $5, 'activa', $6)
-      RETURNING *
-    `, [
-      persona,
-      mes || new Date().toISOString().slice(0, 7),
-      fecha || new Date().toISOString().split('T')[0],
-      categoria || 'Nota libre',
-      prioridad || 'normal',
-      gz
-    ]);
+    
+    const cId = clientId || null;
+    let result;
+    
+    if (cId) {
+      // Upsert idempotente por client_id
+      result = await query(`
+        INSERT INTO notas (client_id, persona, mes, fecha, categoria, texto, prioridad, estado, metadata_gz)
+        VALUES ($1, $2, $3, $4, $5, '(comprimido)', $6, 'activa', $7)
+        ON CONFLICT (client_id) DO UPDATE SET
+          persona = EXCLUDED.persona,
+          mes = EXCLUDED.mes,
+          fecha = EXCLUDED.fecha,
+          categoria = EXCLUDED.categoria,
+          prioridad = EXCLUDED.prioridad,
+          metadata_gz = EXCLUDED.metadata_gz,
+          updated_at = NOW()
+        RETURNING *
+      `, [
+        cId,
+        persona,
+        mes || new Date().toISOString().slice(0, 7),
+        fecha || new Date().toISOString().split('T')[0],
+        categoria || 'Nota libre',
+        prioridad || 'normal',
+        gz
+      ]);
+    } else {
+      // Inserción normal
+      result = await query(`
+        INSERT INTO notas (persona, mes, fecha, categoria, texto, prioridad, estado, metadata_gz)
+        VALUES ($1, $2, $3, $4, '(comprimido)', $5, 'activa', $6)
+        RETURNING *
+      `, [
+        persona,
+        mes || new Date().toISOString().slice(0, 7),
+        fecha || new Date().toISOString().split('T')[0],
+        categoria || 'Nota libre',
+        prioridad || 'normal',
+        gz
+      ]);
+    }
+    
     res.status(201).json({ ok: true, data: await filaNota(result.rows[0]) });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });

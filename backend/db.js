@@ -263,6 +263,9 @@ async function initDB() {
     await client.query(`ALTER TABLE ausencias ADD COLUMN IF NOT EXISTS created_by_dni TEXT DEFAULT ''`);
     await client.query(`ALTER TABLE ausencias ADD COLUMN IF NOT EXISTS created_by_nombre TEXT DEFAULT ''`);
     await client.query(`ALTER TABLE ausencias ADD COLUMN IF NOT EXISTS metadata_gz BYTEA`);
+    // Identificador opcional de cliente para operaciones idempotentes
+    await client.query(`ALTER TABLE ausencias ADD COLUMN IF NOT EXISTS client_id TEXT`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_aus_client_id ON ausencias(client_id)`);
     
     await client.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS costo_operario_ayudante INTEGER DEFAULT 0`);
     await client.query(`ALTER TABLE configuracion ADD COLUMN IF NOT EXISTS costo_temporada INTEGER DEFAULT 0`);
@@ -280,6 +283,9 @@ async function initDB() {
     // Crear índice único estándar (no parcial) para soportar ON CONFLICT (client_id)
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_regs_client_id_full ON registros(client_id)`);
     await client.query(`ALTER TABLE notas ADD COLUMN IF NOT EXISTS metadata_gz BYTEA`);
+    // Identificador opcional de cliente para operaciones idempotentes en notas
+    await client.query(`ALTER TABLE notas ADD COLUMN IF NOT EXISTS client_id TEXT`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_notas_client_id ON notas(client_id)`);
     await client.query(`ALTER TABLE checklists ADD COLUMN IF NOT EXISTS metadata_gz BYTEA`);
     await client.query(`ALTER TABLE foxtrot_intentos ADD COLUMN IF NOT EXISTS metadata_gz BYTEA`);
     await client.query(`ALTER TABLE foxtrot_rutas ADD COLUMN IF NOT EXISTS metadata_gz BYTEA`);

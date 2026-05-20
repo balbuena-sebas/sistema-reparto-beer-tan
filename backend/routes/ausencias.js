@@ -46,19 +46,51 @@ router.post('/', async (req, res) => {
     const a = req.body;
     if (!a.persona)    return res.status(400).json({ ok: false, error: 'Persona es obligatoria' });
     if (!a.fechaDesde) return res.status(400).json({ ok: false, error: 'Fecha desde es obligatoria' });
-    const result = await query(`
-      INSERT INTO ausencias (id, persona, motivo, fecha_desde, fecha_hasta, observaciones, dias, created_by_dni, created_by_nombre)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      RETURNING *
-    `, [
-      a.id || Date.now(),
-      a.persona, a.motivo || '',
-      a.fechaDesde, a.fechaHasta || a.fechaDesde,
-      a.observaciones || '',
-      a.dias || 1,
-      a.createdByDni || '',
-      a.createdByNombre || '',
-    ]);
+    
+    const clientId = a.clientId || null;
+    let result;
+    
+    if (clientId) {
+      // Upsert idempotente por client_id para evitar duplicados
+      result = await query(`
+        INSERT INTO ausencias (client_id, persona, motivo, fecha_desde, fecha_hasta, observaciones, dias, created_by_dni, created_by_nombre)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT (client_id) DO UPDATE SET
+          persona = EXCLUDED.persona,
+          motivo = EXCLUDED.motivo,
+          fecha_desde = EXCLUDED.fecha_desde,
+          fecha_hasta = EXCLUDED.fecha_hasta,
+          observaciones = EXCLUDED.observaciones,
+          dias = EXCLUDED.dias,
+          created_by_dni = EXCLUDED.created_by_dni,
+          created_by_nombre = EXCLUDED.created_by_nombre,
+          updated_at = NOW()
+        RETURNING *
+      `, [
+        clientId,
+        a.persona, a.motivo || '',
+        a.fechaDesde, a.fechaHasta || a.fechaDesde,
+        a.observaciones || '',
+        a.dias || 1,
+        a.createdByDni || '',
+        a.createdByNombre || '',
+      ]);
+    } else {
+      // Inserción normal: dejar que la BD asigne id
+      result = await query(`
+        INSERT INTO ausencias (persona, motivo, fecha_desde, fecha_hasta, observaciones, dias, created_by_dni, created_by_nombre)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        RETURNING *
+      `, [
+        a.persona, a.motivo || '',
+        a.fechaDesde, a.fechaHasta || a.fechaDesde,
+        a.observaciones || '',
+        a.dias || 1,
+        a.createdByDni || '',
+        a.createdByNombre || '',
+      ]);
+    }
+    
     res.status(201).json({ ok: true, data: filaAausencia(result.rows[0]) });
   } catch (err) {
     console.error('POST /ausencias:', err.message);
