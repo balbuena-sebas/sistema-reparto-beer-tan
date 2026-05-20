@@ -426,22 +426,27 @@ export default function App() {
     try {
       if (!silencioso) setCargando(true);
       
-      // Obtener meses con datos para el selector (Rechazos y Foxtrot)
-      const mesesConDatos = await getMesesDisponiblesRechazos().catch(() => []);
-      console.log("📊 Meses detectados por la API:", mesesConDatos);
-      setMesesDisponibles(mesesConDatos);
-      const savedMes = localStorage.getItem("bt_selected_mes");
-      const currentMes = mesN();
-      const hasMesValue = mes !== undefined && mes !== null;
-      let fetchMes = hasMesValue ? mes : (savedMes || mesesConDatos[0] || currentMes);
-      
-      if (mes === undefined || mes === null) {
-        if (savedMes && mesesConDatos.includes(savedMes)) {
-          setMes(savedMes);
-        } else if (mesesConDatos[0]) {
-          setMes(mesesConDatos[0]);
-        }
+      // Obtener meses con datos para el selector global.
+      // Usamos rechazos, registros y ausencias para no invalidar un mes que exista solo en otra fuente.
+      const mesesRechazos = await getMesesDisponiblesRechazos().catch(() => []);
+      console.log("📊 Meses detectados por la API (rechazos):", mesesRechazos);
+      const savedMes = localStorage.getItem("bt_selected_mes") || "";
+      const rawMes = typeof mes === "string" ? mes.trim() : "";
+      const isMesValido = (value) =>
+        typeof value === "string" && value.length === 7 && /^[0-9]{4}-[0-9]{2}$/.test(value);
+      const mesActivo = isMesValido(rawMes) ? rawMes : "";
+      const mesGuardado = isMesValido(savedMes) ? savedMes : "";
+
+      let fetchMes = "";
+      if (rawMes && !mesActivo) {
+        console.warn("Mes inválido detectado y se usará un mes válido en su lugar:", rawMes, { mesesRechazos });
+        fetchMes = mesGuardado || "";
+        setMes(fetchMes);
+      } else {
+        fetchMes = mesActivo || "";
       }
+
+      // Si no hay mes explícito, conservar el comportamiento legacy de mostrar los últimos 6 meses.
 
       const [todosRegs, todosAus, cfgGuardada, resRechazos, xMes, todosChk] =
         await Promise.all([
@@ -453,8 +458,40 @@ export default function App() {
           getChecklists(new Date().toLocaleDateString('sv-SE')),
         ]);
 
-      setRegs(todosRegs || []);
-      setAus(todosAus || []);
+      const mesesRegistros = (todosRegs || [])
+        .map((r) => (r.fecha || "").slice(0, 7))
+        .filter((m) => m.length === 7);
+      const mesesAusencias = (todosAus || [])
+        .map((a) => (a.fechaDesde || "").slice(0, 7))
+        .filter((m) => m.length === 7);
+      const mesesRechazosDatos = (resRechazos?.data || [])
+        .map((r) => (r.fecha || "").slice(0, 7))
+        .filter((m) => m.length === 7);
+
+      const mesesConDatos = [...new Set([
+        ...mesesRechazos,
+        ...mesesRegistros,
+        ...mesesAusencias,
+        ...mesesRechazosDatos,
+      ])].sort().reverse();
+      setMesesDisponibles(mesesConDatos);
+
+      const availableMeses = new Set([
+        ...mesesRegistros,
+        ...mesesAusencias,
+        ...mesesRechazosDatos,
+      ]);
+      if (fetchMes && !availableMeses.has(fetchMes)) {
+        console.warn("Mes reservado inválido o sin datos; se restablece el filtro de mes.", fetchMes);
+        localStorage.removeItem("bt_selected_mes");
+        setMes("");
+        const [fallbackRegs, fallbackAus] = await Promise.all([getRegistros(), getAusencias()]);
+        setRegs(fallbackRegs || []);
+        setAus(fallbackAus || []);
+      } else {
+        setRegs(todosRegs || []);
+        setAus(todosAus || []);
+      }
       setRechazos(resRechazos?.data || []);
       setDebugRechazos(resRechazos?.debug || []);
       setBultosXMes(xMes || {});
