@@ -4,7 +4,7 @@ import { RB } from './RB';
 import { fn, fd } from '../utils/helpers';
 import { RepCard } from './TDash';
 
-export const TRegs = ({ rM, mes, setMes, regsAll = [], ausAll = [], onNew, onEdit, onDel, loggedInUser }) => {
+export const TRegs = ({ rM, mes, setMes, regsAll = [], ausAll = [], onNew, onEdit, onDel, loggedInUser, mesesGlobales = [] }) => {
   const [search, setSearch]   = useState('');
   const [sortBy, setSortBy]   = useState('fecha');
   const [selected, setSelected] = useState(null);
@@ -42,7 +42,7 @@ export const TRegs = ({ rM, mes, setMes, regsAll = [], ausAll = [], onNew, onEdi
           </p>
         </div>
         <div className="dash-header-right">
-          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} />
+          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} mesesGlobales={mesesGlobales} />
           {(!loggedInUser || loggedInUser.role === 'admin') && (
             <button className="btn-action btn-primary-action" onClick={onNew}>+ Nuevo Registro</button>
           )}

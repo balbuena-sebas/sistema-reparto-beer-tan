@@ -3,7 +3,7 @@ import { MesSelector } from './MesSelector';
 import { MB } from './MB';
 import { fd } from '../utils/helpers';
 
-export const TAus = ({ aM, mes, setMes, regsAll = [], ausAll = [], onNew, onEdit, onDel, loggedInUser }) => {
+export const TAus = ({ aM, mes, setMes, regsAll = [], ausAll = [], onNew, onEdit, onDel, loggedInUser, mesesGlobales = [] }) => {
   const [search, setSearch] = useState('');
 
   const filtered = aM.filter(a =>
@@ -32,7 +32,7 @@ export const TAus = ({ aM, mes, setMes, regsAll = [], ausAll = [], onNew, onEdit
           </p>
         </div>
         <div className="dash-header-right">
-          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} />
+          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} mesesGlobales={mesesGlobales} />
           {(!loggedInUser || loggedInUser.role === 'admin') && (
             <button className="btn-action btn-primary-action" onClick={onNew}>+ Nueva Ausencia</button>
           )}

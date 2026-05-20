@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { MesSelector } from './MesSelector';
 import { fp, fn, diasT, isT } from '../utils/helpers';
 
-export const TCostos = ({ rM, K, cfg, mes, setMes, regsAll = [], ausAll = [] }) => {
+export const TCostos = ({ rM, K, cfg, mes, setMes, regsAll = [], ausAll = [], mesesGlobales = [] }) => {
   const dt = diasT(mes);
 
   const costoPersonal = useMemo(() => {
@@ -92,7 +92,7 @@ export const TCostos = ({ rM, K, cfg, mes, setMes, regsAll = [], ausAll = [] }) 
           <p className="dash-sub">Período: {mes} · {dt} días hábiles</p>
         </div>
         <div className="dash-header-right">
-          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} />
+          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} mesesGlobales={mesesGlobales} />
         </div>
       </div>
 

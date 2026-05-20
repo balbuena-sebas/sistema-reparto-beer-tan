@@ -256,7 +256,7 @@ const ColumnaPersona = ({ persona, notas, onEditar, onResolver, onEliminar, onNu
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-export const TNotas = ({ cfg, mes, setMes, regsAll = [], ausAll = [], loggedInUser, notify }) => {
+export const TNotas = ({ cfg, mes, setMes, regsAll = [], ausAll = [], loggedInUser, notify, mesesGlobales = [] }) => {
   const [notas,           setNotas]           = useState([]);
   const [cargando,        setCargando]        = useState(true);
   const [modal,           setModal]           = useState(null);
@@ -361,7 +361,7 @@ export const TNotas = ({ cfg, mes, setMes, regsAll = [], ausAll = [], loggedInUs
           </p>
         </div>
         <div className="dash-header-right">
-          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} />
+          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} mesesGlobales={mesesGlobales} />
           <button onClick={() => setVerTodosLosMeses(v => !v)}
             style={{ padding:'6px 14px', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer',
               background: verTodosLosMeses ? '#334155' : '#f1f5f9',

@@ -489,6 +489,7 @@ export const TReportes = ({
   loggedInUser,
   onXLSX,
   onPDF,
+  mesesGlobales = [],
 }) => {
   const dt = diasT(mes, cfg.diasNoTrabajados || []);
   const dh = diasH(mes, cfg.diasNoTrabajados || []);
@@ -685,7 +686,7 @@ export const TReportes = ({
           </p>
         </div>
         <div className="dash-header-right">
-          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} />
+          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} mesesGlobales={mesesGlobales} />
           {(!loggedInUser || loggedInUser.role === 'admin') && (
             <>
               <button className="btn-action btn-secondary-action" onClick={onXLSX}>

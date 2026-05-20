@@ -1564,6 +1564,7 @@ export default function App() {
             onEdit={(r) => setModal({ t: "reg", d: r })}
             onDel={delReg}
             loggedInUser={loggedInUser}
+            mesesGlobales={mesesDisponibles}
           />
         )}
         {tab === "ausencias" && (
@@ -1577,6 +1578,7 @@ export default function App() {
             onEdit={(a) => setModal({ t: "aus", d: a })}
             onDel={delAus}
             loggedInUser={loggedInUser}
+            mesesGlobales={mesesDisponibles}
           />
         )}
         {tab === "personal" && (
@@ -1589,6 +1591,7 @@ export default function App() {
             loggedInUser={loggedInUser}
             regsAll={regs}
             ausAll={aus}
+            mesesGlobales={mesesDisponibles}
           />
         )}
         {tab === "costos" && (
@@ -1601,6 +1604,7 @@ export default function App() {
             regsAll={regs}
             ausAll={aus}
             loggedInUser={loggedInUser}
+            mesesGlobales={mesesDisponibles}
           />
         )}
         {tab === "reportes" && (
@@ -1614,6 +1618,7 @@ export default function App() {
             regsAll={regs}
             ausAll={aus}
             loggedInUser={loggedInUser}
+            mesesGlobales={mesesDisponibles}
             onXLSX={() => {
               try {
                 exportarReporteXLSX({
@@ -1690,6 +1695,7 @@ export default function App() {
             ausAll={aus}
             loggedInUser={loggedInUser}
             notify={notify}
+            mesesGlobales={mesesDisponibles}
           />
         )}
         {tab === "biolinks" && <TBiolinks />}

@@ -4,7 +4,7 @@ import { Av } from './Av';
 import { fn, diasT } from '../utils/helpers';
 import { normalizarUsuario } from '../config/permissions';
 
-export const TPersonal = ({ rM, aM, cfg, mes, setMes, regsAll = [], ausAll = [] }) => {
+export const TPersonal = ({ rM, aM, cfg, mes, setMes, regsAll = [], ausAll = [], mesesGlobales = [] }) => {
   const dt = diasT(mes);
 
   const stats = useMemo(() => {
@@ -58,7 +58,7 @@ export const TPersonal = ({ rM, aM, cfg, mes, setMes, regsAll = [], ausAll = [] 
           </p>
         </div>
         <div className="dash-header-right">
-          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} />
+          <MesSelector value={mes} onChange={setMes} regs={regsAll} aus={ausAll} mesesGlobales={mesesGlobales} />
         </div>
       </div>
 
