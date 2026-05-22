@@ -9,12 +9,9 @@ const NOMBRES = [
 
 export function MesSelector({ value, onChange, regs = [], aus = [], rechazos = [], mesesGlobales = [] }) {
   const meses = useMemo(() => {
-    const hoy = new Date();
-    const mesActual = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
-    
     // Si se proporciona mesesGlobales, usarlo directamente (prioridad)
     if (mesesGlobales && mesesGlobales.length > 0) {
-      const set = new Set([mesActual, ...mesesGlobales]);
+      const set = new Set([...(mesesGlobales || []), value].filter(Boolean));
       const mesesOrdenados = [...set]
         .sort((a,b) => b.localeCompare(a))
         .slice(0, 24)
@@ -26,7 +23,7 @@ export function MesSelector({ value, onChange, regs = [], aus = [], rechazos = [
     }
     
     // Fallback: calcular dinámicamente desde los datos locales
-    const set = new Set([mesActual]);
+    const set = new Set([value].filter(Boolean));
     regs.forEach(r => { const m = (r.fecha||'').slice(0,7); if (m.length===7) set.add(m); });
     aus.forEach(a => { const m = (a.fechaDesde||'').slice(0,7); if (m.length===7) set.add(m); });
     rechazos.forEach(r => { const m = (r.fecha||'').slice(0,7); if (m.length===7) set.add(m); });
@@ -39,7 +36,7 @@ export function MesSelector({ value, onChange, regs = [], aus = [], rechazos = [
       });
 
     return [{ value: '', label: 'Últimos 6 meses' }, ...mesesOrdenados];
-  }, [regs, aus, rechazos, mesesGlobales]);
+  }, [value, regs, aus, rechazos, mesesGlobales]);
 
   return (
     <select

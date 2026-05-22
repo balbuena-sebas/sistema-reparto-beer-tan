@@ -648,11 +648,9 @@ export const TFoxtrot = ({ cfg = {}, mes: mesProp, setMes: setMesProp, kpisExter
   // Ahora también incluye el mes actual y, si el padre pasó un mes válido,
   // lo garantiza como opción para que el selector nunca quede vacío.
   const mesesDisponibles = useMemo(() => {
-    const mesHoy = mesActual();
     const conDatos = new Set([
       ...(mesesGlobales || []),
       ...historial.flatMap(h => mesesEntre((h.fechaDesde || '').slice(0, 7), (h.fechaHasta || '').slice(0, 7))),
-      mesHoy,
       mes,
     ].filter(Boolean));
     return [...conDatos]

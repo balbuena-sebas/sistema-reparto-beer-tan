@@ -583,13 +583,12 @@ export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, 
       ...regsAll.map(r=>(r.fecha||'').slice(0,7)),
       ...rechazos.map(r=>(r.fecha||'').slice(0,7)),
     ].filter(m=>m.length===7));
-    conDatos.add(mesActual);
     const NOMBRES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
     return [...conDatos].sort((a,b)=>b.localeCompare(a)).slice(0,18).map(v=>{
       const [y,m]=v.split('-');
       return { value:v, label:`${NOMBRES[+m-1]} ${y}` };
     });
-  }, [regsAll, rechazos, mesActual]);
+  }, [regsAll, rechazos]);
 
   const diasTrabajadosMes = useMemo(() => {
     if (!mes) return dt;
