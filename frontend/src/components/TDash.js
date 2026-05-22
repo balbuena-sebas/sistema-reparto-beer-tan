@@ -569,7 +569,7 @@ export const RepCard = ({ r, onClose, onEdit, onDel, loggedInUser }) => {
 };
 
 // ── FIRMA ACTUALIZADA: acepta foxtrotKpis y onNavFoxtrot ─────────────────────
-export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, onDel, onNav, rechazos=[], onNavRechazos, regsAll=[], foxtrotKpis=[], onNavFoxtrot, loggedInUser, checklistsHoy = [] }) => {
+export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, onDel, onNav, rechazos=[], onNavRechazos, regsAll=[], foxtrotKpis=[], onNavFoxtrot, loggedInUser, checklistsHoy = [], mesesGlobales = [] }) => {
   const [selected, setSelected] = useState(null);
   const dt = diasT(mes, cfg.diasNoTrabajados || []);
 
@@ -579,6 +579,16 @@ export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, 
   const esEstesMes = mes === mesActual;
 
   const mesesDisponibles = useMemo(() => {
+    if (mesesGlobales && mesesGlobales.length > 0) {
+      const ordenados = [...new Set(mesesGlobales.filter((m) => typeof m === 'string' && m.length === 7))]
+        .sort((a,b)=>b.localeCompare(a))
+        .slice(0,18);
+      const NOMBRES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+      return ordenados.map(v=>{
+        const [y,m]=v.split('-');
+        return { value:v, label:`${NOMBRES[+m-1]} ${y}` };
+      });
+    }
     const conDatos = new Set([
       ...regsAll.map(r=>(r.fecha||'').slice(0,7)),
       ...rechazos.map(r=>(r.fecha||'').slice(0,7)),
@@ -588,7 +598,7 @@ export const TDash = ({ K, rM, aM, cfg, mes, setMes, alertas, onR, onA, onEdit, 
       const [y,m]=v.split('-');
       return { value:v, label:`${NOMBRES[+m-1]} ${y}` };
     });
-  }, [regsAll, rechazos]);
+  }, [regsAll, rechazos, mesesGlobales]);
 
   const diasTrabajadosMes = useMemo(() => {
     if (!mes) return dt;

@@ -1551,6 +1551,7 @@ export default function App() {
               onNavFoxtrot={() => setTab("foxtrot")}
               loggedInUser={loggedInUser}
               checklistsHoy={checklistsHoy}
+              mesesGlobales={mesesDisponibles}
             />
           )}
         {tab === "registros" && (
