@@ -1,17 +1,32 @@
 // src/api/client.js
-const BASE_URL = process.env.REACT_APP_API_URL ? process.env.REACT_APP_API_URL.replace(/\/$/, '') : '';
+const configuredUrl = process.env.REACT_APP_API_URL ? process.env.REACT_APP_API_URL.replace(/\/$/, '') : '';
+const DEFAULT_URL = typeof window !== 'undefined' ? window.location.origin : '';
+const BASE_URL = configuredUrl
+  ? configuredUrl.includes('localhost')
+    ? DEFAULT_URL.includes('localhost')
+      ? configuredUrl
+      : DEFAULT_URL
+    : configuredUrl
+  : DEFAULT_URL;
 const API_KEY  = process.env.REACT_APP_API_KEY || "heavy-behind-blush-will";
 
-
 export async function apiFetch(path, options = {}) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY,
-      ...(options.headers || {}),
-    },
-  });
+  const url = `${BASE_URL}${path}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY,
+        ...(options.headers || {}),
+      },
+    });
+  } catch (err) {
+    throw new Error(
+      `No se pudo conectar con el backend en ${url}. Verifica que la API esté activa y que REACT_APP_API_URL sea correcto. ${err.message}`
+    );
+  }
 
   const text = await res.text();
   const contentType = res.headers.get('content-type') || '';
