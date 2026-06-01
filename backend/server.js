@@ -68,6 +68,11 @@ app.use('/api/checklists', autenticar, checklistsRouter);
 app.use('/api/mantenimiento', autenticar, mantenimientoRouter);
 app.use('/api/dbstats', autenticar, dbstatsRouter);
 
+// API not found handler returns JSON instead of HTML
+app.use('/api', (req, res) => {
+  res.status(404).json({ ok: false, error: 'Ruta de API no encontrada' });
+});
+
 // === Scheduler de mantenimiento automático (archivado nocturno) ===
 try {
   const { start } = require('./maintenance/scheduler');

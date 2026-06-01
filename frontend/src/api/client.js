@@ -1,14 +1,8 @@
 // src/api/client.js
 const configuredUrl = process.env.REACT_APP_API_URL ? process.env.REACT_APP_API_URL.replace(/\/$/, '') : '';
 const DEFAULT_URL = typeof window !== 'undefined' ? window.location.origin : '';
-const BASE_URL = configuredUrl
-  ? configuredUrl.includes('localhost')
-    ? DEFAULT_URL.includes('localhost')
-      ? configuredUrl
-      : DEFAULT_URL
-    : configuredUrl
-  : DEFAULT_URL;
-const API_KEY  = process.env.REACT_APP_API_KEY || "heavy-behind-blush-will";
+const BASE_URL = configuredUrl || (DEFAULT_URL.includes('localhost') ? 'http://localhost:3001' : DEFAULT_URL);
+const API_KEY = process.env.REACT_APP_API_KEY || "heavy-behind-blush-will";
 
 export async function apiFetch(path, options = {}) {
   const url = `${BASE_URL}${path}`;
@@ -24,7 +18,7 @@ export async function apiFetch(path, options = {}) {
     });
   } catch (err) {
     throw new Error(
-      `No se pudo conectar con el backend en ${url}. Verifica que la API esté activa y que REACT_APP_API_URL sea correcto. ${err.message}`
+      `No se pudo conectar con el backend en ${url}. Verifica que la API esté activa y que REACT_APP_API_URL apunte al servidor correcto. ${err.message}`
     );
   }
 
@@ -33,7 +27,7 @@ export async function apiFetch(path, options = {}) {
 
   if (!contentType.includes('application/json') && text.trim().startsWith('<')) {
     throw new Error(
-      `Respuesta inesperada del backend: se recibió HTML en lugar de JSON. Verifica REACT_APP_API_URL y que el backend esté activo.`
+      `Respuesta inesperada del backend en ${url}: se recibió HTML en lugar de JSON. Verifica que la API esté activa, que la ruta /api esté disponible y que REACT_APP_API_URL apunte al backend correcto.`
     );
   }
 
