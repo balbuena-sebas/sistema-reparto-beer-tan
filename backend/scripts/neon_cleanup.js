@@ -3,7 +3,7 @@ const { query } = require('../db');
 const { actualizarKPIMensual } = require('../utils/kpi_utils');
 const storage = require('../storage');
 
-async function realizarLimpiezaAutomatica() {
+async function realizarLimpiezaAutomatica(options = { allowDelete: false }) {
   console.log("🧹 Iniciando limpieza y traslado a R2...");
   
   try {
@@ -53,11 +53,15 @@ async function realizarLimpiezaAutomatica() {
         await storage.upload(`foxtrot/detalle_${mes}.json.gz`, detalleFoxtrot.rows);
       }
 
-      // C. BORRAR de Supabase para liberar espacio real
-      console.log(`🗑 Liberando espacio: Borrando detalle de ${mes} de Supabase...`);
-      await query("DELETE FROM foxtrot_intentos WHERE TO_CHAR(fecha, 'YYYY-MM') = $1", [mes]);
-      await query("DELETE FROM foxtrot_rutas WHERE TO_CHAR(fecha, 'YYYY-MM') = $1", [mes]);
-      await query("DELETE FROM rechazos WHERE TO_CHAR(fecha, 'YYYY-MM') = $1", [mes]);
+      // C. BORRAR de Supabase para liberar espacio real (solo si options.allowDelete === true y ALLOW_DELETE env= 'true')
+      if (options.allowDelete && process.env.ALLOW_DELETE === 'true') {
+        console.log(`🗑 Liberando espacio: Borrando detalle de ${mes} de Supabase...`);
+        await query("DELETE FROM foxtrot_intentos WHERE TO_CHAR(fecha, 'YYYY-MM') = $1", [mes]);
+        await query("DELETE FROM foxtrot_rutas WHERE TO_CHAR(fecha, 'YYYY-MM') = $1", [mes]);
+        await query("DELETE FROM rechazos WHERE TO_CHAR(fecha, 'YYYY-MM') = $1", [mes]);
+      } else {
+        console.log(`ℹ Manteniendo datos en Supabase para ${mes} (no se borra).`);
+      }
     }
 
     console.log("✨ Traslado a R2 completado. Supabase está limpio.");

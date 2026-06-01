@@ -54,6 +54,7 @@ const notasRouter = require('./routes/notas');
 const foxtrotRouter = require('./routes/foxtrot');
 const checklistsRouter = require('./routes/checklists');
 const mantenimientoRouter = require('./routes/mantenimiento');
+const dbstatsRouter = require('./routes/dbstats');
 
 app.use('/api/registros', autenticar, registrosRouter);
 app.use('/api/ausencias', autenticar, ausenciasRouter);
@@ -65,6 +66,16 @@ app.use('/api/notas', autenticar, notasRouter);
 app.use('/api/foxtrot', autenticar, foxtrotRouter);
 app.use('/api/checklists', autenticar, checklistsRouter);
 app.use('/api/mantenimiento', autenticar, mantenimientoRouter);
+app.use('/api/dbstats', autenticar, dbstatsRouter);
+
+// === Scheduler de mantenimiento automático (archivado nocturno) ===
+try {
+  const { start } = require('./maintenance/scheduler');
+  // Scheduler será iniciado después de que el servidor levante (evitar doble initDB)
+  app.once('listening', () => start());
+} catch (err) {
+  console.error('Scheduler no disponible:', err.message);
+}
 
 app.get('/health', (req, res) => res.json({ ok: true, status: 'online' }));
 app.get('/', (req, res) => res.json({ ok: true, msg: 'API Sistema de Reparto' }));
@@ -77,7 +88,10 @@ app.use((err, req, res, next) => {
 async function iniciar() {
   try {
     await initDB();
-    app.listen(PORT, () => console.log(`🚛 API corriendo en puerto ${PORT}`));
+    const server = app.listen(PORT, () => {
+      console.log(`🚛 API corriendo en puerto ${PORT}`);
+      app.emit('listening');
+    });
   } catch (err) {
     console.error('No se pudo iniciar:', err.message);
     process.exit(1);

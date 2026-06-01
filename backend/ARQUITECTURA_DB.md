@@ -12,7 +12,7 @@ Tu aplicación utiliza **3 servicios de base de datos gratuitos** con **roles es
 │   (Principal)    │  (Backup)        │  (Almacenamiento)           │
 ├──────────────────┼──────────────────┼──────────────────────────────┤
 │ • Producción     │ • Respaldo       │ • Excels pesados            │
-│ • 500GB gratis   │ • 10GB gratis    │ • 10GB gratis (× 2 cuentas) │
+│ • 500MB gratis   │ • 10GB gratis    │ • 10GB gratis (× 2 cuentas) │
 │ • Datos activos  │ • Mirroring      │ • Archivos archivados       │
 │ • ↑ 100k filas   │ • ↑ 100k filas   │ • Retención: 365 días       │
 └──────────────────┴──────────────────┴──────────────────────────────┘
@@ -20,10 +20,10 @@ Tu aplicación utiliza **3 servicios de base de datos gratuitos** con **roles es
 
 ---
 
-## 1️⃣ SUPABASE — Base de Datos Principal (500GB gratuito)
+## 1️⃣ SUPABASE — Base de Datos Principal (500MB gratuito)
 
 ### ¿Qué es?
-PostgreSQL administrado en la nube con **500GB de almacenamiento gratuito**.
+PostgreSQL administrado en la nube con **500MB de almacenamiento gratuito**.
 
 ### ¿Qué guarda?
 - ✅ Todos los **registros activos** (chofer, reparto, etc.)
@@ -40,13 +40,13 @@ Foxtrot:        289 rutas × 60 meses = 17,340 rutas (~50MB)
 Rechazos:       1,974 × 60 meses = 118,440 (~300MB)
 Otros:          Configuración, notas, checklists (~50MB)
 ─────────────────────────────────────────────────────────
-TOTAL ESTIMADO: ~400MB de 500GB = 80% disponible
+TOTAL ESTIMADO: ~400MB de 500MB = 20% disponible
 
-✅ No tienes problemas de espacio en 5 años
+✅ No tienes problemas de espacio en 5 años si mantienes los datos optimizados
 ```
 
 ### ¿Por qué NO usar la versión paga?
-- 500GB gratuito es SUFICIENTE
+- 500MB gratuito es SUFICIENTE para el tamaño actual del proyecto
 - Tu data está limitada por naturaleza (registros diarios, no histórico masivo)
 - Costo: $25-$100/mes si pagabas
 
@@ -139,7 +139,7 @@ Retención 365 días:
                  │ (Escribe/Lee)
                  ▼
          ┌──────────────┐
-         │  SUPABASE    │ ← Activa (500GB)
+         │  SUPABASE    │ ← Activa (500MB)
          │ (Principal)  │
          └──────────────┘
                  │
@@ -197,8 +197,8 @@ TOTAL:       ~1.45GB  ✅ Dentro de límites
 
 ### Resumen:
 ```
-SUPABASE:   400MB  de 500GB  = 80% libre ✅
-NEON:       400MB  de 10GB   = 90% libre ✅
+SUPABASE:   400MB  de 500MB  = 20% libre ✅
+NEON:       400MB  de 10GB   = 96% libre ✅
 R2:         650MB  de 20GB   = 97% libre ✅
 
 Duración: ∞ (ilimitado)
@@ -247,8 +247,8 @@ Mes    Supabase    Neon        R2          Total
 
 ## ✅ Checklist para 5 Años de Operación
 
-- [ ] Supabase: 500GB (80% disponible) - Suficiente
-- [ ] Neon: 10GB (90% disponible) - Suffice para backup
+- [ ] Supabase: 500MB (20% disponible) - Suficiente para el tamaño actual
+- [ ] Neon: 10GB (96% disponible) - Suficiente para backup
 - [ ] R2: 20GB (97% disponible) - Suficiente
 - [ ] Sincronización automática configurable
 - [ ] Scripts de diagnóstico: `npm run check-db`
@@ -292,7 +292,7 @@ npm run sync-neon         # Fuerza sincronización Supabase ↔ Neon
 
 ### "¿Cuándo tengo que pagar?"
 R: Nunca, si respetas estas estimaciones. Solo pagarías si:
-- Supabase >500GB (tu caso: 400MB)
+- Supabase >500MB (tu caso: 400MB)
 - NEON >10GB (tu caso: 400MB)
 - R2 >10GB/mes (tu caso: ~650MB estable)
 

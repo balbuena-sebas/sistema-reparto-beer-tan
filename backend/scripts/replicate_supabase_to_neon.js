@@ -56,7 +56,10 @@ async function syncSupa2Neon() {
   console.log('🔄 Replicando tablas de Supabase → Neon (sincronización forzada)...\n');
   
   let supabaseClient, neonClient;
+  // Tablas críticas y tablas pesadas que queremos replicar solo parcialmente
   const TABLAS_CRITICAS = ['registros', 'ausencias', 'configuracion', 'notas', 'checklists'];
+  const TABLAS_PESADAS = ['rechazos', 'foxtrot_rutas', 'foxtrot_intentos'];
+  const REPLICA_MONTHS = parseInt(process.env.NEON_REPLICA_MONTHS || '3', 10); // meses recientes a replicar para tablas pesadas
   
   try {
     supabaseClient = await supabasePool.connect();
@@ -73,6 +76,36 @@ async function syncSupa2Neon() {
       await replicateTable(supabaseClient, neonClient, tabla);
     }
 
+    // Para tablas pesadas, replicamos sólo los últimos N meses para no llenar Neon
+    const mesesClause = `TO_CHAR(fecha, 'YYYY-MM') >= TO_CHAR(CURRENT_DATE - INTERVAL '${REPLICA_MONTHS} months', 'YYYY-MM')`;
+    for (const tabla of TABLAS_PESADAS) {
+      try {
+        console.log(`  ✓ ${tabla}: replicando últimos ${REPLICA_MONTHS} meses...`);
+        // Obtener datos filtrados
+        const supabaseData = await supabaseClient.query(`SELECT * FROM ${tabla} WHERE ${mesesClause}`);
+
+        // Limpiar Neon primero (DELETE de registros equivalentes por mes)
+        await neonClient.query(`DELETE FROM ${tabla} WHERE ${mesesClause}`);
+
+        if (supabaseData.rows.length === 0) {
+          console.log(`    ${tabla}: 0 registros en los últimos ${REPLICA_MONTHS} meses`);
+          continue;
+        }
+
+        const columns = Object.keys(supabaseData.rows[0]);
+        const placeholders = columns.map((_, i) => `$${i + 1}`).join(',');
+        const columnList = columns.join(',');
+        const insertSql = `INSERT INTO ${tabla} (${columnList}) VALUES (${placeholders})`;
+        for (const row of supabaseData.rows) {
+          const values = columns.map(col => row[col]);
+          await neonClient.query(insertSql, values);
+        }
+        console.log(`    ${tabla}: ${supabaseData.rows.length} registros replicados (recientes)`);
+      } catch (err) {
+        console.error(`  ❌ Error replicando tabla pesada ${tabla}:`, err.message);
+      }
+    }
+
     console.log('\n' + '─'.repeat(80));
     console.log('✅ Sincronización Supabase → Neon COMPLETADA');
     console.log('   Las tablas críticas están duplicadas en Neon como backup');
@@ -87,4 +120,8 @@ async function syncSupa2Neon() {
   }
 }
 
-syncSupa2Neon();
+if (require.main === module) {
+  syncSupa2Neon();
+}
+
+module.exports = { syncSupa2Neon };

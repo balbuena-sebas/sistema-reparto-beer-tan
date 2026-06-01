@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { getDbStats, postArchiveMonth, postReplicateNeon } from '../api/client';
 
 const QUOTAS = {
-  supabase: 500 * 1024 * 1024 * 1024,
+  supabase: 500 * 1024 * 1024,
   neon: 10 * 1024 * 1024 * 1024,
   r2: 10 * 1024 * 1024 * 1024,
 };
@@ -62,7 +62,7 @@ export function TDbStats({ loggedInUser }) {
         <div style={{ padding: 18, borderRadius: 16, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
           <strong style={{ display: 'block', marginBottom: 8, fontSize: 16 }}>Supabase (Principal)</strong>
           <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 6 }}>{supabase?.pretty || 'N/A'}</div>
-          <div style={{ color: '#475569' }}>Usado: {bytesToPretty(supabase?.bytes)} / 500 GB</div>
+          <div style={{ color: '#475569' }}>Usado: {bytesToPretty(supabase?.bytes)} / 500 MB</div>
           <div style={{ color: '#475569' }}>{supPct.toFixed(2)}% utilizado, {((100 - supPct) < 0 ? 0 : (100 - supPct)).toFixed(2)}% disponible</div>
           <UsageBar percent={supPct} />
         </div>

@@ -268,3 +268,19 @@ export async function guardarChecklist(datos) {
   const r = await apiFetch('/api/checklists', { method: 'POST', body: JSON.stringify(datos) });
   return r.data || r;
 }
+
+// ── ADMIN: Estadísticas de bases de datos
+export async function getDbStats() {
+  const r = await apiFetch('/api/dbstats');
+  return r.data || r;
+}
+
+export async function postArchiveMonth(mes) {
+  const r = await apiFetch('/api/mantenimiento/archive-month', { method: 'POST', body: JSON.stringify({ mes }) });
+  return r;
+}
+
+export async function postReplicateNeon(months = 3) {
+  const r = await apiFetch('/api/mantenimiento/replicate-neon', { method: 'POST', body: JSON.stringify({ months }) });
+  return r;
+}

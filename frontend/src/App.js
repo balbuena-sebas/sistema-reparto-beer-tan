@@ -48,6 +48,7 @@ const TFoxtrot = lazy(() => import("./components/TFoxtrot").then(mod => ({ defau
 const TImportacion = lazy(() => import("./components/TImportacion").then(mod => ({ default: mod.TImportacion })));
 const TNotas = lazy(() => import("./components/TNotas").then(mod => ({ default: mod.TNotas })));
 const TBiolinks = lazy(() => import("./components/TBiolinks").then(mod => ({ default: mod.TBiolinks })));
+const TDbStats = lazy(() => import("./components/TDbStats").then(mod => ({ default: mod.TDbStats })));
 
 // ─── Pantalla de carga / error ────────────────────────────────────────────────
 const Cargando = ({ error }) => (
@@ -1241,6 +1242,7 @@ export default function App() {
 
   const tabs = [
     { id: "dashboard", lb: "📊 Dashboard" },
+    { id: "dbstats", lb: "🗄️ DB" },
     { id: "registros", lb: "🚛 Registros" },
     { id: "ausencias", lb: "📋 Ausencias" },
     { id: "personal", lb: "👥 Personal" },
@@ -1553,6 +1555,9 @@ export default function App() {
               checklistsHoy={checklistsHoy}
               mesesGlobales={mesesDisponibles}
             />
+          )}
+          {tab === "dbstats" && (
+            <TDbStats loggedInUser={loggedInUser} />
           )}
         {tab === "registros" && (
           <TRegs

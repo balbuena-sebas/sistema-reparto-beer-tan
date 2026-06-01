@@ -42,9 +42,13 @@ async function archivarMes(mes) {
 }
 
 // Ejecución manual: node archive_to_r2.js 2024-03
-const mesArg = process.argv[2];
-if (mesArg) {
-  archivarMes(mesArg).then(() => process.exit(0));
-} else {
-  console.log("Uso: node archive_to_r2.js YYYY-MM");
+if (require.main === module) {
+  const mesArg = process.argv[2];
+  if (mesArg) {
+    archivarMes(mesArg).then(() => process.exit(0));
+  } else {
+    console.log("Uso: node archive_to_r2.js YYYY-MM");
+  }
 }
+
+module.exports = { archivarMes };

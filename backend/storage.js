@@ -226,6 +226,44 @@ class StorageManager {
     }
     return [...allKeys];
   }
+
+  /**
+   * Calcula el uso (bytes) en cada bucket y total.
+   * Devuelve { totalBytes, accounts: [{ id, bucketName, usedBytes }] }
+   */
+  async getUsage(prefix = "") {
+    if (this.buckets.length === 0) return { totalBytes: 0, accounts: [] };
+    const accounts = [];
+    let total = 0;
+
+    for (const storage of this.buckets) {
+      try {
+        let continuationToken;
+        let accountTotal = 0;
+        do {
+          const command = new ListObjectsV2Command({
+            Bucket: storage.bucketName,
+            Prefix: prefix,
+            MaxKeys: 1000,
+            ContinuationToken: continuationToken,
+          });
+          const data = await storage.client.send(command);
+          (data.Contents || []).forEach(obj => {
+            accountTotal += Number(obj.Size || 0);
+          });
+          continuationToken = data.NextContinuationToken;
+        } while (continuationToken);
+
+        accounts.push({ id: storage.id, bucketName: storage.bucketName, usedBytes: accountTotal });
+        total += accountTotal;
+      } catch (err) {
+        console.error(`❌ Error calculando uso R2 ${storage.id}:`, err.message);
+        accounts.push({ id: storage.id, bucketName: storage.bucketName, usedBytes: null, error: err.message });
+      }
+    }
+
+    return { totalBytes: total, accounts };
+  }
 }
 
 module.exports = new StorageManager();
