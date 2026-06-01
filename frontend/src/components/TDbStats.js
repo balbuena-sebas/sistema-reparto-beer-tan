@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { getDbStats, postArchiveMonth, postReplicateNeon } from '../api/client';
 
+const neonQuotaGb = Number(process.env.REACT_APP_NEON_QUOTA_GB) || 5;
+const r2QuotaGb = Number(process.env.REACT_APP_R2_QUOTA_GB) || 10;
 const QUOTAS = {
   supabase: 500 * 1024 * 1024,
-  neon: 10 * 1024 * 1024 * 1024,
-  r2: 10 * 1024 * 1024 * 1024,
+  neon: neonQuotaGb * 1024 * 1024 * 1024,
+  r2: r2QuotaGb * 1024 * 1024 * 1024,
 };
 
 function bytesToPretty(bytes) {
@@ -70,7 +72,7 @@ export function TDbStats({ loggedInUser }) {
         <div style={{ padding: 18, borderRadius: 16, border: '1px solid #e2e8f0', background: '#f8fafc' }}>
           <strong style={{ display: 'block', marginBottom: 8, fontSize: 16 }}>Neon (Backup)</strong>
           <div style={{ fontSize: 26, fontWeight: 700, marginBottom: 6 }}>{neon?.pretty || 'N/A'}</div>
-          <div style={{ color: '#475569' }}>Usado: {bytesToPretty(neon?.bytes)} / 10 GB</div>
+          <div style={{ color: '#475569' }}>Usado: {bytesToPretty(neon?.bytes)} / {neonQuotaGb} GB</div>
           <div style={{ color: '#475569' }}>{neonPct.toFixed(2)}% utilizado, {((100 - neonPct) < 0 ? 0 : (100 - neonPct)).toFixed(2)}% disponible</div>
           <UsageBar percent={neonPct} />
         </div>
@@ -82,7 +84,7 @@ export function TDbStats({ loggedInUser }) {
           {r2Accounts.map((account) => (
             <div key={account.id} style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{account.bucketName}</div>
-              <div style={{ color: '#475569', fontSize: 13, marginBottom: 4 }}>{account.pretty} / 10 GB ({account.percent.toFixed(1)}%)</div>
+              <div style={{ color: '#475569', fontSize: 13, marginBottom: 4 }}>{account.pretty} / {r2QuotaGb} GB ({account.percent.toFixed(1)}%)</div>
               <UsageBar percent={account.percent} />
             </div>
           ))}
