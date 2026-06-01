@@ -1,10 +1,18 @@
 // src/api/client.js
 const configuredUrl = process.env.REACT_APP_API_URL ? process.env.REACT_APP_API_URL.replace(/\/$/, '') : '';
-const DEFAULT_URL = typeof window !== 'undefined' ? window.location.origin : '';
-const BASE_URL = configuredUrl || (DEFAULT_URL.includes('localhost') ? 'http://localhost:3001' : DEFAULT_URL);
+const BASE_URL = configuredUrl || (process.env.NODE_ENV === 'development' ? 'http://localhost:3001' : '');
 const API_KEY = process.env.REACT_APP_API_KEY || "heavy-behind-blush-will";
 
+function ensureBackendUrl() {
+  if (!BASE_URL) {
+    throw new Error(
+      'REACT_APP_API_URL no está configurada. En producción, debe apuntar al backend de la API, por ejemplo https://reparto-api.onrender.com.'
+    );
+  }
+}
+
 export async function apiFetch(path, options = {}) {
+  ensureBackendUrl();
   const url = `${BASE_URL}${path}`;
   let res;
   try {
