@@ -6,6 +6,12 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const { initDB } = require('./db');
 
+if (!process.env.DATABASE_URL && !process.env.NEON_DATABASE_URL) {
+  console.error('❌ Back-end no puede iniciar: falta DATABASE_URL o NEON_DATABASE_URL en las variables de entorno.');
+  console.error('   En Render debes agregar la URL de la base de datos en Environment > DATABASE_URL o NEON_DATABASE_URL.');
+  process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
