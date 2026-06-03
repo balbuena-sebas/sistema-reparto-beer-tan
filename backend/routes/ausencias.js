@@ -10,7 +10,7 @@ function filaAausencia(fila) {
     motivo:       fila.motivo || '',
     fechaDesde:   fila.fecha_desde ? fila.fecha_desde.toISOString().split('T')[0] : '',
     fechaHasta:   fila.fecha_hasta ? fila.fecha_hasta.toISOString().split('T')[0] : '',
-    observaciones: fila.observaciones || '',
+    observaciones: fila.observations || '',
     dias:         fila.dias || 1,
     createdByDni: fila.created_by_dni || '',
     createdByNombre: fila.created_by_nombre || '',
@@ -53,14 +53,14 @@ router.post('/', async (req, res) => {
     if (clientId) {
       // Upsert idempotente por client_id para evitar duplicados
       result = await query(`
-        INSERT INTO ausencias (client_id, persona, motivo, fecha_desde, fecha_hasta, observaciones, dias, created_by_dni, created_by_nombre)
+        INSERT INTO ausencias (client_id, persona, motivo, fecha_desde, fecha_hasta, observations, dias, created_by_dni, created_by_nombre)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         ON CONFLICT (client_id) DO UPDATE SET
           persona = EXCLUDED.persona,
           motivo = EXCLUDED.motivo,
           fecha_desde = EXCLUDED.fecha_desde,
           fecha_hasta = EXCLUDED.fecha_hasta,
-          observaciones = EXCLUDED.observaciones,
+          observations = EXCLUDED.observations,
           dias = EXCLUDED.dias,
           created_by_dni = EXCLUDED.created_by_dni,
           created_by_nombre = EXCLUDED.created_by_nombre,
@@ -78,7 +78,7 @@ router.post('/', async (req, res) => {
     } else {
       // Inserción normal: dejar que la BD asigne id
       result = await query(`
-        INSERT INTO ausencias (persona, motivo, fecha_desde, fecha_hasta, observaciones, dias, created_by_dni, created_by_nombre)
+        INSERT INTO ausencias (persona, motivo, fecha_desde, fecha_hasta, observations, dias, created_by_dni, created_by_nombre)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         RETURNING *
       `, [
@@ -105,7 +105,7 @@ router.put('/:id', async (req, res) => {
     const result = await query(`
       UPDATE ausencias SET
         persona=$1, motivo=$2, fecha_desde=$3, fecha_hasta=$4,
-        observaciones=$5, dias=$6, created_by_dni=$7, created_by_nombre=$8, updated_at=NOW()
+        observations=$5, dias=$6, created_by_dni=$7, created_by_nombre=$8, updated_at=NOW()
       WHERE id=$9
       RETURNING *
     `, [
