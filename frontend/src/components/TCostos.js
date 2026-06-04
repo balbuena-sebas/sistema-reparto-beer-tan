@@ -10,15 +10,15 @@ export const TCostos = ({ rM, K, cfg, mes, setMes, regsAll = [], ausAll = [], me
     const listTemporada = new Set((cfg.temporada || []).map(n => n.toLowerCase().trim()));
     const norm = (n) => (n || '').toLowerCase().trim();
 
-    const rawChoferes = rM.map(r => norm(r.chofer)).filter(Boolean);
-    const rawAyudantes = [
-      ...rM.map(r => norm(r.ay1)).filter(Boolean),
-      ...rM.map(r => norm(r.ay2)).filter(Boolean)
-    ];
+    // Solo considerar choferes y ayudantes que participaron en repartos con recarga
+    const rawChoferes = rM.filter(r => (r.nRecargas || 0) > 0).map(r => norm(r.chofer)).filter(Boolean);
+    const rawAyudantes = rM.filter(r => (r.nRecargas || 0) > 0)
+      .flatMap(r => [norm(r.ay1), norm(r.ay2)])
+      .filter(Boolean);
 
     // Operarios por rol: SOLO si "llegaron a la recarga" (nRecargas > 0)
-    const rawChoferesConRec = rM.filter(r => (r.nRecargas || 0) > 0).map(r => norm(r.chofer)).filter(Boolean);
-    const rawAyudantesConRec = rM.filter(r => (r.nRecargas || 0) > 0).flatMap(r => [norm(r.ay1), norm(r.ay2)]).filter(Boolean);
+    const rawChoferesConRec = rawChoferes;
+    const rawAyudantesConRec = rawAyudantes;
 
     const opsCh = new Set(rawChoferesConRec.filter(n => listOperarios.has(n)));
     const opsAy = new Set(rawAyudantesConRec.filter(n => listOperarios.has(n)));
