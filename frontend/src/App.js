@@ -52,71 +52,38 @@ const TDbStats = lazy(() => import("./components/TDbStats").then(mod => ({ defau
 
 // ─── Pantalla de carga / error ────────────────────────────────────────────────
 const Cargando = ({ error }) => (
-  <div
-    style={{
-      minHeight: "100vh",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      background: "#f8fafc",
-    }}>
-    <div style={{ textAlign: "center", padding: 40 }}>
+  <div className="bt-loading-screen">
+    <div className="bt-loading-card">
       {error ? (
         <>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
-          <div
-            style={{
-              fontSize: 20,
-              fontWeight: 800,
-              color: "#b91c1c",
-              marginBottom: 8,
-            }}>
-            No se pudo conectar al servidor
-          </div>
-          <div
-            style={{
-              fontSize: 14,
-              color: "#64748b",
-              maxWidth: 420,
-              lineHeight: 1.8,
-              marginBottom: 20,
-            }}>
+          <div className="bt-loading-icon">⚠️</div>
+          <div className="bt-loading-error-title">No se pudo conectar al servidor</div>
+          <div className="bt-loading-error-text">
             {error}
             <br />
             <br />
             Verificá que el backend esté corriendo:
             <br />
-            <code
-              style={{
-                background: "#f1f5f9",
-                padding: "4px 10px",
-                borderRadius: 6,
-                fontSize: 13,
-              }}>
-              cd backend &amp;&amp; npm start
-            </code>
+            <code className="bt-loading-code">cd backend &amp;&amp; npm start</code>
           </div>
-          <button
-            onClick={() => window.location.reload()}
-            style={{
-              padding: "10px 28px",
-              background: "#005fa3",
-              color: "#fff",
-              border: "none",
-              borderRadius: 10,
-              fontSize: 15,
-              fontWeight: 700,
-              cursor: "pointer",
-            }}>
+          <button className="bt-loading-button" onClick={() => window.location.reload()}>
             Reintentar
           </button>
         </>
       ) : (
         <>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🚛</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: "#64748b" }}>
-            Cargando sistema...
+          <div className="bt-loading-truck">
+            <div className="bt-truck-body">
+              <div className="bt-truck-cab" />
+              <div className="bt-truck-box" />
+              <div className="bt-truck-wheel bt-truck-wheel-front" />
+              <div className="bt-truck-wheel bt-truck-wheel-back" />
+            </div>
+            <div className="bt-truck-road" />
           </div>
+          <div className="bt-loading-title">Cargando sistema...</div>
+          <div className="bt-loading-subtitle">Buscando la petición en el servidor</div>
+          <div className="bt-loading-help">Un instante: el camión ya viene con los datos.</div>
         </>
       )}
     </div>

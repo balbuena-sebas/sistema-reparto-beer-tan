@@ -510,6 +510,149 @@ body {
 
 /* ============ RESPONSIVE ============ */
 
+.bt-loading-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8fafc;
+  padding: 20px;
+}
+
+.bt-loading-card {
+  max-width: 520px;
+  width: 100%;
+  background: #ffffff;
+  border-radius: 28px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 26px 60px rgba(15, 23, 42, 0.08);
+  padding: 36px 32px;
+  text-align: center;
+}
+
+.bt-loading-icon,
+.bt-loading-title {
+  font-size: 48px;
+  margin-bottom: 18px;
+}
+
+.bt-loading-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 8px;
+}
+
+.bt-loading-subtitle,
+.bt-loading-help,
+.bt-loading-error-text {
+  color: #475569;
+  font-size: 15px;
+  line-height: 1.7;
+  margin-bottom: 8px;
+}
+
+.bt-loading-help {
+  margin-top: 6px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.bt-loading-code {
+  display: inline-block;
+  background: #f1f5f9;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+.bt-loading-button {
+  margin-top: 16px;
+  padding: 10px 28px;
+  background: #0f172a;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bt-loading-truck {
+  position: relative;
+  width: 100%;
+  height: 130px;
+  margin: 0 auto 20px;
+  overflow: hidden;
+}
+
+.bt-truck-body {
+  position: absolute;
+  top: 24px;
+  left: -180px;
+  width: 160px;
+  height: 64px;
+  border-radius: 18px 18px 12px 12px;
+  background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+  animation: bt-truck-drive 2.5s linear infinite;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+
+.bt-truck-cab {
+  position: absolute;
+  width: 60px;
+  height: 42px;
+  top: 10px;
+  left: 10px;
+  background: #e2e8f0;
+  border-radius: 12px 8px 8px 12px;
+}
+
+.bt-truck-box {
+  position: absolute;
+  width: 84px;
+  height: 42px;
+  top: 10px;
+  right: 10px;
+  background: #0ea5e9;
+  border-radius: 10px;
+}
+
+.bt-truck-wheel {
+  position: absolute;
+  bottom: -16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #1e293b;
+  border: 5px solid #cbd5e1;
+  animation: bt-wheel-spin 0.8s linear infinite;
+}
+
+.bt-truck-wheel-front { left: 18px; }
+.bt-truck-wheel-back { right: 18px; }
+
+.bt-truck-road {
+  position: absolute;
+  bottom: 14px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 999px;
+}
+
+@keyframes bt-truck-drive {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(460px); }
+}
+
+@keyframes bt-wheel-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 /* ── Tablet (≤ 900px) ── */
 @media (max-width: 900px) {
   .app-main { padding: 20px; }
