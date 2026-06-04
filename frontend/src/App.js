@@ -71,18 +71,7 @@ const Cargando = ({ error }) => (
           </button>
         </>
       ) : (
-        <>
-          <div className="bt-loading-truck">
-            <div className="bt-truck-body">
-              <div className="bt-truck-cab" />
-              <div className="bt-truck-box" />
-              <div className="bt-truck-wheel bt-truck-wheel-front" />
-              <div className="bt-truck-wheel bt-truck-wheel-back" />
-            </div>
-            <div className="bt-truck-road" />
-          </div>
-          <div className="bt-loading-title">Cargando...</div>
-        </>
+        <div className="loader">Cargando...</div>
       )}
     </div>
   </div>
