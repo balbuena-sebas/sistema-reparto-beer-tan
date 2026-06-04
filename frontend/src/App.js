@@ -73,11 +73,9 @@ const Cargando = ({ error }) => (
       ) : (
         <>
           <div className="bt-loading-truck">
-            <div className="bt-truck">
-              <div className="bt-truck-cab">
-                <div className="bt-truck-window" />
-              </div>
-              <div className="bt-truck-container" />
+            <div className="bt-truck-body">
+              <div className="bt-truck-cab" />
+              <div className="bt-truck-box" />
               <div className="bt-truck-wheel bt-truck-wheel-front" />
               <div className="bt-truck-wheel bt-truck-wheel-back" />
             </div>
