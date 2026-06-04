@@ -73,17 +73,17 @@ const Cargando = ({ error }) => (
       ) : (
         <>
           <div className="bt-loading-truck">
-            <div className="bt-truck-body">
-              <div className="bt-truck-cab" />
-              <div className="bt-truck-box" />
+            <div className="bt-truck">
+              <div className="bt-truck-cab">
+                <div className="bt-truck-window" />
+              </div>
+              <div className="bt-truck-container" />
               <div className="bt-truck-wheel bt-truck-wheel-front" />
               <div className="bt-truck-wheel bt-truck-wheel-back" />
             </div>
             <div className="bt-truck-road" />
           </div>
-          <div className="bt-loading-title">Cargando sistema...</div>
-          <div className="bt-loading-subtitle">Buscando la petición en el servidor</div>
-          <div className="bt-loading-help">Un instante: el camión ya viene con los datos.</div>
+          <div className="bt-loading-title">Cargando...</div>
         </>
       )}
     </div>
