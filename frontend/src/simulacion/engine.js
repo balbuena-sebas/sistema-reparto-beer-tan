@@ -11,8 +11,10 @@ export const PARAMS_DEFAULT = {
   consumoCamion: 30,       // L cada 100 km (camión con carga)
   consumoUtil: 12,         // L cada 100 km (utilitario)
   palletsUtil: 3,          // vehículos de hasta este nº de pallets usan el consumo de utilitario
-  precioDiesel: 2510.5,    // $/L: promedio diésel Shell/Axion (Sec. de Energía, oct-2026)
+  marca: 'Shell',          // estación usada para el costo de cada camión (se elige en las tarjetas)
+  precioDiesel: 2477,      // $/L de la marca elegida
   preciosMarca: { Shell: 2477, Axion: 2544, YPF: 2199 },
+  fechasMarca: { Shell: '14/10/26 · Tandil', Axion: '03/10/26 · zona', YPF: '01/07/26 · manual, desactualizado' },
   ayudantesPorCamion: 1,   // personas = chofer + ayudantes (por defecto 2)
   limiteRecarga2: 450,     // con 2 personas: sin recarga hasta estos bultos
   limiteRecarga3: 700,     // con 3 personas
@@ -199,7 +201,7 @@ export function costearRuta(P, { km, pallets, cap, bultos, localidades = [] }) {
 
 // Mismo litros con el precio de cada marca (Shell / Axion / YPF) y el usado en el cálculo.
 export function comparativaMarcas(litros, P) {
-  return Object.entries(P.preciosMarca || {}).map(([marca, precio]) => ({ marca, precio, costo: litros * precio }));
+  return Object.entries(P.preciosMarca || {}).map(([marca, precio]) => ({ marca, precio, fecha: (P.fechasMarca || {})[marca] || '', costo: litros * precio }));
 }
 
 // Resumen por localidad (como el Dashboard del Excel): km/litros/costo se reparten por bultos dentro de cada ruta.

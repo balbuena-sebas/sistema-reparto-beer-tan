@@ -32,6 +32,33 @@ const leerArchivo = (file) => new Promise((ok, mal) => {
 });
 const centro = (pts) => ({ lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lon: pts.reduce((s, p) => s + p.lon, 0) / pts.length });
 
+// Tres tarjetas: lo mismo (mismos litros) cargado en cada estación, para decidir dónde conviene cargar.
+function TarjetasMarcas({ litros, km, bultos, clientes, params, onElegir }) {
+  const marcas = comparativaMarcas(litros, params);
+  const min = Math.min(...marcas.map((m) => m.costo));
+  return (
+    <div className="sim-marcas">
+      {marcas.map((m) => {
+        const barata = m.costo === min, uso = params.marca === m.marca;
+        return (
+          <div key={m.marca} className={`sim-marca ${barata ? 'barata' : ''} ${uso ? 'uso' : ''}`}>
+            <div className="sim-marca-h"><b>{m.marca}</b>{barata && <span className="sim-tag">Más barata</span>}</div>
+            <div className="sim-marca-v">{money(m.costo)}</div>
+            <div className="sim-sub">{money(m.precio)} por litro · {m.fecha}</div>
+            <div className="sim-marca-d">
+              <span>{money(m.costo / (km || 1))} / km</span>
+              <span>{money(m.costo / (bultos || 1))} / bulto</span>
+              <span>{money(m.costo / (clientes || 1))} / cliente</span>
+            </div>
+            <div className={barata ? 'sim-ok' : 'sim-mas'}>{barata ? 'La más conveniente' : `+${money(m.costo - min)} que la más barata`}</div>
+            <button className="sim-btn" disabled={uso} onClick={() => onElegir(m.marca, m.precio)}>{uso ? '✔ Usada en el cálculo' : 'Usar en el cálculo'}</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function TSimulacion({ loggedInUser }) {
   const rol = String(loggedInUser?.role || '').toLowerCase();
   const permisos = loggedInUser?.permisos || {};
@@ -159,7 +186,6 @@ export function TSimulacion({ loggedInUser }) {
   }, [simBase, calles, callesOn, params, rutasSimMapa]);
 
   const resumenLoc = useMemo(() => (sim ? resumenPorLocalidad(sim.rutas) : []), [sim]);
-  const comparaMarcas = useMemo(() => (sim ? comparativaMarcas(sim.totales.litros, params) : []), [sim, params]);
   // Costo del día real (mismas reglas de combustible y recarga que la planilla)
   const costoDia = useMemo(() => {
     if (!diaDatos) return null;
@@ -483,16 +509,19 @@ export function TSimulacion({ loggedInUser }) {
                       ))}
                     </tbody>
                   </table>
-                  <div className="sim-sub" style={{ marginTop: 8 }}>
-                    Mismos litros según la estación: {comparaMarcas.map((x) => `${x.marca} ${money(x.costo)}`).join(' · ')} · usado en el cálculo {money(sim.totales.combustible)} (${f0(params.precioDiesel)}/L, promedio Shell/Axion).
-                    Km de cada localidad = parte de la ruta según sus bultos.
-                  </div>
+                  <div className="sim-sub" style={{ marginTop: 8 }}>Km de cada localidad = parte de la ruta según sus bultos. El costo de cada camión usa la estación elegida abajo.</div>
+                </div>
+                <div className="sim-card">
+                  <h3>⛽ ¿Dónde conviene cargar? ({f0(sim.totales.litros)} L del reparto)</h3>
+                  <TarjetasMarcas litros={sim.totales.litros} km={sim.totales.km} bultos={sim.totales.bultos} clientes={sim.totales.clientes} params={params}
+                    onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} />
+                  <div className="sim-sub" style={{ marginTop: 8 }}>Precios de la planilla (Secretaría de Energía; YPF es manual y puede estar desactualizado). Elegí una tarjeta para que el costo por camión use ese precio.</div>
                 </div>
                 <div className="sim-card">
                   <h3>Parámetros (ajustables)</h3>
                   <div className="sim-params">
                     {[['bultosPorPallet', 'Bultos por pallet'], ['palletsPorCamion', 'Pallets por camión'], ['llenado', 'Llenado objetivo (0–1)'],
-                      ['factorRuta', 'Factor de ruta'], ['consumoCamion', 'Consumo camión (L/100 km)'], ['consumoUtil', 'Consumo utilitario (L/100 km)'], ['precioDiesel', 'Gasoil ($/L)'],
+                      ['factorRuta', 'Factor de ruta'], ['consumoCamion', 'Consumo camión (L/100 km)'], ['consumoUtil', 'Consumo utilitario (L/100 km)'],
                       ['ayudantesPorCamion', 'Ayudantes por camión'], ['limiteRecarga2', 'Sin recarga hasta (2 pers.)'], ['limiteRecarga3', 'Sin recarga hasta (3 pers.)'], ['maxParadas', 'Máx. paradas por camión'], ['radioAgrupKm', 'Juntar zonas hasta (km)']].map(([k, et]) => (
                       <label key={k}>{et}
                         <input type="number" step="any" value={params[k]} onChange={(e) => setParams((p) => ({ ...p, [k]: Number(e.target.value) }))} />
@@ -526,6 +555,13 @@ export function TSimulacion({ loggedInUser }) {
                   </div>
                   {puedeVerRechazos && rechDia && rechDia.length === 0 && <div className="sim-sub" style={{ marginTop: 8 }}>No hay rechazos cargados para este día (se cargan en 📂 Importar).</div>}
                 </div>
+                {costoDia && (
+                  <div className="sim-card">
+                    <h3>⛽ ¿Dónde conviene cargar? ({f0(costoDia.litros)} L del día)</h3>
+                    <TarjetasMarcas litros={costoDia.litros} km={resumenDia.km} bultos={resumenDia.bultos} clientes={resumenDia.paradas} params={params}
+                      onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} />
+                  </div>
+                )}
                 <div className="sim-card" style={{ overflowX: 'auto' }}>
                   <h3>Rutas del día</h3>
                   <table className="sim-table">

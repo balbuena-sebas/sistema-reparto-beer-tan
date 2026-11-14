@@ -62,3 +62,15 @@
 .sim-anim span { white-space: nowrap; }
 
 .sim-camion { width: 24px; height: 24px; border-radius: 50%; border: 3px solid #fff; color: #fff; font: 700 12px/18px sans-serif; text-align: center; box-shadow: 0 1px 6px rgba(0,0,0,.45); pointer-events: none; }
+
+.sim-marcas { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.sim-marca { background: var(--bg3, #f5f7fc); border: 2px solid var(--border, #cdd4e4); border-radius: 12px; padding: 12px; display: grid; gap: 6px; align-content: start; }
+.sim-marca.barata { border-color: #2e9e5b; }
+.sim-marca.uso { box-shadow: 0 0 0 2px var(--accent2, #005fa3) inset; }
+.sim-marca-h { display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
+.sim-tag { background: #2e9e5b; color: #fff; border-radius: 99px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+.sim-marca-v { font-size: 24px; font-weight: 800; font-family: var(--font-mono, monospace); }
+.sim-marca-d { display: grid; gap: 2px; font-size: 12px; }
+.sim-ok { color: #2e9e5b; font-weight: 700; font-size: 13px; }
+.sim-mas { color: #c0392b; font-weight: 700; font-size: 13px; }
+.sim-marca button:disabled { opacity: .6; cursor: default; }

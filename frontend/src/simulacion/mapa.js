@@ -41,8 +41,11 @@ export const VISTAS = {
 };
 
 // Mapa base de respaldo: sin internet o con el servicio caído igual se ven puntos y rutas.
-const RESPALDO = { version: 8, glyphs: GLYPHS, sources: {},
-  layers: [{ id: 'fondo', type: 'background', paint: { 'background-color': '#e6edf4' } }] };
+const RESPALDO = { version: 8, glyphs: GLYPHS,
+  sources: { base: { type: 'raster', tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap © CARTO',
+    tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', 'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'] } },
+  layers: [{ id: 'fondo', type: 'background', paint: { 'background-color': '#e6edf4' } },
+    { id: 'base', type: 'raster', source: 'base' }] };
 
 export function crearMapa(el, centro, onBaseFallo) {
   const map = new maplibregl.Map({
@@ -53,15 +56,18 @@ export function crearMapa(el, centro, onBaseFallo) {
   map.addControl(new maplibregl.FullscreenControl(), 'top-right');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
   map._vista = 'calle';
+  // style.load = el estilo (JSON) llegó. No uso isStyleLoaded(): da false mientras se bajan teselas
+  // y eso tiraba el mapa bueno al respaldo en conexiones lentas.
+  map._estiloOk = false;
+  map.on('style.load', () => { map._estiloOk = true; });
   const vigilar = () => {
     clearTimeout(map._vigia);
+    map._estiloOk = false;
     map._vigia = setTimeout(() => {
-      if (map._removed || map._respaldo) return;
-      if (!map.isStyleLoaded()) {
-        map._respaldo = true; map.setStyle(RESPALDO);
-        map.once('style.load', () => { onBaseFallo && onBaseFallo(); map.fire('sim-respaldo'); });
-      }
-    }, 7000);
+      if (map._removed || map._respaldo || map._estiloOk) return;
+      map._respaldo = true; map.setStyle(RESPALDO);
+      map.once('style.load', () => { onBaseFallo && onBaseFallo(); map.fire('sim-respaldo'); });
+    }, 15000);
   };
   map._vigilar = vigilar; vigilar();
   return map;
@@ -80,15 +86,16 @@ function asegurarTerreno(map, activo) {
 
 export function cambiarVista(map, clave, redibujar) {
   const v = VISTAS[clave]; if (!v) return;
-  const mismoEstilo = map._vista && VISTAS[map._vista].style === v.style;
+  const veniaDeRespaldo = map._respaldo;
+  const mismoEstilo = !veniaDeRespaldo && map._vista && VISTAS[map._vista].style === v.style;
   map._vista = clave; map._respaldo = false;
-  map._vigilar && map._vigilar();
   const aplicar = () => {
     asegurarTerreno(map, v.terrain);
     map.easeTo({ pitch: v.pitch, bearing: v.pitch ? -20 : 0, duration: 900 });
     redibujar && redibujar();
   };
   if (mismoEstilo) { aplicar(); return; }
+  map._vigilar && map._vigilar();
   map.setStyle(v.style);
   map.once('style.load', aplicar);
 }
@@ -141,7 +148,7 @@ export function pintar(map, datos, onClickPunto) {
     map.on('mouseenter', 'sim-puntos', () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', 'sim-puntos', () => { map.getCanvas().style.cursor = ''; });
   };
-  if (map.isStyleLoaded()) poner(); else map.once('idle', poner);
+  if (map._estiloOk) poner(); else map.once('style.load', poner);
   return { lineas, puntos };
 }
 
