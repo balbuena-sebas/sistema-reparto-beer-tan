@@ -8,7 +8,7 @@ import {
   PARAMS_DEFAULT, parsePedidos, construirUbicaciones, calibrarFactor, simular, diffPedidos,
   indexarRechazos, cruzarRechazos, resumenRuteados,
 } from '../simulacion/engine';
-import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar } from '../simulacion/mapa';
+import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
 import '../simulacion/simulacion.css';
 
@@ -41,6 +41,8 @@ export function TSimulacion({ loggedInUser }) {
 
   const [modo, setModo] = useState('simulacion');
   const [vista, setVista] = useState('calle');
+  const [animF, setAnimF] = useState(0);                   // avance de la animación 0..1
+  const [animOn, setAnimOn] = useState(false);
   const [msg, setMsg] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const [enVivo, setEnVivo] = useState(false);
@@ -226,6 +228,23 @@ export function TSimulacion({ loggedInUser }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firma]);
   useEffect(() => { setRutaSel(null); }, [modo, diaSel, pedidos?.version]);
+  // ── Animación del día: camiones moviéndose por sus rutas ─────────────────
+  const animDatos = useMemo(() => ({ deposito: params.deposito, rutas: rutasMapa, soloRuta: rutaSel }), [params.deposito, rutasMapa, rutaSel]);
+  const animLargo = useMemo(() => largoMaximo(animDatos), [animDatos]);
+  const animPos = useMemo(() => posicionesAnim(animDatos, animF * animLargo), [animDatos, animF, animLargo]);
+  useEffect(() => { setAnimOn(false); setAnimF(0); }, [firma]);
+  useEffect(() => {
+    if (!animOn) return undefined;
+    const id = setInterval(() => setAnimF((f) => {
+      if (f >= 1) { setAnimOn(false); return 1; }
+      return Math.min(1, f + 0.0025);                       // ≈ 25 s de punta a punta
+    }), 60);
+    return () => clearInterval(id);
+  }, [animOn]);
+  useEffect(() => {
+    const map = mapRef.current; if (!map) return;
+    pintarCamiones(map, animOn || animF > 0 ? animPos.feats : []);
+  }, [animPos, animOn, animF]);
   const elegirVista = (k) => { setVista(k); if (mapRef.current) cambiarVista(mapRef.current, k, redibujar); };
 
   // ── Pedidos ──────────────────────────────────────────────────────────────
@@ -347,6 +366,16 @@ export function TSimulacion({ loggedInUser }) {
               <button className={callesOn ? 'on' : ''} onClick={() => setCallesOn((v) => !v)} title="Dibuja el recorrido real por calles y rutas (OSRM)">🛣️ Por calles</button>
             </div>
             <div ref={mapDiv} className="sim-map" />
+            {rutasMapa.length > 0 && (
+              <div className="sim-anim">
+                <button className="sim-btn" onClick={() => { if (animF >= 1) setAnimF(0); setAnimOn((v) => !v); }}>
+                  {animOn ? '⏸ Pausar' : animF >= 1 ? '↺ Repetir' : '▶ Ver el día'}
+                </button>
+                <input type="range" min="0" max="1000" value={Math.round(animF * 1000)}
+                  onChange={(e) => { setAnimOn(false); setAnimF(Number(e.target.value) / 1000); }} aria-label="Avance del día" />
+                <span>{animPos.hechas} de {animPos.total} entregas · {f0(animF * animLargo)} km</span>
+              </div>
+            )}
           </div>
 
           {modo === 'simulacion' ? (

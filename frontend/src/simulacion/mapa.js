@@ -22,11 +22,20 @@ const SAT = {
   },
   layers: [{ id: 'sat', type: 'raster', source: 'sat' }],
 };
+const SAT_HIB = {
+  ...SAT,
+  sources: { ...SAT.sources,
+    ref: { type: 'raster', tileSize: 256, maxzoom: 19,
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],
+      attribution: 'Etiquetas © Esri' } },
+  layers: [...SAT.layers, { id: 'ref', type: 'raster', source: 'ref' }],
+};
 const CALLE = 'https://tiles.openfreemap.org/styles/liberty';
 
 export const VISTAS = {
   calle:  { label: 'Calle',        style: CALLE, pitch: 0,  terrain: false },
   sat:    { label: 'Satélite',     style: SAT,   pitch: 0,  terrain: false },
+  hib:    { label: 'Híbrido',      style: SAT_HIB, pitch: 0, terrain: false },
   calle3d:{ label: 'Calle 3D',     style: CALLE, pitch: 62, terrain: true },
   sat3d:  { label: 'Satélite 3D',  style: SAT,   pitch: 65, terrain: true },
 };
@@ -134,6 +143,65 @@ export function pintar(map, datos, onClickPunto) {
   };
   if (map.isStyleLoaded()) poner(); else map.once('idle', poner);
   return { lineas, puntos };
+}
+
+// ── Animación de camiones ───────────────────────────────────────────────────
+const rad = Math.PI / 180;
+const hav = (a, b) => {
+  const dLa = (b[1] - a[1]) * rad, dLo = (b[0] - a[0]) * rad;
+  const x = Math.sin(dLa / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dLo / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(x));
+};
+const acum = (pts) => { const c = [0]; for (let i = 1; i < pts.length; i++) c.push(c[i - 1] + hav(pts[i - 1], pts[i])); return c; };
+
+// Largo (km) de la ruta más larga visible: es la "duración" total de la animación.
+export function largoMaximo(datos) {
+  let m = 0;
+  (datos.rutas || []).forEach((r, i) => {
+    if (datos.soloRuta != null && datos.soloRuta !== i) return;
+    const line = r.geom && r.geom.length > 1 ? r.geom : [[datos.deposito.lon, datos.deposito.lat], ...r.puntos.map((p) => [p.lon, p.lat])];
+    m = Math.max(m, acum(line).slice(-1)[0] || 0);
+  });
+  return m;
+}
+
+// Posición de cada camión tras recorrer `km` km (todos a la misma velocidad) y entregas completadas.
+export function posicionesAnim(datos, km) {
+  const feats = []; let hechas = 0, total = 0;
+  (datos.rutas || []).forEach((r, i) => {
+    if (datos.soloRuta != null && datos.soloRuta !== i) return;
+    const dep = [datos.deposito.lon, datos.deposito.lat];
+    const stops = [dep, ...r.puntos.map((p) => [p.lon, p.lat])];
+    const line = r.geom && r.geom.length > 1 ? r.geom : stops;
+    const c = acum(line), T = c[c.length - 1] || 0, d = Math.min(km, T);
+    let k = 1; while (k < c.length - 1 && c[k] < d) k++;
+    const seg = c[k] - c[k - 1] || 1, t = Math.max(0, Math.min(1, (d - c[k - 1]) / seg));
+    const a = line[k - 1], b = line[k] || a;
+    feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t] },
+      properties: { color: r.color, n: String(i + 1) } });
+    const cs = acum(stops), Ts = cs[cs.length - 1] || 1;
+    const fr = T ? d / T : 1;
+    total += r.puntos.length;
+    for (let s = 1; s < cs.length; s++) if (cs[s] / Ts <= fr + 1e-9) hechas++;
+  });
+  return { feats, hechas, total };
+}
+
+// Camiones como marcadores DOM: se mueven al instante, sin pasar por el worker del mapa.
+export function pintarCamiones(map, feats) {
+  const lista = feats || [];
+  const ms = map._camMarkers || (map._camMarkers = []);
+  while (ms.length > lista.length) ms.pop().remove();
+  lista.forEach((f, i) => {
+    if (!ms[i]) {
+      const el = document.createElement('div');
+      el.className = 'sim-camion';
+      ms[i] = new maplibregl.Marker({ element: el }).setLngLat(f.geometry.coordinates).addTo(map);
+    }
+    const el = ms[i].getElement();
+    el.style.background = f.properties.color; el.textContent = f.properties.n;
+    ms[i].setLngLat(f.geometry.coordinates);
+  });
 }
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
