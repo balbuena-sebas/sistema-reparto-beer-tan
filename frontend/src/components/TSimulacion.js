@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import { apiFetch, suscribirRuteo } from '../api/client';
 import {
   PARAMS_DEFAULT, parsePedidos, construirUbicaciones, calibrarFactor, simular, diffPedidos,
-  indexarRechazos, cruzarRechazos, resumenRuteados,
+  indexarRechazos, cruzarRechazos, resumenRuteados, costearRuta, comparativaMarcas, resumenPorLocalidad,
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
@@ -151,12 +151,21 @@ export function TSimulacion({ loggedInUser }) {
     const rutas = simBase.rutas.map((r, i) => {
       const c = callesOn ? calles[claveRuta(params.deposito, rutasSimMapa[i].puntos)] : null;
       if (!c) return { ...r, kmCalle: false };
-      conCalle++; const litros = c.km * params.consumoLKm;
-      return { ...r, km: c.km, litros, combustible: litros * params.precioDiesel, kmCalle: true, min: c.min };
+      conCalle++;
+      return { ...r, km: c.km, ...costearRuta(params, { km: c.km, pallets: r.pallets, bultos: r.bultos, localidades: r.localidades }), kmCalle: true, min: c.min };
     });
     const sum = (k) => rutas.reduce((s, r) => s + r[k], 0);
-    return { ...simBase, rutas, conCalle, totales: { ...simBase.totales, km: sum('km'), litros: sum('litros'), combustible: sum('combustible') } };
+    return { ...simBase, rutas, conCalle, totales: { ...simBase.totales, km: sum('km'), litros: sum('litros'), combustible: sum('combustible'), personas: sum('personas'), recargas: sum('recargas') } };
   }, [simBase, calles, callesOn, params, rutasSimMapa]);
+
+  const resumenLoc = useMemo(() => (sim ? resumenPorLocalidad(sim.rutas) : []), [sim]);
+  const comparaMarcas = useMemo(() => (sim ? comparativaMarcas(sim.totales.litros, params) : []), [sim, params]);
+  // Costo del día real (mismas reglas de combustible y recarga que la planilla)
+  const costoDia = useMemo(() => {
+    if (!diaDatos) return null;
+    const rutas = diaDatos.rutas.map((r) => costearRuta(params, { km: r.km, pallets: r.pallets, cap: r.cap || null, bultos: r.bultos }));
+    return { rutas, litros: rutas.reduce((s, x) => s + x.litros, 0), combustible: rutas.reduce((s, x) => s + x.combustible, 0), recargas: rutas.reduce((s, x) => s + x.recargas, 0) };
+  }, [diaDatos, params]);
 
   const rutasDiaMapa = useMemo(() => {
     if (!diaDatos) return [];
@@ -390,7 +399,8 @@ export function TSimulacion({ loggedInUser }) {
                     <div className="sim-kpi"><b>{sim.totales.camiones}</b><span>Camiones</span></div>
                     <div className="sim-kpi"><b>{sim.totales.personas}</b><span>Personas</span></div>
                     <div className="sim-kpi"><b>{f0(sim.totales.km)}</b><span>Km {sim.conCalle === sim.rutas.length && sim.conCalle > 0 ? 'por calles' : 'estimados'}</span></div>
-                    <div className="sim-kpi"><b>{money(sim.totales.combustible)}</b><span>Combustible</span></div>
+                    <div className="sim-kpi"><b>{money(sim.totales.combustible)}</b><span>Combustible ({f0(sim.totales.litros)} L)</span></div>
+                    <div className="sim-kpi"><b>{sim.totales.recargas}</b><span>Recargas</span></div>
                   </div>
                   {cambios && (cambios.salen + cambios.entran + cambios.cambian > 0) && (
                     <div className="sim-msg" style={{ marginTop: 10 }}>
@@ -444,7 +454,7 @@ export function TSimulacion({ loggedInUser }) {
                 <div className="sim-card" style={{ overflowX: 'auto' }}>
                   <h3>Camiones sugeridos (con lo que falta rutear)</h3>
                   <table className="sim-table">
-                    <thead><tr><th>Camión</th><th>Zona</th><th>Paradas</th><th>Bultos</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Combustible</th></tr></thead>
+                    <thead><tr><th>Camión</th><th>Zona</th><th>Paradas</th><th>Bultos</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Litros</th><th>Combustible</th><th>Personas</th><th>Recarga</th></tr></thead>
                     <tbody>
                       {sim.rutas.map((r, i) => (
                         <tr key={r.n} className={`click ${rutaSel === i ? 'rsel' : ''}`} onClick={() => setRutaSel(rutaSel === i ? null : i)}>
@@ -452,7 +462,9 @@ export function TSimulacion({ loggedInUser }) {
                           <td>{r.localidades.map(cap).join(' + ')}{r.pocaCarga && <span className="sim-warn" style={{ marginLeft: 6, padding: '1px 6px' }} title="Muy poca carga y ningún camión cercano con lugar: conviene postergar o agrupar con otro día">⚠ poca carga</span>}</td>
                           <td>{r.paradas.length}</td><td>{f0(r.bultos)}</td><td>{f1(r.pallets)}</td>
                           <td><div className="sim-bar"><i className={r.ocupacion > 0.8 ? 'alto' : r.ocupacion < 0.4 ? 'bajo' : ''} style={{ width: `${Math.min(100, r.ocupacion * 100)}%` }} /></div></td>
-                          <td>{f0(r.km)}{r.kmCalle ? ' 🛣️' : ''}</td><td>{money(r.combustible)}</td>
+                          <td>{f0(r.km)}{r.kmCalle ? ' 🛣️' : ''}</td><td>{f1(r.litros)}{r.utilitario ? ' (util.)' : ''}</td><td>{money(r.combustible)}</td>
+                          <td>{r.personas}</td>
+                          <td>{r.recargas ? (r.alertaRecarga ? <span className="sim-warn" style={{ padding: '1px 6px' }} title={`Más de ${params.maxConRecarga} bultos con recarga: revisar`}>1 ⚠ revisar</span> : '1') : `no (≤${r.limiteRecarga})`}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -460,12 +472,28 @@ export function TSimulacion({ loggedInUser }) {
                   <div className="sim-sub" style={{ marginTop: 8 }}>Tocá un camión para verlo solo en el mapa (puntos numerados en orden de visita). 🛣️ = km medidos por calles; sin eso, se estima con km en línea recta × factor de ruta ({params.factorRuta})
                     {factorCal ? <> · calibrado con tu historial: {factorCal}</> : null}.</div>
                 </div>
+                <div className="sim-card" style={{ overflowX: 'auto' }}>
+                  <h3>Resumen por localidad y costo de combustible</h3>
+                  <table className="sim-table">
+                    <thead><tr><th>Localidad</th><th>Camiones</th><th>Clientes</th><th>Bultos</th><th>Km</th><th>Litros</th><th>Combustible</th><th>$/cliente</th><th>$/bulto</th><th>Recargas</th></tr></thead>
+                    <tbody>
+                      {resumenLoc.map((o) => (
+                        <tr key={o.loc}><td>{cap(o.loc)}</td><td>{o.camiones}</td><td>{o.clientes}</td><td>{f0(o.bultos)}</td><td>{f0(o.km)}</td><td>{f1(o.litros)}</td>
+                          <td>{money(o.combustible)}</td><td>{money(o.combustible / (o.clientes || 1))}</td><td>{money(o.combustible / (o.bultos || 1))}</td><td>{o.recargas}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="sim-sub" style={{ marginTop: 8 }}>
+                    Mismos litros según la estación: {comparaMarcas.map((x) => `${x.marca} ${money(x.costo)}`).join(' · ')} · usado en el cálculo {money(sim.totales.combustible)} (${f0(params.precioDiesel)}/L, promedio Shell/Axion).
+                    Km de cada localidad = parte de la ruta según sus bultos.
+                  </div>
+                </div>
                 <div className="sim-card">
                   <h3>Parámetros (ajustables)</h3>
                   <div className="sim-params">
                     {[['bultosPorPallet', 'Bultos por pallet'], ['palletsPorCamion', 'Pallets por camión'], ['llenado', 'Llenado objetivo (0–1)'],
-                      ['factorRuta', 'Factor de ruta'], ['consumoLKm', 'Consumo (L/km)'], ['precioDiesel', 'Gasoil ($/L)'],
-                      ['ayudantesPorCamion', 'Ayudantes por camión'], ['maxParadas', 'Máx. paradas por camión'], ['radioAgrupKm', 'Juntar zonas hasta (km)']].map(([k, et]) => (
+                      ['factorRuta', 'Factor de ruta'], ['consumoCamion', 'Consumo camión (L/100 km)'], ['consumoUtil', 'Consumo utilitario (L/100 km)'], ['precioDiesel', 'Gasoil ($/L)'],
+                      ['ayudantesPorCamion', 'Ayudantes por camión'], ['limiteRecarga2', 'Sin recarga hasta (2 pers.)'], ['limiteRecarga3', 'Sin recarga hasta (3 pers.)'], ['maxParadas', 'Máx. paradas por camión'], ['radioAgrupKm', 'Juntar zonas hasta (km)']].map(([k, et]) => (
                       <label key={k}>{et}
                         <input type="number" step="any" value={params[k]} onChange={(e) => setParams((p) => ({ ...p, [k]: Number(e.target.value) }))} />
                       </label>
@@ -484,13 +512,15 @@ export function TSimulacion({ loggedInUser }) {
             !diaDatos ? <div className="sim-card sim-empty">Cargando {diaSel}…</div> : (
               <>
                 <div className="sim-card">
-                  <h3>Romaneo · {fechaLarga(diaSel)}</h3>
+                  <h3>{diaSel === hoyISO ? '🚚 Repartiendo hoy' : 'Romaneo'} · {fechaLarga(diaSel)}</h3>
                   <div className="sim-kpis">
                     <div className="sim-kpi"><b>{diaDatos.rutas.length}</b><span>Rutas</span></div>
                     <div className="sim-kpi"><b>{f0(resumenDia.paradas)}</b><span>Paradas</span></div>
                     <div className="sim-kpi"><b>{f0(resumenDia.bultos)}</b><span>Bultos</span></div>
                     <div className="sim-kpi"><b>{f1(resumenDia.pallets)}</b><span>Pallets</span></div>
                     <div className="sim-kpi"><b>{f0(resumenDia.km)}</b><span>Km</span></div>
+                    {costoDia && <div className="sim-kpi"><b>{money(costoDia.combustible)}</b><span>Combustible ({f0(costoDia.litros)} L)</span></div>}
+                    {costoDia && <div className="sim-kpi"><b>{costoDia.recargas}</b><span>Recargas</span></div>}
                     {cruceDia && <div className="sim-kpi"><b>{f0(cruceDia.total.b)}</b><span>Bultos reales (rechazos)</span></div>}
                     {cruceDia && <div className="sim-kpi"><b>{f0(cruceDia.total.r)}</b><span>Rechazados{cruceDia.total.b ? ` (${f1(cruceDia.total.r / cruceDia.total.b * 100)} %)` : ''}</span></div>}
                   </div>
@@ -499,14 +529,15 @@ export function TSimulacion({ loggedInUser }) {
                 <div className="sim-card" style={{ overflowX: 'auto' }}>
                   <h3>Rutas del día</h3>
                   <table className="sim-table">
-                    <thead><tr><th>Ruta</th><th>Chofer</th><th>Vehículo</th><th>Paradas</th><th>Bultos plan</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Horario</th>{cruceDia && <><th>Bultos reales</th><th>Rechazados</th></>}</tr></thead>
+                    <thead><tr><th>Ruta</th><th>Chofer</th><th>Vehículo</th><th>Paradas</th><th>Bultos plan</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Combustible</th><th>Recarga</th><th>Horario</th>{cruceDia && <><th>Bultos reales</th><th>Rechazados</th></>}</tr></thead>
                     <tbody>
                       {diaDatos.rutas.map((r, i) => (
                         <tr key={i} className={`click ${rutaSel === i ? 'rsel' : ''}`} onClick={() => setRutaSel(rutaSel === i ? null : i)}>
                           <td><span className="sim-chip" style={{ background: COLORES[i % COLORES.length] }} />{i + 1}</td>
                           <td>{r.chofer}</td><td>{r.veh}</td><td>{r.entregas}</td><td>{f0(r.bultos)}</td><td>{f1(r.pallets)}</td>
                           <td><div className="sim-bar"><i className={r.cap && r.pallets / r.cap > 0.8 ? 'alto' : r.cap && r.pallets / r.cap < 0.4 ? 'bajo' : ''} style={{ width: `${Math.min(100, r.cap ? (r.pallets / r.cap) * 100 : 0)}%` }} /></div></td>
-                          <td>{f1(r.km)}</td><td>{hhmm(r.ini)}–{hhmm(r.fin)}</td>
+                          <td>{f1(r.km)}</td><td>{costoDia ? money(costoDia.rutas[i].combustible) : '—'}</td>
+                          <td>{costoDia ? (costoDia.rutas[i].recargas ? (costoDia.rutas[i].alertaRecarga ? '1 ⚠' : '1') : 'no') : '—'}</td><td>{hhmm(r.ini)}–{hhmm(r.fin)}</td>
                           {cruceDia && <><td>{cruceDia.rutas[i].clientes ? f0(cruceDia.rutas[i].b) : '—'}</td><td>{cruceDia.rutas[i].clientes ? f0(cruceDia.rutas[i].r) : '—'}</td></>}
                         </tr>
                       ))}

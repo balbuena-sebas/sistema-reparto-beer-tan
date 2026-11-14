@@ -7,9 +7,17 @@ export const PARAMS_DEFAULT = {
   palletsPorCamion: 12,    // capacidad del camión 12CP-12PP
   llenado: 0.9,            // ocupación objetivo
   factorRuta: 1.4,         // km reales = km en línea recta * factor (calibrado con 17 días de historial)
-  consumoLKm: 0.35,        // litros de gasoil por km (ajustable)
-  precioDiesel: 2500,      // $/litro (ajustable; luego se conecta a Sec. de Energía)
-  ayudantesPorCamion: 2,
+  // Combustible y recargas: valores de la hoja "Parámetros Reparto" de entrega_diaria_v12.xlsx
+  consumoCamion: 30,       // L cada 100 km (camión con carga)
+  consumoUtil: 12,         // L cada 100 km (utilitario)
+  palletsUtil: 3,          // vehículos de hasta este nº de pallets usan el consumo de utilitario
+  precioDiesel: 2510.5,    // $/L: promedio diésel Shell/Axion (Sec. de Energía, oct-2026)
+  preciosMarca: { Shell: 2477, Axion: 2544, YPF: 2199 },
+  ayudantesPorCamion: 1,   // personas = chofer + ayudantes (por defecto 2)
+  limiteRecarga2: 450,     // con 2 personas: sin recarga hasta estos bultos
+  limiteRecarga3: 700,     // con 3 personas
+  maxConRecarga: 900,      // más de esto con 1 recarga => alerta de revisión
+  siempreDosPersonas: ['LAS FLORES'], // localidades que salen siempre con 2 personas
   minPalletsRuta: 1,       // un camión con menos pallets que esto se intenta sumar a otro
   radioRescateKm: 60,      // ...si hay un camión con lugar a menos de esta distancia
   maxParadas: 70,          // tope de paradas por camión (límite de jornada)
@@ -175,6 +183,50 @@ export function calibrarFactor(dias, dep = PARAMS_DEFAULT.deposito) {
   return Math.round(ratios[Math.floor(ratios.length / 2)] * 100) / 100;
 }
 
+// ── Costo de una ruta (misma regla que la planilla entrega_diaria) ─────────
+// Litros = km × consumo ÷ 100 (utilitario si la capacidad del vehículo es ≤ palletsUtil).
+// Recarga: 1 por viaje si los bultos superan el límite según las personas (2 → 450, 3 → 700).
+export function costearRuta(P, { km, pallets, cap, bultos, localidades = [] }) {
+  const util = cap != null && cap <= P.palletsUtil; // solo si se conoce la capacidad del vehículo (romaneo)
+  const litros = (km * (util ? P.consumoUtil : P.consumoCamion)) / 100;
+  const dos = localidades.some((l) => (P.siempreDosPersonas || []).includes(String(l).toUpperCase()));
+  const personas = dos ? 2 : 1 + P.ayudantesPorCamion;
+  const limite = personas >= 3 ? P.limiteRecarga3 : P.limiteRecarga2;
+  const recargas = bultos > limite ? 1 : 0;
+  return { litros, combustible: litros * P.precioDiesel, utilitario: util, personas, limiteRecarga: limite, recargas,
+    alertaRecarga: recargas > 0 && bultos > P.maxConRecarga };
+}
+
+// Mismo litros con el precio de cada marca (Shell / Axion / YPF) y el usado en el cálculo.
+export function comparativaMarcas(litros, P) {
+  return Object.entries(P.preciosMarca || {}).map(([marca, precio]) => ({ marca, precio, costo: litros * precio }));
+}
+
+// Resumen por localidad (como el Dashboard del Excel): km/litros/costo se reparten por bultos dentro de cada ruta.
+export function resumenPorLocalidad(rutas) {
+  const m = new Map();
+  rutas.forEach((r) => {
+    const tot = r.paradas.reduce((s, p) => s + p.b, 0) || 1;
+    const vistas = new Set();
+    r.paradas.forEach((p) => {
+      const l = p.loc || 'SIN LOCALIDAD';
+      const o = m.get(l) || { loc: l, camiones: 0, clientes: 0, bultos: 0, pallets: 0, km: 0, litros: 0, combustible: 0, recargas: 0 };
+      const w = p.b / tot;
+      o.clientes += 1; o.bultos += p.b; o.pallets += p.pallets;
+      o.km += r.km * w; o.litros += r.litros * w; o.combustible += r.combustible * w;
+      if (!vistas.has(l)) { vistas.add(l); o.camiones += 1; }
+      m.set(l, o);
+    });
+    // la recarga se cuenta en la localidad con más bultos del viaje
+    if (r.recargas) {
+      const por = {}; r.paradas.forEach((p) => { const l = p.loc || 'SIN LOCALIDAD'; por[l] = (por[l] || 0) + p.b; });
+      const top = Object.entries(por).sort((a, b) => b[1] - a[1])[0][0];
+      m.get(top).recargas += r.recargas;
+    }
+  });
+  return [...m.values()].sort((a, b) => b.bultos - a.bultos);
+}
+
 // ── Simulación ─────────────────────────────────────────────────────────────
 export function simular(pedidos, ubic, parametros = {}) {
   const P = { ...PARAMS_DEFAULT, ...parametros };
@@ -246,12 +298,14 @@ export function simular(pedidos, ubic, parametros = {}) {
     const ord = ordenarVecinoCercano(dep, g);
     const kmRecta = tourLen(dep, ord);
     const km = kmRecta * P.factorRuta;
-    const litros = km * P.consumoLKm;
     const pallets = g.reduce((s, c) => s + c.pallets, 0);
+    const bultos = g.reduce((s, c) => s + c.b, 0);
+    const localidades = [...new Set(g.map((c) => c.loc || 'SIN LOCALIDAD'))];
     return {
-      n: i + 1, paradas: ord, localidades: [...new Set(g.map((c) => c.loc || 'SIN LOCALIDAD'))], km, litros, combustible: litros * P.precioDiesel,
-      pallets, bultos: g.reduce((s, c) => s + c.b, 0), kg: g.reduce((s, c) => s + c.kg, 0),
-      ocupacion: pallets / P.palletsPorCamion, personas: 1 + P.ayudantesPorCamion,
+      n: i + 1, paradas: ord, localidades, km,
+      ...costearRuta(P, { km, pallets, bultos, localidades }),
+      pallets, bultos, kg: g.reduce((s, c) => s + c.kg, 0),
+      ocupacion: pallets / P.palletsPorCamion,
       pocaCarga: pallets < P.minPalletsRuta,
     };
   });
@@ -262,7 +316,7 @@ export function simular(pedidos, ubic, parametros = {}) {
       clientes: pedidos.clientes.length, bultos: totalBultos, pallets: totalPallets,
       camiones: rutas.length, camionesNecesarios: nCamiones, km: sum('km'),
       litros: sum('litros'), combustible: sum('combustible'),
-      personas: rutas.length * (1 + P.ayudantesPorCamion),
+      personas: sum('personas'), recargas: sum('recargas'),
     },
   };
 }
