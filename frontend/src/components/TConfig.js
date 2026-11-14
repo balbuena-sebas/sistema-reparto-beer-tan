@@ -222,7 +222,7 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
   const handleSave = async () => {
     setSaving(true);
     // Normalizar permisos antes de guardar: asegurar que TODOS los permisos estén explícitamente definidos
-    const permisosList = ['editar_contenido', 'dashboard', 'registros', 'ausencias', 'personal', 'costos', 'reportes', 'rechazos', 'foxtrot', 'importar', 'config', 'notas', 'biolinks'];
+    const permisosList = ['editar_contenido', 'dashboard', 'registros', 'ausencias', 'personal', 'costos', 'reportes', 'rechazos', 'foxtrot', 'simulacion', 'importar', 'config', 'notas', 'biolinks'];
     const formNormalizado = {
       ...form,
       usuarios: (form.usuarios || []).map(u => ({
@@ -586,13 +586,13 @@ export const TConfig = ({ cfg, onSave, loggedInUser }) => {
                     <div style={{ paddingTop:12, borderTop:'2px solid var(--border)', background:'var(--bg3)', padding:12, borderRadius:8 }}>
                       <div style={{ fontSize:12, fontWeight:800, color:'var(--text3)', textTransform:'uppercase', marginBottom:12 }}>Permisos</div>
                       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-                        {['editar_contenido', 'dashboard', 'registros', 'ausencias', 'personal', 'costos', 'reportes', 'rechazos', 'foxtrot', 'importar', 'config', 'notas', 'biolinks'].map(permiso => {
+                        {['editar_contenido', 'dashboard', 'registros', 'ausencias', 'personal', 'costos', 'reportes', 'rechazos', 'foxtrot', 'simulacion', 'importar', 'config', 'notas', 'biolinks'].map(permiso => {
                           const valor = (u.permisos || {})[permiso] === true;
                           const labels = {
                             editar_contenido: '🔓 Crear/Editar Contenido',
                             dashboard: '📊 Dashboard', registros: '🚛 Registros', ausencias: '📋 Ausencias',
                             personal: '👥 Personal', costos: '💰 Costos', reportes: '📈 Reportes',
-                            rechazos: '❌ Rechazos', foxtrot: '📡 Foxtrot', importar: '📂 Importar',
+                            rechazos: '❌ Rechazos', foxtrot: '📡 Foxtrot', simulacion: '🧭 Simulación', importar: '📂 Importar',
                             config: '⚙ Config', notas: '📌 Notas', biolinks: '🔗 Links',
                           };
                           return (

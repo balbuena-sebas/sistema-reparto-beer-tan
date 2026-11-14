@@ -153,6 +153,56 @@ router.put('/pedidos', async (req, res) => {
   }
 });
 
+// ── Ubicaciones de clientes (maestra liviana: código, lat, lon, nombre, localidad) ──
+// Una sola fila; el PUT FUSIONA por código (no acumula duplicados).
+const MAX_UBIC_BYTES = 3 * 1024 * 1024;
+router.get('/ubicaciones', async (req, res) => {
+  try {
+    await ensureSchema();
+    const r = await query(`SELECT version, datos_gz, updated_at FROM sim_estado WHERE clave = 'ubicaciones'`);
+    if (!r.rows.length) return res.json({ ok: true, version: 0, data: [] });
+    const f = r.rows[0];
+    const etag = `"u${f.version}"`;
+    if (req.headers['if-none-match'] === etag) return res.status(304).end();
+    res.set('ETag', etag);
+    res.json({ ok: true, version: Number(f.version), updatedAt: f.updated_at,
+               data: await descomprimirSafe(f.datos_gz, []) });
+  } catch (err) {
+    console.error('GET /ruteo/ubicaciones:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al obtener ubicaciones' });
+  }
+});
+
+router.put('/ubicaciones', async (req, res) => {
+  try {
+    const items = (req.body || {}).items;
+    if (!Array.isArray(items) || !items.length || items.length > 30000)
+      return res.status(400).json({ ok: false, error: 'Ubicaciones inválidas' });
+    await ensureSchema();
+    const prev = await query(`SELECT datos_gz FROM sim_estado WHERE clave = 'ubicaciones'`);
+    const mapa = new Map();
+    for (const it of (prev.rows.length ? await descomprimirSafe(prev.rows[0].datos_gz, []) : [])) mapa.set(it[0], it);
+    for (const it of items) {
+      if (!Array.isArray(it) || !Number.isFinite(it[0]) || !Number.isFinite(it[1]) || !Number.isFinite(it[2])) continue;
+      mapa.set(it[0], [it[0], it[1], it[2], String(it[3] || '').slice(0, 60), String(it[4] || '').slice(0, 40)]);
+    }
+    const all = [...mapa.values()];
+    if (sizeOf(all) > MAX_UBIC_BYTES) return res.status(413).json({ ok: false, error: 'Demasiadas ubicaciones' });
+    const gz = await comprimir(all);
+    const r = await query(
+      `INSERT INTO sim_estado (clave, version, datos_gz, updated_at, updated_by)
+       VALUES ('ubicaciones', 1, $1, NOW(), $2)
+       ON CONFLICT (clave) DO UPDATE SET version = sim_estado.version + 1,
+         datos_gz=$1, updated_at=NOW(), updated_by=$2
+       RETURNING version`, [gz, quien(req)]);
+    difundir('ubicaciones', { version: Number(r.rows[0].version) });
+    res.json({ ok: true, total: all.length, version: Number(r.rows[0].version) });
+  } catch (err) {
+    console.error('PUT /ruteo/ubicaciones:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al guardar ubicaciones' });
+  }
+});
+
 // ── Tiempo real (Server-Sent Events) ────────────────────────────────────────
 router.get('/stream', (req, res) => {
   if (clientes.size >= 50) return res.status(503).end();

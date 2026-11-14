@@ -301,3 +301,36 @@ export async function postReplicateNeon(months = 3) {
   const r = await apiFetch('/api/mantenimiento/replicate-neon', { method: 'POST', body: JSON.stringify({ months }) });
   return r;
 }
+
+// ── RUTEO / SIMULACIÓN (tiempo real vía SSE con fetch, para poder enviar x-api-key) ──
+export function suscribirRuteo(onEvento, onEstado) {
+  const ctrl = new AbortController();
+  let vivo = true;
+  (async () => {
+    while (vivo) {
+      try {
+        ensureBackendUrl();
+        const res = await fetch(`${BASE_URL}/api/ruteo/stream`, {
+          headers: { 'x-api-key': API_KEY, Accept: 'text/event-stream' }, signal: ctrl.signal,
+        });
+        if (!res.ok || !res.body) throw new Error('stream ' + res.status);
+        onEstado && onEstado(true);
+        const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            const bloque = buf.slice(0, i); buf = buf.slice(i + 2);
+            const ev = /^event: (.+)$/m.exec(bloque); const da = /^data: (.+)$/m.exec(bloque);
+            if (ev && ev[1] !== 'hola') { try { onEvento(ev[1], da ? JSON.parse(da[1]) : {}); } catch { /* */ } }
+          }
+        }
+      } catch (e) { if (!vivo) return; }
+      onEstado && onEstado(false);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  })();
+  return () => { vivo = false; ctrl.abort(); };
+}
