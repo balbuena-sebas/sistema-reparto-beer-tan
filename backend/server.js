@@ -20,7 +20,7 @@ app.use((req, res, next) => {
   const origin = req.headers.origin;
   res.header('Access-Control-Allow-Origin', origin || '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization, x-user-name, If-None-Match');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Vary', 'Origin');
 
@@ -61,6 +61,7 @@ const foxtrotRouter = require('./routes/foxtrot');
 const checklistsRouter = require('./routes/checklists');
 const mantenimientoRouter = require('./routes/mantenimiento');
 const dbstatsRouter = require('./routes/dbstats');
+const ruteoRouter = require('./routes/ruteo');
 
 app.use('/api/registros', autenticar, registrosRouter);
 app.use('/api/ausencias', autenticar, ausenciasRouter);
@@ -73,6 +74,7 @@ app.use('/api/foxtrot', autenticar, foxtrotRouter);
 app.use('/api/checklists', autenticar, checklistsRouter);
 app.use('/api/mantenimiento', autenticar, mantenimientoRouter);
 app.use('/api/dbstats', autenticar, dbstatsRouter);
+app.use('/api/ruteo', autenticar, ruteoRouter);
 
 // API not found handler returns JSON instead of HTML
 app.use('/api', (req, res) => {
