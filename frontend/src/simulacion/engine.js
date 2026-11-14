@@ -10,7 +10,8 @@ export const PARAMS_DEFAULT = {
   consumoLKm: 0.35,        // litros de gasoil por km (ajustable)
   precioDiesel: 2500,      // $/litro (ajustable; luego se conecta a Sec. de Energía)
   ayudantesPorCamion: 2,
-  radioAgrupKm: 35,        // solo se juntan localidades a menos de esta distancia en un mismo camión
+  maxParadas: 70,          // tope de paradas por camión (límite de jornada)
+  radioAgrupKm: 15,        // solo se juntan localidades a menos de esta distancia en un mismo camión
   deposito: { lat: -37.3140, lon: -59.1515 }, // calculado por trilateración con los radios del ruteador
 };
 
@@ -136,14 +137,22 @@ function ordenarVecinoCercano(dep, pts) {
     rest.forEach((p, i) => { const d = haversine(cur, p); if (d < bd) { bd = d; bi = i; } });
     cur = rest.splice(bi, 1)[0]; out.push(cur);
   }
-  // 2-opt liviano
-  let mejor = true, it = 0;
-  while (mejor && it++ < 30) {
-    mejor = false;
-    for (let i = 0; i < out.length - 1; i++) for (let j = i + 1; j < out.length; j++) {
-      const cand = out.slice(0, i).concat(out.slice(i, j + 1).reverse(), out.slice(j + 1));
-      if (tourLen(dep, cand) + 1e-9 < tourLen(dep, out)) { out.splice(0, out.length, ...cand); mejor = true; }
+  // 2-opt con delta O(1) por candidato (rápido incluso con cientos de paradas)
+  const n = out.length;
+  if (n >= 3) {
+    const pts = [dep, ...out, dep];
+    const d = (i, j) => haversine(pts[i], pts[j]);
+    let mejor = true, it = 0;
+    while (mejor && it++ < 40) {
+      mejor = false;
+      for (let i = 1; i < n; i++) for (let j = i + 1; j <= n; j++) {
+        if (d(i - 1, j) + d(i, j + 1) < d(i - 1, i) + d(j, j + 1) - 1e-9) {
+          for (let a = i, b = j; a < b; a++, b--) { const t = pts[a]; pts[a] = pts[b]; pts[b] = t; }
+          mejor = true;
+        }
+      }
     }
+    return pts.slice(1, n + 1);
   }
   return out;
 }
@@ -186,8 +195,8 @@ export function simular(pedidos, ubic, parametros = {}) {
   const unidades = [];
   for (const [loc, items] of porLoc) {
     const pal = items.reduce((s, c) => s + c.pallets, 0);
-    if (pal <= capUtil) { unidades.push({ loc, items, pallets: pal }); continue; }
-    const k = Math.ceil(pal / capUtil), objetivo = pal / k;
+    if (pal <= capUtil && items.length <= P.maxParadas) { unidades.push({ loc, items, pallets: pal }); continue; }
+    const k = Math.max(Math.ceil(pal / capUtil), Math.ceil(items.length / P.maxParadas)), objetivo = pal / k;
     const ang = (c) => Math.atan2(c.lat - dep.lat, c.lon - dep.lon);
     const ord = items.slice().sort((a, b) => ang(a) - ang(b));
     let cur = [], acc = 0, n = 0;
@@ -209,7 +218,7 @@ export function simular(pedidos, ubic, parametros = {}) {
     const cu = centro(u.items);
     let dest = null, bd = Infinity;
     for (const cam of camiones) {
-      if (cam.pallets + u.pallets > capUtil) continue;
+      if (cam.pallets + u.pallets > capUtil || cam.items.length + u.items.length > P.maxParadas) continue;
       const d = haversine(centro(cam.items), cu);
       if (d <= P.radioAgrupKm && d < bd) { bd = d; dest = cam; }
     }

@@ -340,12 +340,16 @@ export function TSimulacion({ loggedInUser }) {
                   <div className="sim-params">
                     {[['bultosPorPallet', 'Bultos por pallet'], ['palletsPorCamion', 'Pallets por camión'], ['llenado', 'Llenado objetivo (0–1)'],
                       ['factorRuta', 'Factor de ruta'], ['consumoLKm', 'Consumo (L/km)'], ['precioDiesel', 'Gasoil ($/L)'],
-                      ['ayudantesPorCamion', 'Ayudantes por camión'], ['radioAgrupKm', 'Juntar zonas hasta (km)']].map(([k, et]) => (
+                      ['ayudantesPorCamion', 'Ayudantes por camión'], ['maxParadas', 'Máx. paradas por camión'], ['radioAgrupKm', 'Juntar zonas hasta (km)']].map(([k, et]) => (
                       <label key={k}>{et}
                         <input type="number" step="any" value={params[k]} onChange={(e) => setParams((p) => ({ ...p, [k]: Number(e.target.value) }))} />
                       </label>
                     ))}
                     {factorCal && <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, factorRuta: factorCal }))}>Usar factor del historial ({factorCal})</button>}
+                  </div>
+                  <div className="sim-sub" style={{ marginTop: 10 }}>
+                    Modelo probado con 17 días reales del ruteador (23/10 al 14/11): pallets con ±2 % de error, camiones dentro de ±1 en 15 de 17 días
+                    y km sin sesgo (mediana 1,00; por día varía). Es una estimación: el ruteador real optimiza con horarios y recargas que acá no se conocen.
                   </div>
                 </div>
               </>
