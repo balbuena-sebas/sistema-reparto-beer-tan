@@ -136,7 +136,7 @@ function ordenarVecinoCercano(dep, pts) {
   const rest = pts.slice(), out = []; let cur = dep;
   while (rest.length) {
     let bi = 0, bd = Infinity;
-    rest.forEach((p, i) => { const d = haversine(cur, p); if (d < bd) { bd = d; bi = i; } });
+    for (let i = 0; i < rest.length; i++) { const d = haversine(cur, rest[i]); if (d < bd) { bd = d; bi = i; } }
     cur = rest.splice(bi, 1)[0]; out.push(cur);
   }
   // 2-opt con delta O(1) por candidato (rápido incluso con cientos de paradas)
@@ -282,5 +282,59 @@ export function diffPedidos(anterior, actual, ubic) {
     salen: salen.length, entran: entran.length, cambian: cambian.length,
     salenPorLoc: cuenta(salen), entranPorLoc: cuenta(entran),
     bultosAntes: [...A.values()].reduce((s, x) => s + x.b, 0), bultosAhora: actual.reduce((s, x) => s + x.b, 0),
+  };
+}
+
+// ── Rechazos reales (filas de la tabla de rechazos de la app) ────────────────
+// Devuelve Map codigo → { b: bultos, r: bultos rechazados }
+export function indexarRechazos(filas) {
+  const m = new Map();
+  for (const f of filas || []) {
+    const c = parseInt(String(f.clienteId ?? '').replace(/\D/g, ''), 10);
+    if (!c) continue;
+    const a = m.get(c) || { b: 0, r: 0 };
+    a.b += num(f.bultos); a.r += num(f.bultosRechazados);
+    m.set(c, a);
+  }
+  return m;
+}
+
+// Cruza un día de romaneo con los rechazos: por ruta, cómo salió realmente (bultos facturados y rechazados)
+export function cruzarRechazos(dia, idx) {
+  const rutas = dia.rutas.map(() => ({ b: 0, r: 0, clientes: 0, conRechazo: 0 }));
+  const tot = { b: 0, r: 0, clientes: 0, conRechazo: 0 };
+  for (const p of dia.paradas) {
+    const a = idx.get(p[2]); if (!a) continue;
+    const x = rutas[p[0]];
+    for (const t of [x, tot]) { t.b += a.b; t.r += a.r; t.clientes++; if (a.r > 0) t.conRechazo++; }
+  }
+  return { rutas, total: tot };
+}
+
+// Pedidos que ya no están en la lista (se ruteó): base = [[c,b,n]] primera carga del día
+// dia = romaneo del día de entrega (opcional) · idxRech = indexarRechazos(...) (opcional)
+export function resumenRuteados(base, actual, ubic, dia, idxRech) {
+  if (!base) return null;
+  const vivos = new Set(actual.map((x) => x.c));
+  const lista = base.filter(([c]) => !vivos.has(c)).map(([c, b, n]) => ({ c, b, n, loc: ubic.get(c)?.loc || 'Sin localidad' }));
+  if (!lista.length) return null;
+  const porLoc = {};
+  lista.forEach((x) => { const o = porLoc[x.loc] || (porLoc[x.loc] = { clientes: 0, bultos: 0 }); o.clientes++; o.bultos += x.b; });
+  let porRuta = null, sinRuta = 0;
+  if (dia) {
+    const ruta = new Map(dia.paradas.map((p) => [p[2], p[0]]));
+    porRuta = new Map();
+    for (const x of lista) {
+      const ri = ruta.get(x.c);
+      if (ri === undefined) { sinRuta++; continue; }
+      const o = porRuta.get(ri) || { ri, clientes: 0, bultos: 0, real: 0, rech: 0, conReal: 0 };
+      o.clientes++; o.bultos += x.b;
+      const a = idxRech && idxRech.get(x.c); if (a) { o.real += a.b; o.rech += a.r; o.conReal++; }
+      porRuta.set(ri, o);
+    }
+  }
+  return {
+    clientes: lista.length, bultos: lista.reduce((s, x) => s + x.b, 0), porLoc,
+    porRuta: porRuta ? [...porRuta.values()].sort((a, b) => a.ri - b.ri) : null, sinRuta,
   };
 }

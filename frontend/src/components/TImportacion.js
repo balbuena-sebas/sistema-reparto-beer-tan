@@ -3,6 +3,7 @@ import { fn, tod } from '../utils/helpers';
 import * as XLSX from 'xlsx';
 import { TRechazos as VistaRechazosCompleta } from './TRechazos';
 import { getArchivosRechazos, eliminarArchivoRechazos, deduplicarRechazos, apiFetch } from '../api/client';
+import { CargaRuteo } from './CargaRuteo';
 
 // ─── Parsear CSV Foxtrot ──────────────────────────────────────────────────────
 function parseCSV(text) {
@@ -600,7 +601,7 @@ const ModalBorrador = ({ ruta, cfg, aus = [], onGuardar, onCerrar }) => {
 // ══════════════════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ══════════════════════════════════════════════════════════════════════════════
-export const TImportacion = ({ cfg = {}, aus = [], onSaveReg, onSaveRechazos }) => {
+export const TImportacion = ({ cfg = {}, aus = [], onSaveReg, onSaveRechazos, loggedInUser }) => {
   const [rutas,        setRutas]        = useState([]);
   const [rechazos,     setRechazos]     = useState(null);  // { nombre, rows }
   const [cargandoCSV,  setCargandoCSV]  = useState(false);
@@ -713,6 +714,7 @@ export const TImportacion = ({ cfg = {}, aus = [], onSaveReg, onSaveRechazos }) 
 
   return (
     <div className="dash-container">
+      <CargaRuteo loggedInUser={loggedInUser} />
       {/* Toast */}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, background: toast.tipo === 'err' ? '#b91c1c' : '#166534', color: '#fff', padding: '13px 22px', borderRadius: 14, fontSize: 14, fontWeight: 700, boxShadow: '0 8px 32px rgba(0,0,0,.2)', maxWidth: 420, animation: 'fadeIn .2s' }}>

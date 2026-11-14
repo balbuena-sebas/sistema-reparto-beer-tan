@@ -1638,6 +1638,7 @@ export default function App() {
             aus={aus}
             onSaveReg={saveReg}
             onSaveRechazos={saveRechazos}
+            loggedInUser={loggedInUser}
           />
         )}
         {tab === "config" && (
