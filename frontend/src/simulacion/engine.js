@@ -10,6 +10,8 @@ export const PARAMS_DEFAULT = {
   consumoLKm: 0.35,        // litros de gasoil por km (ajustable)
   precioDiesel: 2500,      // $/litro (ajustable; luego se conecta a Sec. de Energía)
   ayudantesPorCamion: 2,
+  minPalletsRuta: 1,       // un camión con menos pallets que esto se intenta sumar a otro
+  radioRescateKm: 60,      // ...si hay un camión con lugar a menos de esta distancia
   maxParadas: 70,          // tope de paradas por camión (límite de jornada)
   radioAgrupKm: 15,        // solo se juntan localidades a menos de esta distancia en un mismo camión
   deposito: { lat: -37.3140, lon: -59.1515 }, // calculado por trilateración con los radios del ruteador
@@ -225,6 +227,19 @@ export function simular(pedidos, ubic, parametros = {}) {
     if (dest) { dest.items.push(...u.items); dest.pallets += u.pallets; dest.locs.add(u.loc); }
     else camiones.push({ items: u.items.slice(), pallets: u.pallets, locs: new Set([u.loc]) });
   }
+  // Rescate: camiones casi vacíos se suman al más cercano que tenga lugar (si no hay, quedan marcados "poca carga")
+  for (let i = camiones.length - 1; i >= 0; i--) {
+    const c = camiones[i];
+    if (camiones.length < 2 || c.pallets >= P.minPalletsRuta) continue;
+    const cc = centro(c.items);
+    let dest = null, bd = Infinity;
+    camiones.forEach((o, j) => {
+      if (j === i || o.pallets + c.pallets > capUtil || o.items.length + c.items.length > P.maxParadas) return;
+      const d = haversine(centro(o.items), cc);
+      if (d <= P.radioRescateKm && d < bd) { bd = d; dest = o; }
+    });
+    if (dest) { dest.items.push(...c.items); dest.pallets += c.pallets; c.locs.forEach((l) => dest.locs.add(l)); camiones.splice(i, 1); }
+  }
   const grupos = camiones.map((c) => c.items);
 
   const rutas = grupos.filter((g) => g.length).map((g, i) => {
@@ -237,6 +252,7 @@ export function simular(pedidos, ubic, parametros = {}) {
       n: i + 1, paradas: ord, localidades: [...new Set(g.map((c) => c.loc || 'SIN LOCALIDAD'))], km, litros, combustible: litros * P.precioDiesel,
       pallets, bultos: g.reduce((s, c) => s + c.b, 0), kg: g.reduce((s, c) => s + c.kg, 0),
       ocupacion: pallets / P.palletsPorCamion, personas: 1 + P.ayudantesPorCamion,
+      pocaCarga: pallets < P.minPalletsRuta,
     };
   });
   const sum = (k) => rutas.reduce((s, r) => s + r[k], 0);
@@ -248,5 +264,23 @@ export function simular(pedidos, ubic, parametros = {}) {
       litros: sum('litros'), combustible: sum('combustible'),
       personas: rutas.length * (1 + P.ayudantesPorCamion),
     },
+  };
+}
+
+// ── Cambios entre dos cargas de pedidos ────────────────────────────────────
+// anterior: [[codigo, bultos, nombre]] · actual: [{c, n, b}] · ubic: Map (para la localidad)
+export function diffPedidos(anterior, actual, ubic) {
+  const A = new Map((anterior || []).map(([c, b, n]) => [c, { c, b, n }]));
+  const B = new Map(actual.map((x) => [x.c, x]));
+  const loc = (c) => ubic.get(c)?.loc || 'Sin localidad';
+  const cuenta = (lista) => lista.reduce((o, x) => { const l = loc(x.c); o[l] = (o[l] || 0) + 1; return o; }, {});
+  const salen = [...A.values()].filter((x) => !B.has(x.c));
+  const entran = actual.filter((x) => !A.has(x.c));
+  const cambian = actual.filter((x) => A.has(x.c) && Math.abs(A.get(x.c).b - x.b) > 0.01)
+    .map((x) => ({ c: x.c, n: x.n, antes: A.get(x.c).b, ahora: x.b }));
+  return {
+    salen: salen.length, entran: entran.length, cambian: cambian.length,
+    salenPorLoc: cuenta(salen), entranPorLoc: cuenta(entran),
+    bultosAntes: [...A.values()].reduce((s, x) => s + x.b, 0), bultosAhora: actual.reduce((s, x) => s + x.b, 0),
   };
 }

@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx';
 import { apiFetch, suscribirRuteo } from '../api/client';
 import {
   PARAMS_DEFAULT, parseRomaneo, parsePedidos, parseMaestra, construirUbicaciones,
-  calibrarFactor, simular,
+  calibrarFactor, simular, diffPedidos,
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar } from '../simulacion/mapa';
 import '../simulacion/simulacion.css';
@@ -106,6 +106,10 @@ export function TSimulacion({ loggedInUser }) {
     return simular({ clientes: pedidos.data.clientes }, ubic, { ...params, factorRuta: params.factorRuta });
   }, [pedidos, ubic, params]);
 
+  const cambios = useMemo(() => (pedidos?.data?.anterior?.clientes
+    ? diffPedidos(pedidos.data.anterior.clientes, pedidos.data.clientes, ubic) : null), [pedidos, ubic]);
+  const txtLoc = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([l, n]) => `${l.toLowerCase()} ${n}`).join(', ');
+
   const rutasSimMapa = useMemo(() => (sim ? sim.rutas.map((r, i) => ({
     color: COLORES[i % COLORES.length], label: `Camión ${r.n} · ${r.localidades.join(' + ')}`,
     puntos: r.paradas.map((p, k) => ({ lat: p.lat, lon: p.lon, seq: k + 1, titulo: p.n,
@@ -150,8 +154,10 @@ export function TSimulacion({ loggedInUser }) {
       const wb = XLSX.read(await leerArchivo(file), { type: 'array' });
       const m = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
       const ped = parsePedidos(m);
+      const anterior = pedidos?.data ? { archivo: pedidos.data.archivo, cargadoEn: pedidos.updatedAt,
+        clientes: pedidos.data.clientes.map((c) => [c.c, c.b, c.n]) } : null;
       await apiFetch('/api/ruteo/pedidos', { method: 'PUT', headers: hdr,
-        body: JSON.stringify({ archivo: file.name, fechaEntrega, clientes: ped.clientes }) });
+        body: JSON.stringify({ archivo: file.name, fechaEntrega, clientes: ped.clientes, anterior }) });
       aviso(`Pedidos cargados: ${ped.total.clientes} clientes, ${f0(ped.total.bultos)} bultos. Todos los usuarios con acceso lo ven al instante.`);
       await cargarPedidos();
     } catch (e) { aviso(e.message, 'err'); }
@@ -311,6 +317,15 @@ export function TSimulacion({ loggedInUser }) {
                     <div className="sim-kpi"><b>{f0(sim.totales.km)}</b><span>Km estimados</span></div>
                     <div className="sim-kpi"><b>{money(sim.totales.combustible)}</b><span>Combustible</span></div>
                   </div>
+                  {cambios && (cambios.salen + cambios.entran + cambios.cambian > 0) && (
+                    <div className="sim-msg" style={{ marginTop: 10 }}>
+                      <b>Cambios desde la carga anterior</b> ({pedidos.data.anterior.archivo}):{' '}
+                      {cambios.salen > 0 && <>salieron <b>{cambios.salen}</b> clientes (ya ruteados: {txtLoc(cambios.salenPorLoc)}). </>}
+                      {cambios.entran > 0 && <>Entraron <b>{cambios.entran}</b> nuevos ({txtLoc(cambios.entranPorLoc)}). </>}
+                      {cambios.cambian > 0 && <>{cambios.cambian} cambiaron de bultos. </>}
+                      Bultos: {f0(cambios.bultosAntes)} → <b>{f0(cambios.bultosAhora)}</b>.
+                    </div>
+                  )}
                   {sim.sinUbicacion.length > 0 && (
                     <div className="sim-warn" style={{ marginTop: 10 }}>
                       {sim.sinUbicacion.length} cliente(s) sin ubicación (no entran en el mapa ni en los km): {sim.sinUbicacion.slice(0, 6).map((c) => c.n).join(', ')}{sim.sinUbicacion.length > 6 ? '…' : ''}
@@ -325,7 +340,7 @@ export function TSimulacion({ loggedInUser }) {
                       {sim.rutas.map((r, i) => (
                         <tr key={r.n} className={`click ${rutaSel === i ? 'rsel' : ''}`} onClick={() => setRutaSel(rutaSel === i ? null : i)}>
                           <td><span className="sim-chip" style={{ background: COLORES[i % COLORES.length] }} />#{r.n}</td>
-                          <td>{r.localidades.join(' + ')}</td><td>{r.paradas.length}</td><td>{f0(r.bultos)}</td><td>{f1(r.pallets)}</td>
+                          <td>{r.localidades.join(' + ')}{r.pocaCarga && <span className="sim-warn" style={{ marginLeft: 6, padding: '1px 6px' }} title="Muy poca carga y ningún camión cercano con lugar: conviene postergar o agrupar con otro día">⚠ poca carga</span>}</td><td>{r.paradas.length}</td><td>{f0(r.bultos)}</td><td>{f1(r.pallets)}</td>
                           <td><div className="sim-bar"><i className={r.ocupacion > 0.8 ? 'alto' : r.ocupacion < 0.4 ? 'bajo' : ''} style={{ width: `${Math.min(100, r.ocupacion * 100)}%` }} /></div></td>
                           <td>{f0(r.km)}</td><td>{money(r.combustible)}</td>
                         </tr>
