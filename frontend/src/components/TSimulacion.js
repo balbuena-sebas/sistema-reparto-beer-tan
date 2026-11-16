@@ -36,7 +36,7 @@ const leerArchivo = (file) => new Promise((ok, mal) => {
 const centro = (pts) => ({ lat: pts.reduce((s, p) => s + p.lat, 0) / pts.length, lon: pts.reduce((s, p) => s + p.lon, 0) / pts.length });
 
 // Tres tarjetas: lo mismo (mismos litros) cargado en cada estación, para decidir dónde conviene cargar.
-function TarjetasMarcas({ litros, km, bultos, clientes, params, onElegir, manuales = {}, onManual, onLimpiar }) {
+function TarjetasMarcas({ litros, km, bultos, clientes, params, onElegir }) {
   const marcas = comparativaMarcas(litros, params);
   const min = Math.min(...marcas.map((m) => m.costo));
   return (
@@ -48,15 +48,6 @@ function TarjetasMarcas({ litros, km, bultos, clientes, params, onElegir, manual
             <div className="sim-marca-h"><b>{m.marca}</b>{barata && <span className="sim-tag">Más barata</span>}</div>
             <div className="sim-marca-v">{money(m.costo)}</div>
             <div className="sim-sub">{money(m.precio)} por litro · {m.fecha}</div>
-            {onManual && (
-              <div className="sim-sub" style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                <input key={`${m.marca}-${m.precio}`} type="number" step="any" placeholder="precio de hoy" defaultValue={manuales[m.marca] ? m.precio : ''} style={{ width: 110 }}
-                  title="Si lo viste hoy en el surtidor, escribilo: pisa al precio de las APIs"
-                  onBlur={(e) => { const v = Number(e.target.value); if (v > 0 && v !== m.precio) onManual(m.marca, v); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); }} />
-                {manuales[m.marca] && <button className="sim-btn" title="Volver al precio de las APIs" onClick={() => onLimpiar(m.marca)}>×</button>}
-              </div>
-            )}
             <div className="sim-marca-d">
               <span>{money(m.costo / (km || 1))} / km</span>
               <span>{money(m.costo / (bultos || 1))} / bulto</span>
@@ -114,9 +105,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const [rechPed, setRechPed] = useState(null);           // rechazos reales del día de entrega de los pedidos
 
   const asigFn = useRef(null);
-  const precioFn = useRef(null);
   const [oficiales, setOficiales] = useState(null);          // precios leídos de las APIs
-  const [manualPrecios, setManualPrecios] = useState({});     // precios escritos a mano (compartidos)
   const [excluidas, setExcluidas] = useState([]);              // localidades que NO salen el día de entrega
   const [precioInfo, setPrecioInfo] = useState({ estado: 'cargando' });   // de dónde salen los precios del gasoil
   const [hist, setHist] = useState({});                      // romaneos recientes (para aprender la zona de cada chofer)
@@ -124,6 +113,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const [cubre, setCubre] = useState({});                 // { chofer: chofer cuya zona cubre }
   const [manual, setManual] = useState({});               // { clienteAncla: chofer } elegido a mano por ruta
   const asigVer = useRef('');
+  const asigPend = useRef({ enviando: false, ultimo: null, enviado: null, t: 0 });   // guardado en orden, sin pisar lo que el usuario recién tocó
 
   const mapDiv = useRef(null); const mapRef = useRef(null); const datosMapa = useRef(null);
   const aviso = useCallback((texto, tipo = 'ok') => setMsg({ texto, tipo }), []);
@@ -156,7 +146,6 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
       if (ev === 'pedidos') cargarPedidos();
       if (ev === 'ubicaciones') cargarUbic();
       if (ev === 'asignacion' && asigFn.current) asigFn.current();
-      if (ev === 'precios' && precioFn.current) precioFn.current();
       if (ev === 'dia') { cacheDias.current.delete(info.fecha); cargarLista(); setDiaSel((s) => { if (s === info.fecha) cargarDia(s); return s; }); }
     }, setEnVivo);
     return parar;
@@ -180,39 +169,31 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         if (!nombre) return;
         pm[nombre] = Math.round(g.precio);
         const [y, mo, d] = g.fecha.split('-');
-        fm[nombre] = `${d}/${mo}/${y.slice(2)} · ${g.origen === 'zona' ? 'zona' : 'Tandil'} · ${g.fuente || 'oficial'}`;
+        const dias = Math.max(0, Math.round((Date.now() - new Date(`${g.fecha}T12:00:00`)) / 864e5));
+        fm[nombre] = `${d}/${mo}/${y.slice(2)} (hace ${dias} d${dias > 14 ? ' ⚠' : ''}) · ${g.origen === 'zona' ? 'zona' : 'Tandil'} · ${g.fuente || 'oficial'}`;
       });
       if (Object.keys(pm).length) setOficiales({ pm, fm });
     }).catch((e) => { if (vivo) setPrecioInfo({ estado: 'error', error: e.message }); });
     return () => { vivo = false; };
   }, []);
 
-  const cargarPreciosManual = useCallback(async () => {
-    try { const r = await apiFetch('/api/ruteo/precios-manual'); setManualPrecios(r.data || {}); } catch { /* sin dato */ }
-  }, []);
-  precioFn.current = cargarPreciosManual;
-  useEffect(() => { cargarPreciosManual(); }, [cargarPreciosManual]);
-  const enviarPreciosManual = async (nuevo) => {
-    setManualPrecios(nuevo);
-    try { await apiFetch('/api/ruteo/precios-manual', { method: 'PUT', headers: hdr, body: JSON.stringify(nuevo) }); } catch (e) { aviso(e.message, 'err'); }
-  };
-  const guardarPrecioManual = (marca, precio) => enviarPreciosManual({ ...manualPrecios, [marca]: { precio, fecha: iso(new Date()) } });
-  const quitarPrecioManual = (marca) => { const n = { ...manualPrecios }; delete n[marca]; enviarPreciosManual(n); };
-  // Los precios manuales mandan sobre los de las APIs; el resto sale de las APIs y, si no hay, del Excel.
+  // Precios de las APIs → parámetros de costo (por marca, con la fecha de vigencia y cuántos días tiene)
   useEffect(() => {
-    const pm = { ...(oficiales ? oficiales.pm : {}) }, fm = { ...(oficiales ? oficiales.fm : {}) };
-    Object.entries(manualPrecios).forEach(([k, v]) => { pm[k] = v.precio; const [y, mo, d] = v.fecha.split('-'); fm[k] = `${d}/${mo}/${y.slice(2)} · cargado a mano`; });
-    if (!Object.keys(pm).length) return;
+    if (!oficiales) return;
+    const { pm, fm } = oficiales;
     setParams((p) => {
       const marca = pm[p.marca] ? p.marca : Object.keys(pm)[0];
       return { ...p, preciosMarca: { ...p.preciosMarca, ...pm }, fechasMarca: { ...p.fechasMarca, ...fm }, precioDiesel: pm[marca] || p.precioDiesel, marca };
     });
-  }, [oficiales, manualPrecios]);
+  }, [oficiales]);
 
   // ── Choferes del día (compartido en vivo con el resto de los usuarios) ────
   const cargarAsig = useCallback(async () => {
     try {
+      // Si hay un guardado en curso (o recién terminó) no se pisa lo que el usuario acaba de tocar con una lectura vieja.
+      if (asigPend.current.enviando || Date.now() - asigPend.current.t < 2500) return;
       const r = await apiFetch('/api/ruteo/asignacion'); const d = r.data;
+      if (asigPend.current.enviando) return;
       const ok = d && d.fecha === fechaPedidos;
       const a = ok ? d.ausentes || [] : [], c = ok ? d.cubre || {} : {}, m = ok ? d.manual || {} : {}, ex = ok ? d.excluidas || [] : [];
       const k = JSON.stringify([a, c, m, ex]);
@@ -225,8 +206,18 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     setAusentes(a); setCubre(c); setManual(m); setExcluidas(ex);
     asigVer.current = JSON.stringify([a, c, m, ex]);
     if (!fechaPedidos) return;
-    try { await apiFetch('/api/ruteo/asignacion', { method: 'PUT', headers: hdr, body: JSON.stringify({ fecha: fechaPedidos, ausentes: a, cubre: c, manual: m, excluidas: ex }) }); }
-    catch (e) { aviso(e.message, 'err'); }
+    // Los guardados salen de a uno y siempre con lo último elegido, para que no lleguen desordenados al servidor.
+    const A = asigPend.current;
+    A.ultimo = JSON.stringify({ fecha: fechaPedidos, ausentes: a, cubre: c, manual: m, excluidas: ex });
+    if (A.enviando) return;
+    A.enviando = true;
+    try {
+      while (A.enviado !== A.ultimo) {
+        const cuerpo = A.ultimo; A.enviado = cuerpo;
+        await apiFetch('/api/ruteo/asignacion', { method: 'PUT', headers: hdr, body: cuerpo });
+      }
+    } catch (e) { aviso(e.message, 'err'); }
+    A.enviando = false; A.t = Date.now();
   };
   useEffect(() => {
     let vivo = true;
@@ -807,7 +798,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                 <div className="sim-card">
                   <h3>⛽ ¿Dónde conviene cargar? ({f0(sim.totales.litros)} L del reparto)</h3>
                   <TarjetasMarcas litros={sim.totales.litros} km={sim.totales.km} bultos={sim.totales.bultos} clientes={sim.totales.clientes} params={params}
-                    onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} manuales={manualPrecios} onManual={guardarPrecioManual} onLimpiar={quitarPrecioManual} />
+                    onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} />
                   <div className="sim-sub" style={{ marginTop: 8 }}>{notaPrecios} Elegí una tarjeta para que el costo por camión use ese precio.</div>
                 </div>
                 )}
@@ -853,7 +844,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                   <div className="sim-card">
                     <h3>⛽ ¿Dónde conviene cargar? ({f0(costoDia.litros)} L del día)</h3>
                     <TarjetasMarcas litros={costoDia.litros} km={resumenDia.km} bultos={resumenDia.bultos} clientes={resumenDia.paradas} params={params}
-                      onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} manuales={manualPrecios} onManual={guardarPrecioManual} onLimpiar={quitarPrecioManual} />
+                      onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} />
                     <div className="sim-sub" style={{ marginTop: 8 }}>{notaPrecios}</div>
                   </div>
                 )}
