@@ -236,6 +236,8 @@ router.put('/asignacion', async (req, res) => {
       fecha: b.fecha,
       ausentes: b.ausentes.map((x) => String(x).slice(0, 60)).slice(0, 80),
       cubre: Object.fromEntries(Object.entries(b.cubre).slice(0, 80).map(([k, v]) => [String(k).slice(0, 60), String(v).slice(0, 60)])),
+      // localidades que NO salen ese día (quedan fuera de la simulación)
+      excluidas: (Array.isArray(b.excluidas) ? b.excluidas : []).map((x) => String(x).slice(0, 40)).slice(0, 80),
       // elección manual de chofer por ruta: { códigoDeClienteAncla: chofer }
       manual: Object.fromEntries(Object.entries(b.manual && typeof b.manual === 'object' ? b.manual : {}).slice(0, 80)
         .map(([k, v]) => [String(k).slice(0, 20), String(v).slice(0, 60)])),
@@ -254,6 +256,45 @@ router.put('/asignacion', async (req, res) => {
   } catch (err) {
     console.error('PUT /ruteo/asignacion:', err.message);
     res.status(500).json({ ok: false, error: 'Error al guardar la asignación' });
+  }
+});
+
+// ── Precios de gasoil cargados a mano (compartidos): { Shell: { precio, fecha }, YPF: {...} } ──
+// Mandan sobre el precio leído de las APIs cuando alguien lo ve en el surtidor y sabe que es más nuevo.
+router.get('/precios-manual', async (req, res) => {
+  try {
+    await ensureSchema();
+    const r = await query(`SELECT datos_gz FROM sim_estado WHERE clave = 'precios_manual'`);
+    res.json({ ok: true, data: r.rows.length ? await descomprimirSafe(r.rows[0].datos_gz, {}) : {} });
+  } catch (err) {
+    console.error('GET /ruteo/precios-manual:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al obtener los precios manuales' });
+  }
+});
+router.put('/precios-manual', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const limpio = {};
+    for (const marca of ['Shell', 'Axion', 'YPF', 'Puma']) {
+      const v = b[marca]; if (!v) continue;
+      const precio = Number(v.precio), fecha = String(v.fecha || '');
+      if (!(precio >= 100 && precio <= 100000) || !FECHA_RE.test(fecha))
+        return res.status(400).json({ ok: false, error: `Precio inválido para ${marca}` });
+      limpio[marca] = { precio, fecha };
+    }
+    await ensureSchema();
+    const gz = await comprimir(limpio);
+    const r = await query(
+      `INSERT INTO sim_estado (clave, version, datos_gz, updated_at, updated_by)
+       VALUES ('precios_manual', 1, $1, NOW(), $2)
+       ON CONFLICT (clave) DO UPDATE SET version = sim_estado.version + 1,
+         datos_gz=$1, updated_at=NOW(), updated_by=$2
+       RETURNING version`, [gz, quien(req)]);
+    difundir('precios', { version: Number(r.rows[0].version), updatedBy: quien(req) });
+    res.json({ ok: true, version: Number(r.rows[0].version) });
+  } catch (err) {
+    console.error('PUT /ruteo/precios-manual:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al guardar los precios manuales' });
   }
 });
 
