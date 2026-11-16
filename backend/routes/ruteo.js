@@ -364,17 +364,43 @@ function resumirNaftas(json) {
 }
 router.resumirNaftas = resumirNaftas;
 
+const claveMarca = (m) => (/SHELL/.test(m) ? 'SHELL' : /AXION/.test(m) ? 'AXION' : /YPF/.test(m) ? 'YPF' : /PUMA/.test(m) ? 'PUMA' : m);
+// Une las dos fuentes: por marca queda el precio con la fecha de vigencia más reciente
+// (si empatan, el de Tandil antes que el de la zona, y naftas.com.ar antes que el CSV).
+function combinarPrecios(listas) {
+  const mejor = new Map();
+  for (const { fuente, marcas } of listas) {
+    for (const m of marcas) {
+      const g = m.comun || m.premium; if (!g) continue;
+      const k = claveMarca(m.marca);
+      const cand = { marca: k, comun: { ...g, fuente } };
+      const act = mejor.get(k);
+      const a = act && act.comun;
+      if (!a || g.fecha > a.fecha || (g.fecha === a.fecha && g.origen === 'Tandil' && a.origen !== 'Tandil')) mejor.set(k, cand);
+    }
+  }
+  return [...mejor.values()];
+}
+router.combinarPrecios = combinarPrecios;
+
+// Lee las dos fuentes en paralelo; si una falla se sigue con la otra.
 async function leerPrecios() {
-  try {
+  const nafta = (async () => {
     const r = await fetch(`${URL_NAFTAS}?city=${encodeURIComponent(CIUDAD_PRECIO)}`, { signal: AbortSignal.timeout(20000), headers: { accept: 'application/json' } });
     if (!r.ok) throw new Error(`naftas.com.ar respondió ${r.status}`);
-    const marcas = resumirNaftas(await r.json());
-    if (marcas.length) return { localidades: [CIUDAD_PRECIO], marcas, fuente: 'naftas.com.ar (datos de la Secretaría de Energía)' };
-  } catch (e) { console.error('precios naftas.com.ar:', e.message); }
-  // Respaldo: CSV oficial de Energía
-  const r = await fetch(URL_PRECIOS, { signal: AbortSignal.timeout(60000) });
-  if (!r.ok) throw new Error(`Energía respondió ${r.status}`);
-  return { localidades: LOCALIDADES_PRECIO, zona: LOCALIDADES_ZONA, marcas: resumirPrecios(await r.text()), fuente: 'Secretaría de Energía · Res. 314/2016' };
+    return { fuente: 'naftas.com.ar', marcas: resumirNaftas(await r.json()) };
+  })();
+  const energia = (async () => {
+    const r = await fetch(URL_PRECIOS, { signal: AbortSignal.timeout(60000) });
+    if (!r.ok) throw new Error(`Energía respondió ${r.status}`);
+    return { fuente: 'Energía (CSV oficial)', marcas: resumirPrecios(await r.text()) };
+  })();
+  const res = await Promise.allSettled([nafta, energia]);
+  const ok = res.filter((x) => x.status === 'fulfilled').map((x) => x.value);
+  const fallas = res.filter((x) => x.status === 'rejected').map((x) => x.reason.message);
+  if (fallas.length) console.error('precios combustible:', fallas.join(' | '));
+  if (!ok.length) throw new Error(fallas.join(' | '));
+  return { marcas: combinarPrecios(ok), fuentes: ok.map((x) => x.fuente), fallas };
 }
 
 router.get('/combustible', async (req, res) => {

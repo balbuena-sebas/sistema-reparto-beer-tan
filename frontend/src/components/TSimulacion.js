@@ -62,7 +62,9 @@ function TarjetasMarcas({ litros, km, bultos, clientes, params, onElegir }) {
   );
 }
 
-export function TSimulacion({ loggedInUser, cfg }) {
+const normN = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const rol = String(loggedInUser?.role || '').toLowerCase();
   const permisos = loggedInUser?.permisos || {};
   const puedeVerRechazos = rol === 'admin' || permisos.rechazos === true;
@@ -158,11 +160,11 @@ export function TSimulacion({ loggedInUser, cfg }) {
       const pm = {}, fm = {};
       r.data.marcas.forEach((m) => {
         const g = m.comun || m.premium; if (!g) return;
-        const nombre = /SHELL/.test(m.marca) ? 'Shell' : /AXION/.test(m.marca) ? 'Axion' : /YPF/.test(m.marca) ? 'YPF' : /PUMA/.test(m.marca) ? 'Puma' : null;
+        const nombre = /SHELL/.test(m.marca) ? 'Shell' : /AXION/.test(m.marca) ? 'Axion' : /YPF/.test(m.marca) ? 'YPF' : null;
         if (!nombre) return;
         pm[nombre] = Math.round(g.precio);
         const [y, mo, d] = g.fecha.split('-');
-        fm[nombre] = `${d}/${mo}/${y.slice(2)} · ${g.origen === 'zona' ? 'zona' : 'Tandil'} oficial${g.estaciones > 1 ? ` (${g.estaciones} estaciones)` : ''}`;
+        fm[nombre] = `${d}/${mo}/${y.slice(2)} · ${g.origen === 'zona' ? 'zona' : 'Tandil'} · ${g.fuente || 'oficial'}`;
       });
       if (!Object.keys(pm).length) return;
       setParams((p) => {
@@ -238,12 +240,31 @@ export function TSimulacion({ loggedInUser, cfg }) {
   // Choferes: los del historial de romaneos (con su zona) + los cargados en Config que todavía no tienen historial.
   const perfiles = useMemo(() => {
     const base = perfilesChoferes(hist, ubic, params.deposito, fechaPedidos);
-    const norm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const norm = normN;
     const conocidos = new Set(base.map((p) => norm(p.nombre)));
     const deConfig = (cfg?.choferes || []).filter((n) => !conocidos.has(norm(n)))
       .map((n) => ({ nombre: String(n).replace(/\s+/g, ' ').trim(), dias: 0, ultimo: '', etiqueta: 'sin historial de romaneo (Config)', deZonaDelDia: false, mercado: false, soloConfig: true }));
     return [...base, ...deConfig];
   }, [hist, ubic, params.deposito, fechaPedidos, cfg]);
+  // Ausencias cargadas en la pestaña Ausencias que cubren el día de entrega (nombre normalizado → motivo)
+  const ausAuto = useMemo(() => {
+    const m = new Map();
+    if (!fechaPedidos) return m;
+    (ausencias || []).forEach((a) => {
+      if (!a || !a.persona || !a.fechaDesde) return;
+      const d = String(a.fechaDesde).slice(0, 10), h = String(a.fechaHasta || a.fechaDesde).slice(0, 10);
+      if (d <= fechaPedidos && fechaPedidos <= h) m.set(normN(a.persona), a.motivo || 'Ausencia');
+    });
+    return m;
+  }, [ausencias, fechaPedidos]);
+  const ausEf = useMemo(() => [...new Set([...ausentes, ...perfiles.filter((p) => ausAuto.has(normN(p.nombre))).map((p) => p.nombre)])], [ausentes, perfiles, ausAuto]);
+  // Personal de Config (choferes + ayudantes, sin repetir) que está presente ese día
+  const personalPresente = useMemo(() => {
+    const todos = new Map();
+    [...(cfg?.choferes || []), ...(cfg?.ayudantes || [])].forEach((n) => todos.set(normN(n), n));
+    const aus = new Set([...ausAuto.keys(), ...ausentes.map(normN)]);
+    return [...todos.keys()].filter((k) => !aus.has(k)).length;
+  }, [cfg, ausAuto, ausentes]);
   const claveAncla = (r) => String(Math.min(...r.paradas.map((p) => p.c)));
   // Chofer por ruta: lo elegido a mano manda; el resto se asigna por zona habitual (sin repetir choferes).
   const choferesRutas = useMemo(() => {
@@ -251,10 +272,10 @@ export function TSimulacion({ loggedInUser, cfg }) {
     const out = simBase.rutas.map((r) => (manual[claveAncla(r)] ? { chofer: manual[claveAncla(r)], motivo: 'elegido a mano' } : null));
     const libres = simBase.rutas.map((r, i) => i).filter((i) => !out[i]);
     const ocupados = out.filter(Boolean).map((x) => x.chofer);
-    const auto = asignarChoferes(libres.map((i) => simBase.rutas[i]), perfiles, [...ausentes, ...ocupados], cubre);
+    const auto = asignarChoferes(libres.map((i) => simBase.rutas[i]), perfiles, [...ausEf, ...ocupados], cubre);
     libres.forEach((i, k) => { out[i] = auto[k]; });
     return out;
-  }, [simBase, perfiles, ausentes, cubre, manual]);
+  }, [simBase, perfiles, ausEf, cubre, manual]);
 
   // Rutas de la simulación con la geometría real por calles (si ya se calculó) y sus km
   const rutasSimMapa = useMemo(() => (simBase ? simBase.rutas.map((r, i) => {
@@ -603,24 +624,30 @@ export function TSimulacion({ loggedInUser, cfg }) {
                   <h3>👷 Choferes del día{fechaPedidos ? ` · zona del ${zonaDelDia(fechaPedidos) || '—'}` : ''}</h3>
                   <div className="sim-sub" style={{ marginBottom: 6 }}>Cada chofer sale por su zona habitual (aprendida del historial). Si alguien no vino, destildalo y elegí quién cubre su zona. Se comparte en vivo con los demás.</div>
                   {perfiles.filter((p) => !p.mercado).slice(0, 16).map((p) => {
-                    const falta = ausentes.includes(p.nombre);
+                    const auto = ausAuto.get(normN(p.nombre)); const falta = !!auto || ausentes.includes(p.nombre);
                     return (
                       <div key={p.nombre} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '4px 0' }}>
                         <label style={{ minWidth: 190 }}>
-                          <input type="checkbox" checked={!falta}
+                          <input type="checkbox" checked={!falta} disabled={!!auto}
                             onChange={() => guardarAsig(falta ? ausentes.filter((x) => x !== p.nombre) : [...ausentes, p.nombre], cubre, manual)} /> <b>{p.nombre}</b>
                         </label>
                         <span className="sim-sub">{p.etiqueta}{p.deZonaDelDia ? ' · zona de hoy' : ''}</span>
-                        {!falta && ausentes.length > 0 && (
+                        {!falta && ausEf.length > 0 && (
                           <select value={cubre[p.nombre] || ''} onChange={(e) => { const c = { ...cubre }; if (e.target.value) c[p.nombre] = e.target.value; else delete c[p.nombre]; guardarAsig(ausentes, c, manual); }}>
                             <option value="">cubre su propia zona</option>
-                            {ausentes.map((a) => <option key={a} value={a}>cubre la zona de {a}</option>)}
+                            {ausEf.map((a) => <option key={a} value={a}>cubre la zona de {a}</option>)}
                           </select>
                         )}
-                        {falta && <span className="sim-warn" style={{ padding: '1px 6px' }}>no vino</span>}
+                        {falta && <span className="sim-warn" style={{ padding: '1px 6px' }}>{auto ? `Ausencias: ${auto}` : 'no vino'}</span>}
                       </div>
                     );
                   })}
+                  {sim && sim.totales && (
+                    <div className="sim-sub" style={{ marginTop: 6 }}>
+                      Personal presente según Config y Ausencias: <b>{personalPresente}</b> personas · la simulación necesita <b>{sim.totales.personas}</b> ({sim.rutas.length} camiones × chofer + {params.ayudantesPorCamion} ayudante{params.ayudantesPorCamion === 1 ? '' : 's'}, y 2 en Las Flores).
+                      {sim.totales.personas > personalPresente && <span className="sim-warn" style={{ marginLeft: 6, padding: '1px 6px' }}>⚠ falta personal</span>}
+                    </div>
+                  )}
                   {perfiles.length === 0 && <div className="sim-sub">Todavía no hay romaneos cargados para aprender las zonas de los choferes.</div>}
                   {choferesRutas.filter((x) => !x || !x.chofer).length > 0 && <div className="sim-warn" style={{ marginTop: 6 }}>Hay más camiones que choferes disponibles: alguna ruta queda sin chofer.</div>}
                 </div>
@@ -630,7 +657,7 @@ export function TSimulacion({ loggedInUser, cfg }) {
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
                     <span className="sim-sub">Camiones disponibles:</span>
                     <input type="number" min="0" style={{ width: 64 }} value={params.maxCamiones || 0} onChange={(e) => setParams((p) => ({ ...p, maxCamiones: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))} />
-                    <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, maxCamiones: Math.max(0, perfiles.filter((x) => !x.mercado && !ausentes.includes(x.nombre) && x.ultimo >= haceDias(fechaPedidos, 10)).length) }))}>Usar choferes presentes</button>
+                    <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, maxCamiones: Math.max(0, perfiles.filter((x) => !x.mercado && !ausEf.includes(x.nombre) && x.ultimo >= haceDias(fechaPedidos, 10)).length) }))}>Usar choferes presentes</button>
                     <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, maxCamiones: 0 }))}>Sin tope</button>
                     <span className="sim-sub">Hacen falta {sim.tope ? sim.tope.necesarios : sim.rutas.length} con la carga normal.</span>
                   </div>
@@ -654,7 +681,7 @@ export function TSimulacion({ loggedInUser, cfg }) {
                             <select value={(choferesRutas[i] && choferesRutas[i].chofer) || ''} title={(choferesRutas[i] && choferesRutas[i].motivo) || ''}
                               onChange={(e) => { const m = { ...manual }; if (e.target.value) m[claveAncla(r)] = e.target.value; else delete m[claveAncla(r)]; guardarAsig(ausentes, cubre, m); }}>
                               <option value="">sin chofer</option>
-                              {perfiles.filter((p) => !p.mercado && !ausentes.includes(p.nombre)).map((p) => <option key={p.nombre} value={p.nombre}>{p.nombre}</option>)}
+                              {perfiles.filter((p) => !p.mercado && !ausEf.includes(p.nombre)).map((p) => <option key={p.nombre} value={p.nombre}>{p.nombre}</option>)}
                             </select>
                             {choferesRutas[i] && choferesRutas[i].motivo && !manual[claveAncla(r)] && <div className="sim-sub">{choferesRutas[i].motivo}</div>}
                           </td>
