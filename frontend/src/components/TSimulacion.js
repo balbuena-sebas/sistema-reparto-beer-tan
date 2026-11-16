@@ -242,7 +242,7 @@ export function TSimulacion({ loggedInUser }) {
   // ── Mapa ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!mapDiv.current) return undefined;
-    const map = crearMapa(mapDiv.current, params.deposito, () => setBaseFallo(true)); mapRef.current = map;
+    const map = crearMapa(mapDiv.current, params.deposito, (m) => setBaseFallo(m || true)); mapRef.current = map;
     map.on('sim-respaldo', () => { if (datosMapa.current) pintar(map, datosMapa.current); });
     return () => { clearTimeout(map._vigia); map._removed = true; map.remove(); mapRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -345,7 +345,12 @@ export function TSimulacion({ loggedInUser }) {
       </div>
 
       {msg && <div className={`sim-msg ${msg.tipo === 'err' ? 'err' : 'ok'}`} role="status">{msg.texto}</div>}
-      {baseFallo && <div className="sim-warn">No pude cargar el mapa de fondo (sin internet o servicio caído). Los puntos y las rutas se ven igual; probá cambiar de vista para reintentar.</div>}
+      {baseFallo && (
+        <div className="sim-warn">
+          No pude cargar el mapa de fondo{typeof baseFallo === 'string' ? ` (${baseFallo.slice(0, 140)})` : ''}. Los puntos y las rutas se ven igual, sobre un mapa de calles alternativo.{' '}
+          <button className="sim-btn" style={{ padding: '2px 8px' }} onClick={() => { setBaseFallo(false); elegirVista(vista); }}>Reintentar</button>
+        </div>
+      )}
 
       <div className="sim-grid">
         <div style={{ display: 'grid', gap: 14 }}>
@@ -437,6 +442,11 @@ export function TSimulacion({ loggedInUser }) {
                       Bultos: {f0(cambios.bultosAntes)} → <b>{f0(cambios.bultosAhora)}</b>.
                     </div>
                   )}
+                  {sim.sinUbicacion.length > 0 && ubic.size === 0 && (
+                    <div className="sim-msg" style={{ marginTop: 10 }}>
+                      <b>Todavía no hay ubicaciones de clientes.</b> Cargá la maestra de clientes y/o los romaneos del ruteador en <b>📂 Importar → 🧭 Ruteo</b>; con eso la simulación arma camiones, km y combustible y dibuja el mapa.
+                    </div>
+                  )}
                   {sim.sinUbicacion.length > 0 && (
                     <div className="sim-warn" style={{ marginTop: 10 }}>
                       {sim.sinUbicacion.length} cliente(s) sin ubicación (no entran en el mapa ni en los km): {sim.sinUbicacion.slice(0, 6).map((c) => c.n).join(', ')}{sim.sinUbicacion.length > 6 ? '…' : ''}
@@ -511,12 +521,14 @@ export function TSimulacion({ loggedInUser }) {
                   </table>
                   <div className="sim-sub" style={{ marginTop: 8 }}>Km de cada localidad = parte de la ruta según sus bultos. El costo de cada camión usa la estación elegida abajo.</div>
                 </div>
+                {sim.totales.litros > 0 && (
                 <div className="sim-card">
                   <h3>⛽ ¿Dónde conviene cargar? ({f0(sim.totales.litros)} L del reparto)</h3>
                   <TarjetasMarcas litros={sim.totales.litros} km={sim.totales.km} bultos={sim.totales.bultos} clientes={sim.totales.clientes} params={params}
                     onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} />
                   <div className="sim-sub" style={{ marginTop: 8 }}>Precios de la planilla (Secretaría de Energía; YPF es manual y puede estar desactualizado). Elegí una tarjeta para que el costo por camión use ese precio.</div>
                 </div>
+                )}
                 <div className="sim-card">
                   <h3>Parámetros (ajustables)</h3>
                   <div className="sim-params">

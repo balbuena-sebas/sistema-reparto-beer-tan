@@ -42,8 +42,8 @@ export const VISTAS = {
 
 // Mapa base de respaldo: sin internet o con el servicio caído igual se ven puntos y rutas.
 const RESPALDO = { version: 8, glyphs: GLYPHS,
-  sources: { base: { type: 'raster', tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap © CARTO',
-    tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', 'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'] } },
+  sources: { base: { type: 'raster', tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap',
+    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'] } },
   layers: [{ id: 'fondo', type: 'background', paint: { 'background-color': '#e6edf4' } },
     { id: 'base', type: 'raster', source: 'base' }] };
 
@@ -60,14 +60,25 @@ export function crearMapa(el, centro, onBaseFallo) {
   // y eso tiraba el mapa bueno al respaldo en conexiones lentas.
   map._estiloOk = false;
   map.on('style.load', () => { map._estiloOk = true; });
+  const caer = (motivo) => {
+    if (map._removed || map._respaldo || map._estiloOk) return;
+    map._respaldo = true;
+    // eslint-disable-next-line no-console
+    console.warn('[mapa] no cargó el mapa base:', motivo);
+    map.setStyle(RESPALDO);
+    onBaseFallo && onBaseFallo(motivo);
+    map.once('style.load', () => map.fire('sim-respaldo'));
+  };
+  // Si el estilo falla (bloqueo del navegador, sin internet, servicio caído) se ve el motivo y se pasa al respaldo ya.
+  map.on('error', (e) => {
+    const msg = (e && e.error && e.error.message) || String(e && e.error);
+    map._ultimoError = msg;
+    if (!map._estiloOk && !map._respaldo) caer(msg);
+  });
   const vigilar = () => {
     clearTimeout(map._vigia);
     map._estiloOk = false;
-    map._vigia = setTimeout(() => {
-      if (map._removed || map._respaldo || map._estiloOk) return;
-      map._respaldo = true; map.setStyle(RESPALDO);
-      map.once('style.load', () => { onBaseFallo && onBaseFallo(); map.fire('sim-respaldo'); });
-    }, 15000);
+    map._vigia = setTimeout(() => caer(map._ultimoError || 'tiempo de espera agotado (15 s)'), 15000);
   };
   map._vigilar = vigilar; vigilar();
   return map;
