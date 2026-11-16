@@ -355,12 +355,17 @@ function resumirNaftas(json) {
   if (!ciudad || !ciudad.empresas) throw new Error('Respuesta inesperada de naftas.com.ar');
   const marcas = [];
   for (const [empresa, prods] of Object.entries(ciudad.empresas)) {
-    const comunes = Object.entries(prods).filter(([n]) => /DIESEL|GASOIL/i.test(n) && !PREMIUM.test(n) && !/GNC/i.test(n));
-    if (!comunes.length) continue;
-    const [nombre, d] = comunes.sort((a, b) => a[1].precio - b[1].precio)[0];
-    if (!(d.precio > 0)) continue;
-    marcas.push({ marca: empresa.toUpperCase(), comun: { precio: d.precio, min: d.precio, max: d.precio, estaciones: 1, origen: 'Tandil',
-      fecha: String(d.fecha_vigencia || '').slice(0, 10), producto: nombre } });
+    const diesel = Object.entries(prods).filter(([n, d]) => /DIESEL|GASOIL/i.test(n) && !/GNC/i.test(n) && d && d.precio > 0);
+    const mejor = (lista) => {
+      if (!lista.length) return null;
+      const [nombre, d] = lista.sort((a, b) => a[1].precio - b[1].precio)[0];
+      return { precio: d.precio, min: d.precio, max: d.precio, estaciones: 1, origen: 'Tandil', fecha: String(d.fecha_vigencia || '').slice(0, 10), producto: nombre };
+    };
+    const fila = { marca: empresa.toUpperCase() };
+    const comun = mejor(diesel.filter(([n]) => !PREMIUM.test(n))), premium = mejor(diesel.filter(([n]) => PREMIUM.test(n)));
+    if (comun) fila.comun = comun;
+    if (premium) fila.premium = premium;
+    if (comun || premium) marcas.push(fila);
   }
   return marcas;
 }
@@ -373,12 +378,14 @@ function combinarPrecios(listas) {
   const mejor = new Map();
   for (const { fuente, marcas } of listas) {
     for (const m of marcas) {
-      const g = m.comun || m.premium; if (!g) continue;
       const k = claveMarca(m.marca);
-      const cand = { marca: k, comun: { ...g, fuente } };
-      const act = mejor.get(k);
-      const a = act && act.comun;
-      if (!a || g.fecha > a.fecha || (g.fecha === a.fecha && g.origen === 'Tandil' && a.origen !== 'Tandil')) mejor.set(k, cand);
+      const fila = mejor.get(k) || { marca: k };
+      for (const grado of ['comun', 'premium']) {
+        const g = m[grado]; if (!g) continue;
+        const a = fila[grado];
+        if (!a || g.fecha > a.fecha || (g.fecha === a.fecha && g.origen === 'Tandil' && a.origen !== 'Tandil')) fila[grado] = { ...g, fuente };
+      }
+      mejor.set(k, fila);
     }
   }
   return [...mejor.values()];

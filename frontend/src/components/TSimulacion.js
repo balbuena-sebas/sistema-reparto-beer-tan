@@ -105,7 +105,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const [rechPed, setRechPed] = useState(null);           // rechazos reales del día de entrega de los pedidos
 
   const asigFn = useRef(null);
-  const [oficiales, setOficiales] = useState(null);          // precios leídos de las APIs
+  const [datosPrecios, setDatosPrecios] = useState(null);     // respuesta cruda de /combustible (común y premium por marca)
+  const [gradoGasoil, setGradoGasoil] = useState('comun');     // 'comun' (Grado 2) o 'premium' (Infinia / V-Power / Quantium)
   const [excluidas, setExcluidas] = useState([]);              // localidades que NO salen el día de entrega
   const [precioInfo, setPrecioInfo] = useState({ estado: 'cargando' });   // de dónde salen los precios del gasoil
   const [hist, setHist] = useState({});                      // romaneos recientes (para aprender la zona de cada chofer)
@@ -162,30 +163,30 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     apiFetch('/api/ruteo/combustible').then((r) => {
       if (!vivo || !r.data) return;
       setPrecioInfo({ estado: 'ok', fuentes: r.data.fuentes || [], fallas: r.data.fallas || [], cache: !!r.cache, aviso: r.aviso || '' });
-      const pm = {}, fm = {};
-      r.data.marcas.forEach((m) => {
-        const g = m.comun || m.premium; if (!g) return;
-        const nombre = /SHELL/.test(m.marca) ? 'Shell' : /AXION/.test(m.marca) ? 'Axion' : /YPF/.test(m.marca) ? 'YPF' : null;
-        if (!nombre) return;
-        pm[nombre] = Math.round(g.precio);
-        const [y, mo, d] = g.fecha.split('-');
-        const dias = Math.max(0, Math.round((Date.now() - new Date(`${g.fecha}T12:00:00`)) / 864e5));
-        fm[nombre] = `${d}/${mo}/${y.slice(2)} (hace ${dias} d${dias > 14 ? ' ⚠' : ''}) · ${g.origen === 'zona' ? 'zona' : 'Tandil'} · ${g.fuente || 'oficial'}`;
-      });
-      if (Object.keys(pm).length) setOficiales({ pm, fm });
+      setDatosPrecios(r.data);
     }).catch((e) => { if (vivo) setPrecioInfo({ estado: 'error', error: e.message }); });
     return () => { vivo = false; };
   }, []);
 
   // Precios de las APIs → parámetros de costo (por marca, con la fecha de vigencia y cuántos días tiene)
   useEffect(() => {
-    if (!oficiales) return;
-    const { pm, fm } = oficiales;
+    if (!datosPrecios) return;
+    const pm = {}, fm = {};
+    datosPrecios.marcas.forEach((m) => {
+      const g = m[gradoGasoil] || m.comun || m.premium; if (!g) return;
+      const nombre = /SHELL/.test(m.marca) ? 'Shell' : /AXION/.test(m.marca) ? 'Axion' : /YPF/.test(m.marca) ? 'YPF' : null;
+      if (!nombre) return;
+      pm[nombre] = Math.round(g.precio);
+      const [y, mo, d] = g.fecha.split('-');
+      const dias = Math.max(0, Math.round((Date.now() - new Date(`${g.fecha}T12:00:00`)) / 864e5));
+      fm[nombre] = `${d}/${mo}/${y.slice(2)} (hace ${dias} d${dias > 14 ? ' ⚠' : ''}) · ${g.producto || (gradoGasoil === 'premium' ? 'premium' : 'común')} · ${g.origen === 'zona' ? 'zona' : 'Tandil'} · ${g.fuente || 'oficial'}`;
+    });
+    if (!Object.keys(pm).length) return;
     setParams((p) => {
       const marca = pm[p.marca] ? p.marca : Object.keys(pm)[0];
       return { ...p, preciosMarca: { ...p.preciosMarca, ...pm }, fechasMarca: { ...p.fechasMarca, ...fm }, precioDiesel: pm[marca] || p.precioDiesel, marca };
     });
-  }, [oficiales]);
+  }, [datosPrecios, gradoGasoil]);
 
   // ── Choferes del día (compartido en vivo con el resto de los usuarios) ────
   const cargarAsig = useCallback(async () => {
@@ -283,6 +284,14 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     : precioInfo.estado === 'error'
       ? `⚠ No se pudo leer el precio actual (${precioInfo.error}). Se muestran los precios fijos del Excel, que pueden estar viejos: reiniciá el backend o revisá que tenga internet.`
       : 'Buscando el precio actual del gasoil…';
+  const selGrado = (
+    <div className="sim-sub" style={{ marginBottom: 8 }}>Gasoil a comparar:{' '}
+      <select value={gradoGasoil} onChange={(e) => setGradoGasoil(e.target.value)}>
+        <option value="comun">Común (Grado 2: Diesel 500 / Evolux / Diesel X10)</option>
+        <option value="premium">Premium (Infinia Diesel / V-Power Diesel / Quantium Diesel)</option>
+      </select>
+    </div>
+  );
   const perfiles = useMemo(() => {
     const base = perfilesChoferes(hist, ubic, params.deposito, fechaPedidos);
     const norm = normN;
@@ -797,6 +806,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                 {sim.totales.litros > 0 && (
                 <div className="sim-card">
                   <h3>⛽ ¿Dónde conviene cargar? ({f0(sim.totales.litros)} L del reparto)</h3>
+                  {selGrado}
                   <TarjetasMarcas litros={sim.totales.litros} km={sim.totales.km} bultos={sim.totales.bultos} clientes={sim.totales.clientes} params={params}
                     onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} />
                   <div className="sim-sub" style={{ marginTop: 8 }}>{notaPrecios} Elegí una tarjeta para que el costo por camión use ese precio.</div>
@@ -843,7 +853,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                 {costoDia && (
                   <div className="sim-card">
                     <h3>⛽ ¿Dónde conviene cargar? ({f0(costoDia.litros)} L del día)</h3>
-                    <TarjetasMarcas litros={costoDia.litros} km={resumenDia.km} bultos={resumenDia.bultos} clientes={resumenDia.paradas} params={params}
+                    {selGrado}
+                  <TarjetasMarcas litros={costoDia.litros} km={resumenDia.km} bultos={resumenDia.bultos} clientes={resumenDia.paradas} params={params}
                       onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} />
                     <div className="sim-sub" style={{ marginTop: 8 }}>{notaPrecios}</div>
                   </div>
