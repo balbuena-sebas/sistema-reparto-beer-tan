@@ -478,19 +478,38 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     try {
       const wb = XLSX.read(await leerArchivo(file), { type: 'array' });
       const m = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
-      const ped = parsePedidos(m);
-      const previo = pedidos?.data;
+      await guardarPedidos(parsePedidos(m), file.name, fechaEntrega, sumar);
+    } catch (e) { aviso(e.message, 'err'); }
+    setOcupado(false);
+  };
+
+  // Trae los pedidos pendientes desde la API de Chess (ya vienen sumados por cliente hasta el día de entrega)
+  const traerDeChess = async () => {
+    if (!fechaNueva) return;
+    setOcupado(true);
+    try {
+      const r = await apiFetch(`/api/ruteo/chess/pedidos?fechaEntrega=${fechaNueva}`);
+      const d = r.data;
+      if (!d.clientes.length) throw new Error(`Chess respondió ${d.crudos} pedidos pero ninguno entra para el ${fechaLarga(fechaNueva)} (revisar estados y campos). Muestra del primero: ${JSON.stringify(d.muestra || {}).slice(0, 300)}`);
+      const fechas = Object.entries(d.detalle.bultosPorFecha).sort().map(([f, b]) => `${f.slice(8)}/${f.slice(5, 7)}: ${f0(b)}`).join(' · ');
+      await guardarPedidos({ clientes: d.clientes, total: d.total }, `Chess (API) hasta ${fechaNueva}`, fechaNueva, false, `Pedidos por fecha: ${fechas}. `);
+    } catch (e) { aviso(e.message, 'err'); }
+    setOcupado(false);
+  };
+
+  const guardarPedidos = async (ped, archivoNombre, fechaEntrega, sumar, extra = '') => {
+    const previo = pedidos?.data;
       const snap = previo ? previo.clientes.map((c) => [c.c, c.b, c.n]) : null;
       const anterior = previo ? { archivo: previo.archivo, cargadoEn: pedidos.updatedAt, clientes: snap } : null;
       // "base" = primera carga del día de entrega: permite saber qué pedidos ya se ruteó y salieron de la lista
       let base = previo && previo.fechaEntrega === fechaEntrega ? (previo.base || snap) : null;
-      let clientes = ped.clientes, archivo = file.name;
+      let clientes = ped.clientes, archivo = archivoNombre;
       if (sumar && previo && previo.fechaEntrega === fechaEntrega) {
         // Se suma al día ya cargado: por código de cliente, lo del archivo nuevo pisa al mismo cliente (no duplica).
         const m = new Map(previo.clientes.map((c) => [c.c, c]));
         ped.clientes.forEach((c) => m.set(c.c, c));
         clientes = [...m.values()];
-        archivo = `${previo.archivo} + ${file.name}`.slice(0, 200);
+        archivo = `${previo.archivo} + ${archivoNombre}`.slice(0, 200);
         const bm = new Map((base || snap || []).map((r) => [r[0], r]));
         ped.clientes.forEach((c) => bm.set(c.c, [c.c, c.b, c.n]));
         base = [...bm.values()];
@@ -498,10 +517,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
       await apiFetch('/api/ruteo/pedidos', { method: 'PUT', headers: hdr,
         body: JSON.stringify({ archivo, fechaEntrega, clientes, anterior, base }) });
       const totB = clientes.reduce((s, c) => s + c.b, 0);
-      aviso(`${sumar ? 'Sumado' : 'Pedidos cargados'}: ${sumar ? `${ped.total.clientes} clientes de ${file.name}. Total del día: ` : ''}${clientes.length} clientes, ${f0(totB)} bultos. Todos los usuarios con acceso lo ven al instante.`);
+      aviso(`${extra}${sumar ? 'Sumado' : 'Pedidos cargados'}: ${sumar ? `${ped.total.clientes} clientes de ${archivoNombre}. Total del día: ` : ''}${clientes.length} clientes, ${f0(totB)} bultos. Todos los usuarios con acceso lo ven al instante.`);
       await cargarPedidos();
-    } catch (e) { aviso(e.message, 'err'); }
-    setOcupado(false);
   };
 
   // ── Calendario ───────────────────────────────────────────────────────────
@@ -609,6 +626,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
               <input ref={refPed} type="file" accept=".xlsx,.xls,.csv" hidden
                 onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva); }} />
               <button className="sim-btn pri" disabled={ocupado} onClick={() => refPed.current.click()}>📦 Subir pedidos (Excel)</button>
+              <button className="sim-btn pri" disabled={ocupado} onClick={traerDeChess}
+                title="Trae los pedidos de Chess (Tandil y Las Flores) y suma todos los de fecha hasta el día de entrega">⬇️ Traer pedidos de Chess (API)</button>
               <input ref={refPed2} type="file" accept=".xlsx,.xls,.csv" hidden
                 onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva, true); }} />
               <button className="sim-btn" disabled={ocupado || !pedidos?.data} onClick={() => refPed2.current.click()}

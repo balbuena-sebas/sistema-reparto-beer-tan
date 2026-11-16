@@ -6,6 +6,7 @@ const express = require('express');
 const router  = express.Router();
 const { query } = require('../db');
 const { comprimir, descomprimirSafe } = require('../compress');
+const chess = require('../chessApi');
 
 const MAX_DIA_BYTES     = 1.5 * 1024 * 1024; // romaneo de un día
 const MAX_PEDIDOS_BYTES = 600 * 1024;        // pedidos vigentes
@@ -256,6 +257,21 @@ router.put('/asignacion', async (req, res) => {
   } catch (err) {
     console.error('PUT /ruteo/asignacion:', err.message);
     res.status(500).json({ ok: false, error: 'Error al guardar la asignación' });
+  }
+});
+
+// ── Pedidos desde la API de ChessERP (solo lectura) ─────────────────────────────
+// Trae los pedidos pendientes y suma por cliente todos los de fecha <= día de entrega.
+router.get('/chess/estado', (req, res) => res.json({ ok: true, configurado: chess.configurado() }));
+router.get('/chess/pedidos', async (req, res) => {
+  try {
+    const fechaEntrega = String(req.query.fechaEntrega || '');
+    if (!FECHA_RE.test(fechaEntrega)) return res.status(400).json({ ok: false, error: 'Falta la fecha de entrega (YYYY-MM-DD)' });
+    if (!chess.configurado()) return res.status(412).json({ ok: false, error: 'Chess no está configurado: cargá CHESS_BASE_URL, CHESS_USER y CHESS_PASSWORD en backend/.env y reiniciá el backend.' });
+    res.json({ ok: true, data: await chess.traerPedidos(fechaEntrega) });
+  } catch (err) {
+    console.error('GET /ruteo/chess/pedidos:', err.message);
+    res.status(502).json({ ok: false, error: err.message });
   }
 });
 
