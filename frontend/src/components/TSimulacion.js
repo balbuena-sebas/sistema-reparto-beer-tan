@@ -7,6 +7,7 @@ import { apiFetch, suscribirRuteo } from '../api/client';
 import {
   PARAMS_DEFAULT, parsePedidos, construirUbicaciones, calibrarFactor, simular, diffPedidos,
   indexarRechazos, cruzarRechazos, resumenRuteados, costearRuta, comparativaMarcas, resumenPorLocalidad,
+  perfilesChoferes, asignarChoferes, zonaDelDia,
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
@@ -92,6 +93,13 @@ export function TSimulacion({ loggedInUser }) {
   const [rechDia, setRechDia] = useState(null);           // rechazos reales del día elegido en el calendario
   const [rechPed, setRechPed] = useState(null);           // rechazos reales del día de entrega de los pedidos
 
+  const asigFn = useRef(null);
+  const [hist, setHist] = useState({});                      // romaneos recientes (para aprender la zona de cada chofer)
+  const [ausentes, setAusentes] = useState([]);           // choferes que no vinieron
+  const [cubre, setCubre] = useState({});                 // { chofer: chofer cuya zona cubre }
+  const [manual, setManual] = useState({});               // { clienteAncla: chofer } elegido a mano por ruta
+  const asigVer = useRef('');
+
   const mapDiv = useRef(null); const mapRef = useRef(null); const datosMapa = useRef(null);
   const aviso = useCallback((texto, tipo = 'ok') => setMsg({ texto, tipo }), []);
 
@@ -122,6 +130,7 @@ export function TSimulacion({ loggedInUser }) {
     const parar = suscribirRuteo((ev, info) => {
       if (ev === 'pedidos') cargarPedidos();
       if (ev === 'ubicaciones') cargarUbic();
+      if (ev === 'asignacion' && asigFn.current) asigFn.current();
       if (ev === 'dia') { cacheDias.current.delete(info.fecha); cargarLista(); setDiaSel((s) => { if (s === info.fecha) cargarDia(s); return s; }); }
     }, setEnVivo);
     return parar;
@@ -132,6 +141,58 @@ export function TSimulacion({ loggedInUser }) {
   }, [enVivo, cargarPedidos]);
 
   const fechaPedidos = pedidos?.data?.fechaEntrega;
+
+  useEffect(() => {
+    let vivo = true;
+    apiFetch('/api/ruteo/combustible').then((r) => {
+      if (!vivo || !r.data) return;
+      const pm = {}, fm = {};
+      r.data.marcas.forEach((m) => {
+        const g = m.comun || m.premium; if (!g) return;
+        const nombre = /SHELL/.test(m.marca) ? 'Shell' : /AXION/.test(m.marca) ? 'Axion' : /YPF/.test(m.marca) ? 'YPF' : null;
+        if (!nombre) return;
+        pm[nombre] = Math.round(g.precio);
+        const [y, mo, d] = g.fecha.split('-');
+        fm[nombre] = `${d}/${mo}/${y.slice(2)} · Tandil oficial${g.estaciones > 1 ? ` (${g.estaciones} estaciones)` : ''}`;
+      });
+      if (!Object.keys(pm).length) return;
+      setParams((p) => {
+        const marca = pm[p.marca] ? p.marca : Object.keys(pm)[0];
+        return { ...p, preciosMarca: { ...p.preciosMarca, ...pm }, fechasMarca: { ...p.fechasMarca, ...fm }, precioDiesel: pm[marca] || p.precioDiesel, marca };
+      });
+    }).catch(() => { /* sin conexión al dato oficial: quedan los precios del Excel */ });
+    return () => { vivo = false; };
+  }, []);
+
+  // ── Choferes del día (compartido en vivo con el resto de los usuarios) ────
+  const cargarAsig = useCallback(async () => {
+    try {
+      const r = await apiFetch('/api/ruteo/asignacion'); const d = r.data;
+      const ok = d && d.fecha === fechaPedidos;
+      const a = ok ? d.ausentes || [] : [], c = ok ? d.cubre || {} : {}, m = ok ? d.manual || {} : {};
+      const k = JSON.stringify([a, c, m]);
+      if (k !== asigVer.current) { asigVer.current = k; setAusentes(a); setCubre(c); setManual(m); }
+    } catch { /* se reintenta con el próximo evento */ }
+  }, [fechaPedidos]);
+  asigFn.current = cargarAsig;
+  useEffect(() => { cargarAsig(); }, [cargarAsig]);
+  const guardarAsig = async (a, c, m) => {
+    setAusentes(a); setCubre(c); setManual(m);
+    asigVer.current = JSON.stringify([a, c, m]);
+    if (!fechaPedidos) return;
+    try { await apiFetch('/api/ruteo/asignacion', { method: 'PUT', headers: hdr, body: JSON.stringify({ fecha: fechaPedidos, ausentes: a, cubre: c, manual: m }) }); }
+    catch (e) { aviso(e.message, 'err'); }
+  };
+  useEffect(() => {
+    let vivo = true;
+    const fechas = lista.map((x) => x.fecha).sort().slice(-12);
+    (async () => {
+      const h = {};
+      for (const f of fechas) { try { const d = await traerDia(f); if (d) h[f] = d; } catch { /* sigue */ } if (!vivo) return; }
+      if (vivo) setHist(h);
+    })();
+    return () => { vivo = false; };
+  }, [lista, traerDia]);
   const mapaLista = useMemo(() => new Map(lista.map((x) => [x.fecha, x])), [lista]);
 
   // Romaneo del día de entrega (si el ruteador ya lo generó) y rechazos reales, para cruzar con los pedidos
@@ -164,13 +225,26 @@ export function TSimulacion({ loggedInUser }) {
     return simular({ clientes: pedidos.data.clientes }, ubic, params);
   }, [pedidos, ubic, params]);
 
+  const perfiles = useMemo(() => perfilesChoferes(hist, ubic, params.deposito, fechaPedidos), [hist, ubic, params.deposito, fechaPedidos]);
+  const claveAncla = (r) => String(Math.min(...r.paradas.map((p) => p.c)));
+  // Chofer por ruta: lo elegido a mano manda; el resto se asigna por zona habitual (sin repetir choferes).
+  const choferesRutas = useMemo(() => {
+    if (!simBase) return [];
+    const out = simBase.rutas.map((r) => (manual[claveAncla(r)] ? { chofer: manual[claveAncla(r)], motivo: 'elegido a mano' } : null));
+    const libres = simBase.rutas.map((r, i) => i).filter((i) => !out[i]);
+    const ocupados = out.filter(Boolean).map((x) => x.chofer);
+    const auto = asignarChoferes(libres.map((i) => simBase.rutas[i]), perfiles, [...ausentes, ...ocupados], cubre);
+    libres.forEach((i, k) => { out[i] = auto[k]; });
+    return out;
+  }, [simBase, perfiles, ausentes, cubre, manual]);
+
   // Rutas de la simulación con la geometría real por calles (si ya se calculó) y sus km
   const rutasSimMapa = useMemo(() => (simBase ? simBase.rutas.map((r, i) => {
     const puntos = r.paradas.map((p, k) => ({ lat: p.lat, lon: p.lon, seq: k + 1, titulo: p.n,
       detalle: `Cód. ${p.c} · ${f1(p.b)} bultos · ${f1(p.pallets)} pallets · ${cap(p.loc)}` }));
-    return { color: COLORES[i % COLORES.length], label: `Camión ${r.n} · ${r.localidades.map(cap).join(' + ')}`, puntos,
+    return { color: COLORES[i % COLORES.length], label: `Camión ${r.n} · ${r.localidades.map(cap).join(' + ')}${choferesRutas[i] && choferesRutas[i].chofer ? ` · ${choferesRutas[i].chofer}` : ''}`, puntos,
       geom: callesOn ? calles[claveRuta(params.deposito, puntos)]?.coords : null };
-  }) : []), [simBase, calles, callesOn, params.deposito]);
+  }) : []), [simBase, calles, callesOn, params.deposito, choferesRutas]);
 
   const sim = useMemo(() => {
     if (!simBase) return null;
@@ -487,15 +561,49 @@ export function TSimulacion({ loggedInUser }) {
                   </div>
                 )}
 
+                <div className="sim-card">
+                  <h3>👷 Choferes del día{fechaPedidos ? ` · zona del ${zonaDelDia(fechaPedidos) || '—'}` : ''}</h3>
+                  <div className="sim-sub" style={{ marginBottom: 6 }}>Cada chofer sale por su zona habitual (aprendida del historial). Si alguien no vino, destildalo y elegí quién cubre su zona. Se comparte en vivo con los demás.</div>
+                  {perfiles.filter((p) => !p.mercado).slice(0, 10).map((p) => {
+                    const falta = ausentes.includes(p.nombre);
+                    return (
+                      <div key={p.nombre} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '4px 0' }}>
+                        <label style={{ minWidth: 190 }}>
+                          <input type="checkbox" checked={!falta}
+                            onChange={() => guardarAsig(falta ? ausentes.filter((x) => x !== p.nombre) : [...ausentes, p.nombre], cubre, manual)} /> <b>{p.nombre}</b>
+                        </label>
+                        <span className="sim-sub">{p.etiqueta}{p.deZonaDelDia ? ' · zona de hoy' : ''}</span>
+                        {!falta && ausentes.length > 0 && (
+                          <select value={cubre[p.nombre] || ''} onChange={(e) => { const c = { ...cubre }; if (e.target.value) c[p.nombre] = e.target.value; else delete c[p.nombre]; guardarAsig(ausentes, c, manual); }}>
+                            <option value="">cubre su propia zona</option>
+                            {ausentes.map((a) => <option key={a} value={a}>cubre la zona de {a}</option>)}
+                          </select>
+                        )}
+                        {falta && <span className="sim-warn" style={{ padding: '1px 6px' }}>no vino</span>}
+                      </div>
+                    );
+                  })}
+                  {perfiles.length === 0 && <div className="sim-sub">Todavía no hay romaneos cargados para aprender las zonas de los choferes.</div>}
+                  {choferesRutas.filter((x) => !x || !x.chofer).length > 0 && <div className="sim-warn" style={{ marginTop: 6 }}>Hay más camiones que choferes disponibles: alguna ruta queda sin chofer.</div>}
+                </div>
+
                 <div className="sim-card" style={{ overflowX: 'auto' }}>
                   <h3>Camiones sugeridos (con lo que falta rutear)</h3>
                   <table className="sim-table">
-                    <thead><tr><th>Camión</th><th>Zona</th><th>Paradas</th><th>Bultos</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Litros</th><th>Combustible</th><th>Personas</th><th>Recarga</th></tr></thead>
+                    <thead><tr><th>Camión</th><th>Zona</th><th>Chofer</th><th>Paradas</th><th>Bultos</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Litros</th><th>Combustible</th><th>Personas</th><th>Recarga</th></tr></thead>
                     <tbody>
                       {sim.rutas.map((r, i) => (
                         <tr key={r.n} className={`click ${rutaSel === i ? 'rsel' : ''}`} onClick={() => setRutaSel(rutaSel === i ? null : i)}>
                           <td><span className="sim-chip" style={{ background: COLORES[i % COLORES.length] }} />#{r.n}</td>
                           <td>{r.localidades.map(cap).join(' + ')}{r.pocaCarga && <span className="sim-warn" style={{ marginLeft: 6, padding: '1px 6px' }} title="Muy poca carga y ningún camión cercano con lugar: conviene postergar o agrupar con otro día">⚠ poca carga</span>}</td>
+                          <td onClick={(e) => e.stopPropagation()}>
+                            <select value={(choferesRutas[i] && choferesRutas[i].chofer) || ''} title={(choferesRutas[i] && choferesRutas[i].motivo) || ''}
+                              onChange={(e) => { const m = { ...manual }; if (e.target.value) m[claveAncla(r)] = e.target.value; else delete m[claveAncla(r)]; guardarAsig(ausentes, cubre, m); }}>
+                              <option value="">sin chofer</option>
+                              {perfiles.filter((p) => !p.mercado && !ausentes.includes(p.nombre)).map((p) => <option key={p.nombre} value={p.nombre}>{p.nombre}</option>)}
+                            </select>
+                            {choferesRutas[i] && choferesRutas[i].motivo && !manual[claveAncla(r)] && <div className="sim-sub">{choferesRutas[i].motivo}</div>}
+                          </td>
                           <td>{r.paradas.length}</td><td>{f0(r.bultos)}</td><td>{f1(r.pallets)}</td>
                           <td><div className="sim-bar"><i className={r.ocupacion > 0.8 ? 'alto' : r.ocupacion < 0.4 ? 'bajo' : ''} style={{ width: `${Math.min(100, r.ocupacion * 100)}%` }} /></div></td>
                           <td>{f0(r.km)}{r.kmCalle ? ' 🛣️' : ''}</td><td>{f1(r.litros)}{r.utilitario ? ' (util.)' : ''}</td><td>{money(r.combustible)}</td>

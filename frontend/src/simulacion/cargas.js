@@ -35,6 +35,6 @@ export async function cargarMaestra(file, hdr, progreso = () => {}) {
   const items = parseMaestra(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]));
   if (!items.length) throw new Error('No encontré clientes con coordenadas (columnas Cliente, Coord X, Coord Y).');
   progreso(`Guardando ${items.length} clientes…`);
-  await apiFetch('/api/ruteo/ubicaciones', { method: 'PUT', headers: hdr, body: JSON.stringify({ items }) });
+  await apiFetch('/api/ruteo/ubicaciones', { method: 'PUT', headers: hdr, body: JSON.stringify({ items, reemplazar: true }) });
   return items.length;
 }

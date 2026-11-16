@@ -394,3 +394,75 @@ export function resumenRuteados(base, actual, ubic, dia, idxRech) {
     porRuta: porRuta ? [...porRuta.values()].sort((a, b) => a.ri - b.ri) : null, sinRuta,
   };
 }
+
+// ── Choferes y zonas ───────────────────────────────────────────────────────
+// Zona del día según la planilla (hoja "Zonas"): lun y jue Azul · mar y vie Verde · mié y sáb Amarillo.
+const ZONA_SEMANA = { 1: 'Azul', 2: 'Verde', 3: 'Amarillo', 4: 'Azul', 5: 'Verde', 6: 'Amarillo' };
+export const zonaDelDia = (fechaISO) => ZONA_SEMANA[new Date(`${fechaISO}T12:00:00`).getDay()] || '';
+
+// "Choferes" que en realidad son un cliente/mercado con ruta propia: no se reasignan.
+const MERCADOS = ['VEA', 'PANAMA', 'DEL VALLE', '9 DE JULIO', 'COOPERATIVA'];
+
+const dirTexto = (dep, c) => {
+  const dN = (c.lat - dep.lat) * 111, dE = (c.lon - dep.lon) * 111 * Math.cos(rad(dep.lat));
+  if (Math.hypot(dN, dE) < 1.5) return 'centro';
+  const ang = (Math.atan2(dN, dE) * 180) / Math.PI;           // 0°=este, 90°=norte
+  const pts = ['este', 'noreste', 'norte', 'noroeste', 'oeste', 'suroeste', 'sur', 'sureste'];
+  return pts[Math.round(((ang + 360) % 360) / 45) % 8];
+};
+
+// Zona habitual de cada chofer, aprendida de los romaneos ya cargados.
+// Si hay días de la misma zona-color que el día a simular, se usan esos primero (cada chofer rota por zona según el día).
+export function perfilesChoferes(dias, ubic, dep, fechaObjetivo) {
+  const objetivo = fechaObjetivo ? zonaDelDia(fechaObjetivo) : '';
+  const acc = new Map();
+  Object.entries(dias).forEach(([f, d]) => {
+    const zona = zonaDelDia(f);
+    d.rutas.forEach((r, i) => {
+      const nombre = String(r.chofer || '').trim(); if (!nombre) return;
+      const pts = d.paradas.filter((p) => p[0] === i); if (!pts.length) return;
+      const o = acc.get(nombre) || { nombre, dias: 0, ultimo: '', zonas: {}, locs: {} };
+      o.dias++; if (f > o.ultimo) o.ultimo = f;
+      const z = o.zonas[zona] || (o.zonas[zona] = { n: 0, lat: 0, lon: 0, dias: 0 }); z.dias++;
+      pts.forEach((p) => {
+        z.n++; z.lat += p[4]; z.lon += p[5];
+        const l = (ubic.get(p[2]) || {}).loc || 'SIN LOCALIDAD'; o.locs[l] = (o.locs[l] || 0) + 1;
+      });
+      acc.set(nombre, o);
+    });
+  });
+  return [...acc.values()].map((o) => {
+    const mismaZona = objetivo && o.zonas[objetivo] && o.zonas[objetivo].n ? o.zonas[objetivo] : null;
+    const base = mismaZona || Object.values(o.zonas).reduce((t, z) => ({ n: t.n + z.n, lat: t.lat + z.lat, lon: t.lon + z.lon, dias: t.dias + z.dias }), { n: 0, lat: 0, lon: 0, dias: 0 });
+    const centro = { lat: base.lat / base.n, lon: base.lon / base.n };
+    const loc = Object.entries(o.locs).sort((a, b) => b[1] - a[1])[0][0];
+    const etiqueta = loc === 'TANDIL' ? `Tandil · ${dirTexto(dep, centro)}` : loc;
+    return { nombre: o.nombre, dias: o.dias, ultimo: o.ultimo, centro, locPrincipal: loc, etiqueta, deZonaDelDia: !!mismaZona,
+      mercado: MERCADOS.includes(o.nombre.toUpperCase()) };
+  }).sort((a, b) => b.dias - a.dias);
+}
+
+// Asigna un chofer a cada ruta simulada: el presente cuya zona habitual queda más cerca de la ruta.
+// - ausentes: choferes que no vinieron (no se asignan).
+// - cubre: { choferQueCubre: choferCuyaZonaCubre } — el que cubre toma la zona del otro (p. ej. Nicolás cubre la de Diego).
+// Devuelve un array (uno por ruta) con { chofer, motivo } o { chofer: null }.
+export function asignarChoferes(rutas, perfiles, ausentes = [], cubre = {}) {
+  const aus = new Set(ausentes);
+  const porNombre = new Map(perfiles.map((p) => [p.nombre, p]));
+  const centroRuta = (r) => ({ lat: r.paradas.reduce((s, p) => s + p.lat, 0) / r.paradas.length, lon: r.paradas.reduce((s, p) => s + p.lon, 0) / r.paradas.length });
+  const cands = perfiles.filter((p) => !aus.has(p.nombre) && !p.mercado).map((p) => {
+    const cub = cubre[p.nombre] && porNombre.get(cubre[p.nombre]);
+    return { nombre: p.nombre, centro: cub ? cub.centro : p.centro, cubre: cub ? cub.nombre : null };
+  });
+  const cr = rutas.map(centroRuta);
+  const pares = [];
+  rutas.forEach((_, i) => cands.forEach((c) => pares.push({ i, c, d: haversine(cr[i], c.centro) - (c.cubre ? 1000 : 0) })));
+  pares.sort((a, b) => a.d - b.d);              // los que cubren una zona ajena van primero
+  const out = rutas.map(() => ({ chofer: null, motivo: '' })); const usados = new Set();
+  for (const p of pares) {
+    if (out[p.i].chofer || usados.has(p.c.nombre)) continue;
+    out[p.i] = { chofer: p.c.nombre, motivo: p.c.cubre ? `cubre la zona de ${p.c.cubre}` : 'zona habitual' };
+    usados.add(p.c.nombre);
+  }
+  return out;
+}

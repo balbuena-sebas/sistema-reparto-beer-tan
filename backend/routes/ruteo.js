@@ -159,13 +159,13 @@ const MAX_UBIC_BYTES = 3 * 1024 * 1024;
 router.get('/ubicaciones', async (req, res) => {
   try {
     await ensureSchema();
-    const r = await query(`SELECT version, datos_gz, updated_at FROM sim_estado WHERE clave = 'ubicaciones'`);
+    const r = await query(`SELECT version, datos_gz, updated_at, updated_by FROM sim_estado WHERE clave = 'ubicaciones'`);
     if (!r.rows.length) return res.json({ ok: true, version: 0, data: [] });
     const f = r.rows[0];
     const etag = `"u${f.version}"`;
     if (req.headers['if-none-match'] === etag) return res.status(304).end();
     res.set('ETag', etag);
-    res.json({ ok: true, version: Number(f.version), updatedAt: f.updated_at,
+    res.json({ ok: true, version: Number(f.version), updatedAt: f.updated_at, updatedBy: f.updated_by,
                data: await descomprimirSafe(f.datos_gz, []) });
   } catch (err) {
     console.error('GET /ruteo/ubicaciones:', err.message);
@@ -175,17 +175,24 @@ router.get('/ubicaciones', async (req, res) => {
 
 router.put('/ubicaciones', async (req, res) => {
   try {
-    const items = (req.body || {}).items;
+    // reemplazar=true (maestra nueva): la maestra vieja se descarta y queda solo la nueva.
+    // Sin reemplazar (posiciones aprendidas de un romaneo): se fusiona por código y NO se pisan
+    // el nombre ni la localidad ya conocidos con valores vacíos.
+    const { items, reemplazar } = req.body || {};
     if (!Array.isArray(items) || !items.length || items.length > 30000)
       return res.status(400).json({ ok: false, error: 'Ubicaciones inválidas' });
     await ensureSchema();
-    const prev = await query(`SELECT datos_gz FROM sim_estado WHERE clave = 'ubicaciones'`);
     const mapa = new Map();
-    for (const it of (prev.rows.length ? await descomprimirSafe(prev.rows[0].datos_gz, []) : [])) mapa.set(it[0], it);
+    if (reemplazar !== true) {
+      const prev = await query(`SELECT datos_gz FROM sim_estado WHERE clave = 'ubicaciones'`);
+      for (const it of (prev.rows.length ? await descomprimirSafe(prev.rows[0].datos_gz, []) : [])) mapa.set(it[0], it);
+    }
     for (const it of items) {
       if (!Array.isArray(it) || !Number.isFinite(it[0]) || !Number.isFinite(it[1]) || !Number.isFinite(it[2])) continue;
-      mapa.set(it[0], [it[0], it[1], it[2], String(it[3] || '').slice(0, 60), String(it[4] || '').slice(0, 40)]);
+      const ant = mapa.get(it[0]) || [];
+      mapa.set(it[0], [it[0], it[1], it[2], String(it[3] || ant[3] || '').slice(0, 60), String(it[4] || ant[4] || '').slice(0, 40)]);
     }
+    if (!mapa.size) return res.status(400).json({ ok: false, error: 'Ubicaciones inválidas' });
     const all = [...mapa.values()];
     if (sizeOf(all) > MAX_UBIC_BYTES) return res.status(413).json({ ok: false, error: 'Demasiadas ubicaciones' });
     const gz = await comprimir(all);
@@ -200,6 +207,53 @@ router.put('/ubicaciones', async (req, res) => {
   } catch (err) {
     console.error('PUT /ruteo/ubicaciones:', err.message);
     res.status(500).json({ ok: false, error: 'Error al guardar ubicaciones' });
+  }
+});
+
+// ── Asignación de choferes del día (quién vino y quién cubre qué zona) ──────
+// Fila única y chica: { fecha, ausentes:[nombre], cubre:{ chofer: choferCuyaZonaCubre }, manual:{ clienteAncla: chofer } }
+const MAX_ASIG_BYTES = 40 * 1024;
+router.get('/asignacion', async (req, res) => {
+  try {
+    await ensureSchema();
+    const r = await query(`SELECT version, datos_gz, updated_at, updated_by FROM sim_estado WHERE clave = 'asignacion'`);
+    if (!r.rows.length) return res.json({ ok: true, version: 0, data: null });
+    const f = r.rows[0];
+    res.json({ ok: true, version: Number(f.version), updatedAt: f.updated_at, updatedBy: f.updated_by,
+               data: await descomprimirSafe(f.datos_gz, null) });
+  } catch (err) {
+    console.error('GET /ruteo/asignacion:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al obtener la asignación' });
+  }
+});
+
+router.put('/asignacion', async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!FECHA_RE.test(String(b.fecha || '')) || !Array.isArray(b.ausentes) || typeof b.cubre !== 'object' || b.cubre === null)
+      return res.status(400).json({ ok: false, error: 'Asignación inválida' });
+    const limpio = {
+      fecha: b.fecha,
+      ausentes: b.ausentes.map((x) => String(x).slice(0, 60)).slice(0, 80),
+      cubre: Object.fromEntries(Object.entries(b.cubre).slice(0, 80).map(([k, v]) => [String(k).slice(0, 60), String(v).slice(0, 60)])),
+      // elección manual de chofer por ruta: { códigoDeClienteAncla: chofer }
+      manual: Object.fromEntries(Object.entries(b.manual && typeof b.manual === 'object' ? b.manual : {}).slice(0, 80)
+        .map(([k, v]) => [String(k).slice(0, 20), String(v).slice(0, 60)])),
+    };
+    if (sizeOf(limpio) > MAX_ASIG_BYTES) return res.status(413).json({ ok: false, error: 'Asignación demasiado grande' });
+    await ensureSchema();
+    const gz = await comprimir(limpio);
+    const r = await query(
+      `INSERT INTO sim_estado (clave, version, datos_gz, updated_at, updated_by)
+       VALUES ('asignacion', 1, $1, NOW(), $2)
+       ON CONFLICT (clave) DO UPDATE SET version = sim_estado.version + 1,
+         datos_gz=$1, updated_at=NOW(), updated_by=$2
+       RETURNING version`, [gz, quien(req)]);
+    difundir('asignacion', { version: Number(r.rows[0].version), updatedBy: quien(req) });
+    res.json({ ok: true, version: Number(r.rows[0].version) });
+  } catch (err) {
+    console.error('PUT /ruteo/asignacion:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al guardar la asignación' });
   }
 });
 
@@ -221,5 +275,79 @@ router.get('/stream', (req, res) => {
   }, 25000);
   req.on('close', () => { clearInterval(hb); clientes.delete(res); });
 });
+
+// ── Precios de gasoil en surtidor (Secretaría de Energía, Res. 314/2016) ───────
+// Se descarga el CSV oficial de "vigentes" desde el servidor, se filtra la zona y se
+// guarda en memoria unas horas. Si falla, el front sigue con los precios del Excel.
+const URL_PRECIOS = process.env.PRECIOS_SURTIDOR_URL ||
+  'http://datos.energia.gob.ar/dataset/1c181390-5045-475e-94dc-410429be4b17/resource/80ac25de-a44a-4445-9215-090cf55cfda5/download/precios-en-surtidor-resolucin-3142016.csv';
+const LOCALIDADES_PRECIO = (process.env.PRECIOS_LOCALIDADES || 'TANDIL').split(',').map((x) => x.trim().toUpperCase());
+let cachePrecios = { t: 0, data: null };
+
+function partirCsv(linea) {
+  const out = []; let cur = ''; let q = false;
+  for (let i = 0; i < linea.length; i++) {
+    const c = linea[i];
+    if (q) { if (c === '"') { if (linea[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur); return out;
+}
+const sinTildes = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+
+// Devuelve, por marca, el precio del gasoil (grado 2 y 3) en las localidades pedidas.
+function resumirPrecios(texto) {
+  const lineas = texto.split(/\r?\n/);
+  const cab = partirCsv(lineas[0]).map((h) => sinTildes(h).toLowerCase());
+  const ix = (n) => cab.indexOf(n);
+  const iProd = ix('producto'), iPrecio = ix('precio'), iFecha = ix('fecha_vigencia'), iLoc = ix('localidad'),
+    iBand = ix('empresabandera'), iHor = ix('tipohorario');
+  if ([iProd, iPrecio, iLoc, iBand].some((i) => i < 0)) throw new Error('Columnas inesperadas en el CSV de Energía');
+  const grupos = {};
+  for (let k = 1; k < lineas.length; k++) {
+    if (!lineas[k]) continue;
+    const f = partirCsv(lineas[k]);
+    if (!LOCALIDADES_PRECIO.includes(sinTildes(f[iLoc]))) continue;
+    const prod = sinTildes(f[iProd]);
+    if (!prod.includes('GAS OIL')) continue;
+    if (iHor >= 0 && sinTildes(f[iHor]).includes('NOCT')) continue;      // solo horario diurno
+    const precio = parseFloat(f[iPrecio]); if (!(precio > 0)) continue;
+    const marca = sinTildes(f[iBand]);
+    const grado = prod.includes('GRADO 3') ? 'premium' : 'comun';
+    const fecha = String(f[iFecha] || '').slice(0, 10);
+    ((grupos[marca] = grupos[marca] || {})[grado] = grupos[marca][grado] || []).push({ precio, fecha });
+  }
+  const res = [];
+  for (const [marca, g] of Object.entries(grupos)) {
+    const fila = { marca };
+    for (const grado of ['comun', 'premium']) {
+      const arr = g[grado]; if (!arr) continue;
+      const ps = arr.map((x) => x.precio).sort((a, b) => a - b);
+      fila[grado] = { precio: ps[Math.floor(ps.length / 2)], min: ps[0], max: ps[ps.length - 1], estaciones: ps.length,
+        fecha: arr.map((x) => x.fecha).sort().pop() };
+    }
+    res.push(fila);
+  }
+  return res;
+}
+
+router.get('/combustible', async (req, res) => {
+  try {
+    const forzar = req.query.refrescar === '1';
+    if (!forzar && cachePrecios.data && Date.now() - cachePrecios.t < 6 * 3600 * 1000) return res.json({ data: cachePrecios.data, cache: true });
+    const r = await fetch(URL_PRECIOS, { signal: AbortSignal.timeout(60000) });
+    if (!r.ok) throw new Error(`Energía respondió ${r.status}`);
+    const data = { localidades: LOCALIDADES_PRECIO, marcas: resumirPrecios(await r.text()), obtenido: new Date().toISOString(), fuente: 'Secretaría de Energía · Res. 314/2016' };
+    if (!data.marcas.length) throw new Error('Sin precios de gasoil para la zona');
+    cachePrecios = { t: Date.now(), data };
+    res.json({ data });
+  } catch (e) {
+    if (cachePrecios.data) return res.json({ data: cachePrecios.data, cache: true, aviso: e.message });
+    res.status(502).json({ error: `No se pudo leer el precio oficial: ${e.message}` });
+  }
+});
+router.resumirPrecios = resumirPrecios;
 
 module.exports = router;
