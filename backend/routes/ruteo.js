@@ -415,14 +415,14 @@ async function leerPrecios() {
 router.get('/combustible', async (req, res) => {
   try {
     const forzar = req.query.refrescar === '1';
-    if (!forzar && cachePrecios.data && Date.now() - cachePrecios.t < 6 * 3600 * 1000) return res.json({ data: cachePrecios.data, cache: true });
+    if (!forzar && cachePrecios.data && Date.now() - cachePrecios.t < 6 * 3600 * 1000) return res.json({ ok: true, data: cachePrecios.data, cache: true });
     const data = { ...(await leerPrecios()), obtenido: new Date().toISOString() };
     if (!data.marcas.length) throw new Error('Sin precios de gasoil para la zona');
     cachePrecios = { t: Date.now(), data };
-    res.json({ data });
+    res.json({ ok: true, data });
   } catch (e) {
-    if (cachePrecios.data) return res.json({ data: cachePrecios.data, cache: true, aviso: e.message });
-    res.status(502).json({ error: `No se pudo leer el precio oficial: ${e.message}` });
+    if (cachePrecios.data) return res.json({ ok: true, data: cachePrecios.data, cache: true, aviso: e.message });
+    res.status(502).json({ ok: false, error: `No se pudo leer el precio oficial: ${e.message}` });
   }
 });
 router.resumirPrecios = resumirPrecios;
