@@ -1662,7 +1662,7 @@ export default function App() {
           />
         )}
         {tab === "biolinks" && <TBiolinks />}
-        {tab === "simulacion" && <TSimulacion loggedInUser={loggedInUser} />}
+        {tab === "simulacion" && <TSimulacion loggedInUser={loggedInUser} cfg={cfg} />}
       </Suspense>
       </main>
 

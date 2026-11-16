@@ -480,8 +480,9 @@ export function asignarChoferes(rutas, perfiles, ausentes = [], cubre = {}) {
   const aus = new Set(ausentes);
   const porNombre = new Map(perfiles.map((p) => [p.nombre, p]));
   const centroRuta = (r) => ({ lat: r.paradas.reduce((s, p) => s + p.lat, 0) / r.paradas.length, lon: r.paradas.reduce((s, p) => s + p.lon, 0) / r.paradas.length });
-  const cands = perfiles.filter((p) => !aus.has(p.nombre) && !p.mercado).map((p) => {
+  const cands = perfiles.filter((p) => !aus.has(p.nombre) && !p.mercado && p.centro).map((p) => {
     const cub = cubre[p.nombre] && porNombre.get(cubre[p.nombre]);
+    if (cub && !cub.centro) return { nombre: p.nombre, centro: p.centro, cubre: null };
     return { nombre: p.nombre, centro: cub ? cub.centro : p.centro, cubre: cub ? cub.nombre : null };
   });
   const cr = rutas.map(centroRuta);

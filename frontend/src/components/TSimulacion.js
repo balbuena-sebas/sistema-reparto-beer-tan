@@ -11,6 +11,7 @@ import {
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
+import { motivoNoLaborable } from './diasTrabajados';
 import '../simulacion/simulacion.css';
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -23,9 +24,10 @@ const hhmm = (m) => (m == null ? '—' : `${String(Math.floor(m / 60)).padStart(
 const fechaLarga = (s) => (s ? new Date(s + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }) : '');
 const cap = (s) => String(s || '').toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
 
-function proximoDiaHabil(desde = new Date()) {
-  const d = new Date(desde); d.setDate(d.getDate() + 1);
-  if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+// Próximo día de reparto: salta domingos, feriados nacionales y días cargados como no trabajados en Config.
+function proximoDiaHabil(desde = new Date(), extra = []) {
+  const d = new Date(desde);
+  do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || motivoNoLaborable(iso(d), extra));
   return iso(d);
 }
 const leerArchivo = (file) => new Promise((ok, mal) => {
@@ -60,7 +62,7 @@ function TarjetasMarcas({ litros, km, bultos, clientes, params, onElegir }) {
   );
 }
 
-export function TSimulacion({ loggedInUser }) {
+export function TSimulacion({ loggedInUser, cfg }) {
   const rol = String(loggedInUser?.role || '').toLowerCase();
   const permisos = loggedInUser?.permisos || {};
   const puedeVerRechazos = rol === 'admin' || permisos.rechazos === true;
@@ -86,7 +88,14 @@ export function TSimulacion({ loggedInUser }) {
 
   const [ubicItems, setUbicItems] = useState([]);
   const [pedidos, setPedidos] = useState(null);
-  const [params, setParams] = useState(PARAMS_DEFAULT);
+  // Límites de recarga y de alerta salen de la Configuración de la app (param1/2/3), no de valores fijos.
+  const [params, setParams] = useState(() => ({
+    ...PARAMS_DEFAULT,
+    ...(Number(cfg?.param1) > 0 ? { limiteRecarga2: Number(cfg.param1) } : {}),
+    ...(Number(cfg?.param2) > 0 ? { limiteRecarga3: Number(cfg.param2) } : {}),
+    ...(Number(cfg?.param3) > 0 ? { maxConRecarga: Number(cfg.param3) } : {}),
+  }));
+  const diasNoTrab = cfg?.diasNoTrabajados;
   const [factorCal, setFactorCal] = useState(null);
   const [rutaSel, setRutaSel] = useState(null);
   const [diaRuteado, setDiaRuteado] = useState(null);     // romaneo del día de entrega de los pedidos (si ya está cargado)
@@ -149,7 +158,7 @@ export function TSimulacion({ loggedInUser }) {
       const pm = {}, fm = {};
       r.data.marcas.forEach((m) => {
         const g = m.comun || m.premium; if (!g) return;
-        const nombre = /SHELL/.test(m.marca) ? 'Shell' : /AXION/.test(m.marca) ? 'Axion' : /YPF/.test(m.marca) ? 'YPF' : null;
+        const nombre = /SHELL/.test(m.marca) ? 'Shell' : /AXION/.test(m.marca) ? 'Axion' : /YPF/.test(m.marca) ? 'YPF' : /PUMA/.test(m.marca) ? 'Puma' : null;
         if (!nombre) return;
         pm[nombre] = Math.round(g.precio);
         const [y, mo, d] = g.fecha.split('-');
@@ -226,7 +235,15 @@ export function TSimulacion({ loggedInUser }) {
   }, [pedidos, ubic, params]);
 
   const haceDias = (f, n) => { if (!f) return ''; const d = new Date(`${f}T12:00:00`); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
-  const perfiles = useMemo(() => perfilesChoferes(hist, ubic, params.deposito, fechaPedidos), [hist, ubic, params.deposito, fechaPedidos]);
+  // Choferes: los del historial de romaneos (con su zona) + los cargados en Config que todavía no tienen historial.
+  const perfiles = useMemo(() => {
+    const base = perfilesChoferes(hist, ubic, params.deposito, fechaPedidos);
+    const norm = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const conocidos = new Set(base.map((p) => norm(p.nombre)));
+    const deConfig = (cfg?.choferes || []).filter((n) => !conocidos.has(norm(n)))
+      .map((n) => ({ nombre: String(n).replace(/\s+/g, ' ').trim(), dias: 0, ultimo: '', etiqueta: 'sin historial de romaneo (Config)', deZonaDelDia: false, mercado: false, soloConfig: true }));
+    return [...base, ...deConfig];
+  }, [hist, ubic, params.deposito, fechaPedidos, cfg]);
   const claveAncla = (r) => String(Math.min(...r.paradas.map((p) => p.c)));
   // Chofer por ruta: lo elegido a mano manda; el resto se asigna por zona habitual (sin repetir choferes).
   const choferesRutas = useMemo(() => {
@@ -358,7 +375,10 @@ export function TSimulacion({ loggedInUser }) {
   const elegirVista = (k) => { setVista(k); if (mapRef.current) cambiarVista(mapRef.current, k, redibujar); };
 
   // ── Pedidos ──────────────────────────────────────────────────────────────
-  const subirPedidos = async (file, fechaEntrega) => {
+  const subirPedidos = async (file, fechaEntrega, sumar = false) => {
+    const previo0 = pedidos?.data;
+    if (!sumar && previo0 && previo0.fechaEntrega === fechaEntrega && previo0.clientes?.length &&
+        !window.confirm(`Ya hay ${previo0.clientes.length} clientes cargados para ese día (${previo0.archivo}).\n\n¿Reemplazarlos por este archivo?\nSi es el otro archivo del mismo día (por ejemplo Las Flores), cancelá y usá «Sumar otro archivo».`)) return;
     setOcupado(true);
     try {
       const wb = XLSX.read(await leerArchivo(file), { type: 'array' });
@@ -368,10 +388,22 @@ export function TSimulacion({ loggedInUser }) {
       const snap = previo ? previo.clientes.map((c) => [c.c, c.b, c.n]) : null;
       const anterior = previo ? { archivo: previo.archivo, cargadoEn: pedidos.updatedAt, clientes: snap } : null;
       // "base" = primera carga del día de entrega: permite saber qué pedidos ya se ruteó y salieron de la lista
-      const base = previo && previo.fechaEntrega === fechaEntrega ? (previo.base || snap) : null;
+      let base = previo && previo.fechaEntrega === fechaEntrega ? (previo.base || snap) : null;
+      let clientes = ped.clientes, archivo = file.name;
+      if (sumar && previo && previo.fechaEntrega === fechaEntrega) {
+        // Se suma al día ya cargado: por código de cliente, lo del archivo nuevo pisa al mismo cliente (no duplica).
+        const m = new Map(previo.clientes.map((c) => [c.c, c]));
+        ped.clientes.forEach((c) => m.set(c.c, c));
+        clientes = [...m.values()];
+        archivo = `${previo.archivo} + ${file.name}`.slice(0, 200);
+        const bm = new Map((base || snap || []).map((r) => [r[0], r]));
+        ped.clientes.forEach((c) => bm.set(c.c, [c.c, c.b, c.n]));
+        base = [...bm.values()];
+      } else if (sumar) { throw new Error('Para sumar, la fecha de entrega tiene que ser la de los pedidos ya cargados.'); }
       await apiFetch('/api/ruteo/pedidos', { method: 'PUT', headers: hdr,
-        body: JSON.stringify({ archivo: file.name, fechaEntrega, clientes: ped.clientes, anterior, base }) });
-      aviso(`Pedidos cargados: ${ped.total.clientes} clientes, ${f0(ped.total.bultos)} bultos. Todos los usuarios con acceso lo ven al instante.`);
+        body: JSON.stringify({ archivo, fechaEntrega, clientes, anterior, base }) });
+      const totB = clientes.reduce((s, c) => s + c.b, 0);
+      aviso(`${sumar ? 'Sumado' : 'Pedidos cargados'}: ${sumar ? `${ped.total.clientes} clientes de ${file.name}. Total del día: ` : ''}${clientes.length} clientes, ${f0(totB)} bultos. Todos los usuarios con acceso lo ven al instante.`);
       await cargarPedidos();
     } catch (e) { aviso(e.message, 'err'); }
     setOcupado(false);
@@ -388,7 +420,8 @@ export function TSimulacion({ loggedInUser }) {
   const mover = (dm) => setCursor((c) => { const d = new Date(c.y, c.m + dm, 1); return { y: d.getFullYear(), m: d.getMonth() }; });
   const hoyISO = iso(new Date());
 
-  const [fechaNueva, setFechaNueva] = useState(proximoDiaHabil());
+  const [fechaNueva, setFechaNueva] = useState(() => proximoDiaHabil(new Date(), cfg?.diasNoTrabajados));
+  const refPed2 = useRef(null);
   const refPed = useRef(null);
 
   const resumenDia = diaDatos && {
@@ -439,17 +472,17 @@ export function TSimulacion({ loggedInUser }) {
               {DOW.map((d, i) => <div key={i} className="dow">{d}</div>)}
               {celdas.map((f, i) => {
                 if (!f) return <div key={i} className="sim-day out" />;
-                const x = mapaLista.get(f); const esPed = fechaPedidos === f;
+                const x = mapaLista.get(f); const esPed = fechaPedidos === f; const noLab = motivoNoLaborable(f, diasNoTrab);
                 const clic = () => { if (x) { setModo('calendario'); cargarDia(f); } else if (esPed) setModo('simulacion'); };
                 return (
-                  <button key={f} className={`sim-day ${x ? 'has' : ''} ${esPed ? 'ped' : ''} ${diaSel === f && modo === 'calendario' ? 'sel' : ''} ${f === hoyISO ? 'hoy' : ''}`}
-                    onClick={clic} disabled={!x && !esPed} title={x ? `${x.paradas} paradas · ${f0(x.bultos)} bultos` : esPed ? 'Pedidos cargados para este día' : ''}>
+                  <button key={f} className={`sim-day ${x ? 'has' : ''} ${noLab ? 'fer' : ''} ${esPed ? 'ped' : ''} ${diaSel === f && modo === 'calendario' ? 'sel' : ''} ${f === hoyISO ? 'hoy' : ''}`}
+                    onClick={clic} disabled={!x && !esPed} title={`${noLab ? `${noLab} · ` : ''}${x ? `${x.paradas} paradas · ${f0(x.bultos)} bultos` : esPed ? 'Pedidos cargados para este día' : ''}`}>
                     {Number(f.slice(8))}{x && <small>{x.paradas}</small>}
                   </button>
                 );
               })}
             </div>
-            <div className="sim-sub" style={{ marginTop: 8 }}>Azul = día con romaneo (número = paradas) · 📦 = pedidos cargados</div>
+            <div className="sim-sub" style={{ marginTop: 8 }}>Azul = día con romaneo (número = paradas) · 📦 = pedidos cargados · Rojo = feriado o día no trabajado (Config)</div>
           </div>
 
           <div className="sim-card">
@@ -461,6 +494,10 @@ export function TSimulacion({ loggedInUser }) {
               <input ref={refPed} type="file" accept=".xlsx,.xls,.csv" hidden
                 onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva); }} />
               <button className="sim-btn pri" disabled={ocupado} onClick={() => refPed.current.click()}>📦 Subir pedidos (Excel)</button>
+              <input ref={refPed2} type="file" accept=".xlsx,.xls,.csv" hidden
+                onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva, true); }} />
+              <button className="sim-btn" disabled={ocupado || !pedidos?.data} onClick={() => refPed2.current.click()}
+                title="Para el segundo archivo del mismo día (ej. Tandil y zona + Las Flores y zona): se suma sin borrar lo anterior">➕ Sumar otro archivo (mismo día)</button>
               <div className="sim-sub">
                 {pedidos?.data ? <>Vigente: <b>{pedidos.data.archivo}</b> para el <b>{fechaLarga(pedidos.data.fechaEntrega)}</b>
                   {pedidos.updatedBy ? <> · cargó {decodeURIComponent(pedidos.updatedBy)}</> : null}
@@ -565,7 +602,7 @@ export function TSimulacion({ loggedInUser }) {
                 <div className="sim-card">
                   <h3>👷 Choferes del día{fechaPedidos ? ` · zona del ${zonaDelDia(fechaPedidos) || '—'}` : ''}</h3>
                   <div className="sim-sub" style={{ marginBottom: 6 }}>Cada chofer sale por su zona habitual (aprendida del historial). Si alguien no vino, destildalo y elegí quién cubre su zona. Se comparte en vivo con los demás.</div>
-                  {perfiles.filter((p) => !p.mercado).slice(0, 10).map((p) => {
+                  {perfiles.filter((p) => !p.mercado).slice(0, 16).map((p) => {
                     const falta = ausentes.includes(p.nombre);
                     return (
                       <div key={p.nombre} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '4px 0' }}>

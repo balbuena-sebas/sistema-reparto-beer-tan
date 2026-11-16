@@ -18,6 +18,14 @@ const FERIADOS_AR = new Set([
   '2026-11-20','2026-12-08','2026-12-25',
 ]);
 
+// ¿Es feriado nacional, o un día cargado como no trabajado en Config? (extra: [{fecha, motivo}] o ['YYYY-MM-DD'])
+export function motivoNoLaborable(isoFecha, extra = []) {
+  if (FERIADOS_AR.has(isoFecha)) return 'Feriado nacional';
+  const x = (extra || []).find((d) => (typeof d === 'string' ? d : d && d.fecha) === isoFecha);
+  if (x) return (typeof x === 'string' ? '' : x.motivo) || 'Día no trabajado (Config)';
+  return '';
+}
+
 export function calcDiasTrabajados(desde, hasta, diasExtra = []) {
   // desde/hasta: 'YYYY-MM-DD'
   if (!desde || !hasta) return null;

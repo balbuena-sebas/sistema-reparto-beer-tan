@@ -25,6 +25,8 @@
 .sim-day.ped { cursor: pointer; border-color: var(--accent, #b87c00); }
 .sim-day.hoy { outline: 2px solid var(--accent, #b87c00); outline-offset: -2px; }
 .sim-day.out { visibility: hidden; }
+.sim-day.fer { background: #fde8e8; color: #a12020; border-color: #f0b4b4; }
+.sim-day.fer.has { background: #f9d6d6; }
 .sim-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
 .sim-kpi { background: var(--bg3, #f5f7fc); border: 1px solid var(--border, #cdd4e4); border-radius: 10px; padding: 10px 12px; }
 .sim-kpi b { display: block; font-size: 18px; white-space: nowrap; font-family: var(--font-mono, monospace); }

@@ -343,13 +343,45 @@ function resumirPrecios(texto) {
   return res;
 }
 
+// Fuente principal: API pública y gratuita de naftas.com.ar (datos de la Secretaría de Energía ya
+// depurados, con YPF/Shell/Axion/Puma por ciudad y fecha de vigencia). Sin clave.
+const URL_NAFTAS = process.env.NAFTAS_API_URL || 'https://naftas.com.ar/api/fuel';
+const CIUDAD_PRECIO = (process.env.PRECIOS_CIUDAD || 'TANDIL').toUpperCase();
+const PREMIUM = /(INFINIA|V-?POWER|QUANTIUM|(^|\s)ION\s|ULTRA|(^|\s)MAX\s|PREMIUM)/i;
+function resumirNaftas(json) {
+  const ciudad = json && (json[CIUDAD_PRECIO] || Object.values(json)[0]);
+  if (!ciudad || !ciudad.empresas) throw new Error('Respuesta inesperada de naftas.com.ar');
+  const marcas = [];
+  for (const [empresa, prods] of Object.entries(ciudad.empresas)) {
+    const comunes = Object.entries(prods).filter(([n]) => /DIESEL|GASOIL/i.test(n) && !PREMIUM.test(n) && !/GNC/i.test(n));
+    if (!comunes.length) continue;
+    const [nombre, d] = comunes.sort((a, b) => a[1].precio - b[1].precio)[0];
+    if (!(d.precio > 0)) continue;
+    marcas.push({ marca: empresa.toUpperCase(), comun: { precio: d.precio, min: d.precio, max: d.precio, estaciones: 1, origen: 'Tandil',
+      fecha: String(d.fecha_vigencia || '').slice(0, 10), producto: nombre } });
+  }
+  return marcas;
+}
+router.resumirNaftas = resumirNaftas;
+
+async function leerPrecios() {
+  try {
+    const r = await fetch(`${URL_NAFTAS}?city=${encodeURIComponent(CIUDAD_PRECIO)}`, { signal: AbortSignal.timeout(20000), headers: { accept: 'application/json' } });
+    if (!r.ok) throw new Error(`naftas.com.ar respondió ${r.status}`);
+    const marcas = resumirNaftas(await r.json());
+    if (marcas.length) return { localidades: [CIUDAD_PRECIO], marcas, fuente: 'naftas.com.ar (datos de la Secretaría de Energía)' };
+  } catch (e) { console.error('precios naftas.com.ar:', e.message); }
+  // Respaldo: CSV oficial de Energía
+  const r = await fetch(URL_PRECIOS, { signal: AbortSignal.timeout(60000) });
+  if (!r.ok) throw new Error(`Energía respondió ${r.status}`);
+  return { localidades: LOCALIDADES_PRECIO, zona: LOCALIDADES_ZONA, marcas: resumirPrecios(await r.text()), fuente: 'Secretaría de Energía · Res. 314/2016' };
+}
+
 router.get('/combustible', async (req, res) => {
   try {
     const forzar = req.query.refrescar === '1';
     if (!forzar && cachePrecios.data && Date.now() - cachePrecios.t < 6 * 3600 * 1000) return res.json({ data: cachePrecios.data, cache: true });
-    const r = await fetch(URL_PRECIOS, { signal: AbortSignal.timeout(60000) });
-    if (!r.ok) throw new Error(`Energía respondió ${r.status}`);
-    const data = { localidades: LOCALIDADES_PRECIO, zona: LOCALIDADES_ZONA, marcas: resumirPrecios(await r.text()), obtenido: new Date().toISOString(), fuente: 'Secretaría de Energía · Res. 314/2016' };
+    const data = { ...(await leerPrecios()), obtenido: new Date().toISOString() };
     if (!data.marcas.length) throw new Error('Sin precios de gasoil para la zona');
     cachePrecios = { t: Date.now(), data };
     res.json({ data });
