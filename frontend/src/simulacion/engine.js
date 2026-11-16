@@ -63,7 +63,7 @@ export function parseRomaneo(rows) {
       ri = d.rutas.length; d._idx[rid] = ri;
       d.rutas.push({
         id: rid, veh: String(r['Matrícula del vehículo'] || r['Transportista'] || ''),
-        chofer: String(r['Conductor'] || ''), km: num(r['Distancia (km)']),
+        chofer: String(r['Conductor'] || '').replace(/\uFFFD/g, 'ñ'), km: num(r['Distancia (km)']),
         bultos: num(r['Total de Itens']), pallets: num(r['Capacidad utilizada']),
         kg: num(r['Peso utilizado']), cap: num(r['Capacidad del vehículo']),
         entregas: num(r['Cantidad de entregas']),
@@ -438,7 +438,7 @@ export function perfilesChoferes(dias, ubic, dep, fechaObjetivo) {
     const loc = Object.entries(o.locs).sort((a, b) => b[1] - a[1])[0][0];
     const etiqueta = loc === 'TANDIL' ? `Tandil · ${dirTexto(dep, centro)}` : loc;
     return { nombre: o.nombre, dias: o.dias, ultimo: o.ultimo, centro, locPrincipal: loc, etiqueta, deZonaDelDia: !!mismaZona,
-      mercado: MERCADOS.includes(o.nombre.toUpperCase()) };
+      mercado: MERCADOS.includes(o.nombre.toUpperCase()) || /^CAMION /i.test(o.nombre) };  // mercados y camiones de terceros no son choferes propios
   }).sort((a, b) => b.dias - a.dias);
 }
 

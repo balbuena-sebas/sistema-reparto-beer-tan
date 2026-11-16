@@ -153,7 +153,7 @@ export function TSimulacion({ loggedInUser }) {
         if (!nombre) return;
         pm[nombre] = Math.round(g.precio);
         const [y, mo, d] = g.fecha.split('-');
-        fm[nombre] = `${d}/${mo}/${y.slice(2)} · Tandil oficial${g.estaciones > 1 ? ` (${g.estaciones} estaciones)` : ''}`;
+        fm[nombre] = `${d}/${mo}/${y.slice(2)} · ${g.origen === 'zona' ? 'zona' : 'Tandil'} oficial${g.estaciones > 1 ? ` (${g.estaciones} estaciones)` : ''}`;
       });
       if (!Object.keys(pm).length) return;
       setParams((p) => {

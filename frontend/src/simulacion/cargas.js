@@ -13,9 +13,11 @@ export async function cargarRomaneos(files, hdr, progreso = () => {}) {
   let nDias = 0; const ubic = new Map();
   for (const file of files) {
     progreso(`Leyendo ${file.name}…`); await cede();
-    const wb = XLSX.read(await leer(file), { type: 'array', sheets: ['Romaneiro'] });
-    if (!wb.Sheets.Romaneiro) throw new Error(`${file.name}: no tiene la hoja "Romaneiro".`);
-    const dias = parseRomaneo(XLSX.utils.sheet_to_json(wb.Sheets.Romaneiro));
+    // Sirve el Excel del ruteador (hoja "Romaneiro") o el Excel de entrega diaria (hoja "Datos", con todos los días juntos).
+    const wb = XLSX.read(await leer(file), { type: 'array', sheets: ['Romaneiro', 'Datos'] });
+    const hoja = wb.Sheets.Romaneiro || wb.Sheets.Datos;
+    if (!hoja) throw new Error(`${file.name}: no tiene la hoja "Romaneiro" ni la hoja "Datos".`);
+    const dias = parseRomaneo(XLSX.utils.sheet_to_json(hoja));
     if (!Object.keys(dias).length) throw new Error(`${file.name}: no encontré entregas con coordenadas.`);
     for (const d of Object.values(dias)) {
       progreso(`Guardando ${d.fecha}…`);

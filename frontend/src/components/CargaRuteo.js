@@ -30,7 +30,7 @@ export const CargaRuteo = ({ loggedInUser }) => {
     <div style={caja}>
       <div style={{ fontSize: 13, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--text3)', marginBottom: 6 }}>🧭 Ruteo (para la pestaña Simulación)</div>
       <div style={{ fontSize: 13, color: 'var(--text3)', marginBottom: 12, lineHeight: 1.6 }}>
-        Subí el <b>Excel de planificación del ruteador</b> (hoja Romaneiro; podés elegir varios días a la vez) y la <b>maestra de clientes</b> con coordenadas.
+        Subí el <b>Excel de planificación del ruteador</b> (hoja Romaneiro) o tu <b>Excel de entrega diaria</b> (hoja Datos, carga todos los días juntos); podés elegir varios archivos a la vez y la <b>maestra de clientes</b> con coordenadas.
         La maestra queda guardada y se usa siempre; solo se reemplaza cuando subís una nueva (la nueva pisa a la vieja).
         Los pedidos del día siguiente se suben en la pestaña Simulación. Los rechazos que ya cargás acá se cruzan solos con el romaneo.
       </div>

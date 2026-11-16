@@ -282,6 +282,8 @@ router.get('/stream', (req, res) => {
 const URL_PRECIOS = process.env.PRECIOS_SURTIDOR_URL ||
   'http://datos.energia.gob.ar/dataset/1c181390-5045-475e-94dc-410429be4b17/resource/80ac25de-a44a-4445-9215-090cf55cfda5/download/precios-en-surtidor-resolucin-3142016.csv';
 const LOCALIDADES_PRECIO = (process.env.PRECIOS_LOCALIDADES || 'TANDIL').split(',').map((x) => x.trim().toUpperCase());
+// Si una marca no declaró precio reciente en Tandil se usa la zona (igual que la hoja PreciosSE del Excel).
+const LOCALIDADES_ZONA = (process.env.PRECIOS_ZONA || 'AZUL,OLAVARRIA,BENITO JUAREZ,RAUCH,LAS FLORES,AYACUCHO,BALCARCE,NECOCHEA,TRES ARROYOS,LOBERIA').split(',').map((x) => x.trim().toUpperCase());
 let cachePrecios = { t: 0, data: null };
 
 function partirCsv(linea) {
@@ -309,7 +311,9 @@ function resumirPrecios(texto) {
   for (let k = 1; k < lineas.length; k++) {
     if (!lineas[k]) continue;
     const f = partirCsv(lineas[k]);
-    if (!LOCALIDADES_PRECIO.includes(sinTildes(f[iLoc]))) continue;
+    const loc = sinTildes(f[iLoc]);
+    const local = LOCALIDADES_PRECIO.includes(loc);
+    if (!local && !LOCALIDADES_ZONA.includes(loc)) continue;
     const prod = sinTildes(f[iProd]);
     if (!prod.includes('GAS OIL')) continue;
     if (iHor >= 0 && sinTildes(f[iHor]).includes('NOCT')) continue;      // solo horario diurno
@@ -317,15 +321,21 @@ function resumirPrecios(texto) {
     const marca = sinTildes(f[iBand]);
     const grado = prod.includes('GRADO 3') ? 'premium' : 'comun';
     const fecha = String(f[iFecha] || '').slice(0, 10);
-    ((grupos[marca] = grupos[marca] || {})[grado] = grupos[marca][grado] || []).push({ precio, fecha });
+    ((grupos[marca] = grupos[marca] || {})[grado] = grupos[marca][grado] || []).push({ precio, fecha, local });
   }
   const res = [];
   for (const [marca, g] of Object.entries(grupos)) {
     const fila = { marca };
     for (const grado of ['comun', 'premium']) {
-      const arr = g[grado]; if (!arr) continue;
+      const todos = g[grado]; if (!todos) continue;
+      const ult = (a) => a.map((x) => x.fecha).sort().pop() || '';
+      const loc = todos.filter((x) => x.local), zona = todos.filter((x) => !x.local);
+      // Tandil si declaró hace poco (≤21 días de diferencia con la zona); si no, la zona.
+      const dias = (a, b) => (new Date(a) - new Date(b)) / 864e5;
+      const usaLocal = loc.length && (!zona.length || dias(ult(zona), ult(loc)) <= 21);
+      const arr = usaLocal ? loc : zona;
       const ps = arr.map((x) => x.precio).sort((a, b) => a - b);
-      fila[grado] = { precio: ps[Math.floor(ps.length / 2)], min: ps[0], max: ps[ps.length - 1], estaciones: ps.length,
+      fila[grado] = { precio: ps[Math.floor(ps.length / 2)], min: ps[0], max: ps[ps.length - 1], estaciones: ps.length, origen: usaLocal ? 'Tandil' : 'zona',
         fecha: arr.map((x) => x.fecha).sort().pop() };
     }
     res.push(fila);
@@ -339,7 +349,7 @@ router.get('/combustible', async (req, res) => {
     if (!forzar && cachePrecios.data && Date.now() - cachePrecios.t < 6 * 3600 * 1000) return res.json({ data: cachePrecios.data, cache: true });
     const r = await fetch(URL_PRECIOS, { signal: AbortSignal.timeout(60000) });
     if (!r.ok) throw new Error(`Energía respondió ${r.status}`);
-    const data = { localidades: LOCALIDADES_PRECIO, marcas: resumirPrecios(await r.text()), obtenido: new Date().toISOString(), fuente: 'Secretaría de Energía · Res. 314/2016' };
+    const data = { localidades: LOCALIDADES_PRECIO, zona: LOCALIDADES_ZONA, marcas: resumirPrecios(await r.text()), obtenido: new Date().toISOString(), fuente: 'Secretaría de Energía · Res. 314/2016' };
     if (!data.marcas.length) throw new Error('Sin precios de gasoil para la zona');
     cachePrecios = { t: Date.now(), data };
     res.json({ data });
