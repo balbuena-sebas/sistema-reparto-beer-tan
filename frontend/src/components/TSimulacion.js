@@ -8,6 +8,7 @@ import {
   PARAMS_DEFAULT, parsePedidos, construirUbicaciones, calibrarFactor, diffPedidos,
   indexarRechazos, cruzarRechazos, resumenRuteados, costearRuta, comparativaMarcas, resumenPorLocalidad,
   perfilesChoferes, asignarChoferes, zonaDelDia, simularConTope,
+  planDesde, planMover, planJuntar, planPartir, planOrdenar, planOrdenAuto, aplicarPlan,
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
@@ -107,6 +108,9 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const asigFn = useRef(null);
   const [datosPrecios, setDatosPrecios] = useState(null);     // respuesta cruda de /combustible (común y premium por marca)
   const [gradoGasoil, setGradoGasoil] = useState('comun');     // 'comun' (Grado 2) o 'premium' (Infinia / V-Power / Quantium)
+  const [plan, setPlan] = useState(null);                         // reparto editado a mano (null = automático)
+  const [selCli, setSelCli] = useState([]);                       // clientes marcados para mover
+  const [abierto, setAbierto] = useState(null);                   // camión con la lista de clientes abierta
   const [camionesLoc, setCamionesLoc] = useState({});            // { LOCALIDAD: n } camiones fijados a mano
   const [excluidas, setExcluidas] = useState([]);              // localidades que NO salen el día de entrega
   const [precioInfo, setPrecioInfo] = useState({ estado: 'cargando' });   // de dónde salen los precios del gasoil
@@ -200,20 +204,20 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
       const r = await apiFetch('/api/ruteo/asignacion'); const d = r.data;
       if (asigPend.current.enviando) return;
       const ok = d && d.fecha === fechaPedidos;
-      const a = ok ? d.ausentes || [] : [], c = ok ? d.cubre || {} : {}, m = ok ? d.manual || {} : {}, ex = ok ? d.excluidas || [] : [], cl = ok ? d.camionesLoc || {} : {};
-      const k = JSON.stringify([a, c, m, ex, cl]);
-      if (k !== asigVer.current) { asigVer.current = k; setAusentes(a); setCubre(c); setManual(m); setExcluidas(ex); setCamionesLoc(cl); }
+      const a = ok ? d.ausentes || [] : [], c = ok ? d.cubre || {} : {}, m = ok ? d.manual || {} : {}, ex = ok ? d.excluidas || [] : [], cl = ok ? d.camionesLoc || {} : {}, pl = ok ? d.plan || null : null;
+      const k = JSON.stringify([a, c, m, ex, cl, pl]);
+      if (k !== asigVer.current) { asigVer.current = k; setAusentes(a); setCubre(c); setManual(m); setExcluidas(ex); setCamionesLoc(cl); setPlan(pl); }
     } catch { /* se reintenta con el próximo evento */ }
   }, [fechaPedidos]);
   asigFn.current = cargarAsig;
   useEffect(() => { cargarAsig(); }, [cargarAsig]);
-  const guardarAsig = async (a, c, m, ex = excluidas, cl = camionesLoc) => {
-    setAusentes(a); setCubre(c); setManual(m); setExcluidas(ex); setCamionesLoc(cl);
-    asigVer.current = JSON.stringify([a, c, m, ex, cl]);
+  const guardarAsig = async (a, c, m, ex = excluidas, cl = camionesLoc, pl = plan) => {
+    setAusentes(a); setCubre(c); setManual(m); setExcluidas(ex); setCamionesLoc(cl); setPlan(pl);
+    asigVer.current = JSON.stringify([a, c, m, ex, cl, pl]);
     if (!fechaPedidos) return;
     // Los guardados salen de a uno y siempre con lo último elegido, para que no lleguen desordenados al servidor.
     const A = asigPend.current;
-    A.ultimo = JSON.stringify({ fecha: fechaPedidos, ausentes: a, cubre: c, manual: m, excluidas: ex, camionesLoc: cl });
+    A.ultimo = JSON.stringify({ fecha: fechaPedidos, ausentes: a, cubre: c, manual: m, excluidas: ex, camionesLoc: cl, plan: pl });
     if (A.enviando) return;
     A.enviando = true;
     try {
@@ -276,10 +280,12 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     const todos = pedidos?.data?.clientes || [];
     return { salen: todos.filter((c) => !ex.has(locDe(c.c))), quedan: todos.filter((c) => ex.has(locDe(c.c))) };
   }, [pedidos, ubic, excluidas]);  // eslint-disable-line react-hooks/exhaustive-deps
-  const simBase = useMemo(() => {
+  const simAuto = useMemo(() => {
     if (!pedidosSalen.salen.length) return null;
     return simularConTope({ clientes: pedidosSalen.salen }, ubic, { ...params, camionesPorLoc: camionesLoc });
   }, [pedidosSalen, ubic, params, camionesLoc]);
+  // Con reparto editado a mano manda el plan; si no, la propuesta del motor.
+  const simBase = useMemo(() => (simAuto && plan ? aplicarPlan(simAuto, plan, params) : simAuto), [simAuto, plan, params]);
 
   const haceDias = (f, n) => { if (!f) return ''; const d = new Date(`${f}T12:00:00`); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
   // Choferes: los del historial de romaneos (con su zona) + los cargados en Config que todavía no tienen historial.
@@ -327,7 +333,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     const aus = new Set([...ausAuto.keys(), ...ausentes.map(normN)]);
     return [...todos.keys()].filter((k) => !aus.has(k)).length;
   }, [cfg, ausAuto, ausentes]);
-  const claveAncla = (r) => String(Math.min(...r.paradas.map((p) => p.c)));
+  const claveAncla = (r) => (r.planId ? `p${r.planId}` : String(Math.min(...r.paradas.map((p) => p.c))));
   // Chofer por ruta: lo elegido a mano manda; el resto se asigna por zona habitual (sin repetir choferes).
   const choferesRutas = useMemo(() => {
     if (!simBase) return [];
@@ -572,6 +578,110 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           </div>
         )}
       </div>
+  );
+
+
+  // ── Edición manual del reparto (sobre la propuesta del motor) ─────────────
+  const guardarPlan = (pl) => guardarAsig(ausentes, cubre, manual, excluidas, camionesLoc, pl);
+  const moverA = (cods, v) => {
+    if (!v || !plan || !cods.length) return;
+    guardarPlan(planMover(plan, cods, v === 'nuevo' || v === 'pend' ? v : Number(v)));
+    setSelCli((s) => s.filter((c) => !cods.includes(c)));
+  };
+  const opcionesDestino = (idExcluir) => (
+    <>
+      {sim && sim.rutas.filter((x) => x.planId !== idExcluir).map((x) => <option key={x.planId} value={x.planId}>Camión #{x.n} · {x.localidades.map(cap).join(' + ')}</option>)}
+      <option value="nuevo">➕ Camión nuevo</option>
+      <option value="pend">📅 Otro día</option>
+    </>
+  );
+  const tarjetaEditar = sim && (
+    <div className="sim-card">
+      <h3>✏️ Editar el reparto</h3>
+      {!plan ? (
+        <>
+          <div className="sim-sub" style={{ marginBottom: 8 }}>El motor ya armó la propuesta de arriba. Si querés cambiar cómo sale — mover una localidad o clientes sueltos a otro camión, juntar o partir camiones, fijar el orden de las paradas —
+            tocá <b>Editar esta propuesta</b>: queda fija y todo se recalcula (km, combustible, personas, recarga). Los clientes nuevos que entren con otra carga de pedidos se suman solos al camión más cercano. Se comparte en vivo.</div>
+          <button className="sim-btn" onClick={() => guardarPlan(planDesde(simAuto))}>✏️ Editar esta propuesta</button>
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+            <span className="sim-sub">Estás editando el reparto a mano: el motor ya no lo recalcula (los camiones por localidad de arriba no aplican). Todo cambio se comparte en vivo.</span>
+            <button className="sim-btn" onClick={() => { if (window.confirm('Se descartan tus cambios y vuelve la propuesta automática del motor. ¿Seguro?')) { setSelCli([]); setAbierto(null); guardarPlan(null); } }}>↩ Volver al reparto automático</button>
+          </div>
+          {sim.agregados > 0 && <div className="sim-warn" style={{ marginBottom: 8 }}>Entraron {sim.agregados} clientes nuevos desde que editaste: se sumaron al camión más cercano. Revisalos.</div>}
+          {sim.tope && sim.tope.faltan > 0 && <div className="sim-warn" style={{ marginBottom: 8 }}>Tu reparto usa {sim.rutas.length} camiones y tenés {sim.tope.max} disponibles.</div>}
+          {selCli.length > 0 && (
+            <div className="sim-row" style={{ marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+              <b>{selCli.length} clientes marcados</b>
+              <select value="" onChange={(e) => moverA(selCli, e.target.value)}><option value="">Mover marcados a…</option>{opcionesDestino(null)}</select>
+              <button className="sim-btn" onClick={() => setSelCli([])}>Desmarcar</button>
+            </div>
+          )}
+          {sim.rutas.map((r, i) => {
+            const porLoc = new Map();
+            r.paradas.forEach((p) => { const l = p.loc || 'SIN LOCALIDAD'; const o = porLoc.get(l) || { loc: l, cods: [], b: 0 }; o.cods.push(p.c); o.b += p.b; porLoc.set(l, o); });
+            const ch = choferesRutas[i] && choferesRutas[i].chofer;
+            return (
+              <div key={r.planId} style={{ border: '1px solid var(--border, #cdd4e4)', borderRadius: 10, padding: 10, marginBottom: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className="sim-chip" style={{ background: COLORES[i % COLORES.length] }} />
+                  <b>Camión #{r.n}</b>
+                  <span className="sim-sub">{ch || 'sin chofer'} · {r.paradas.length} paradas · {f0(r.bultos)} bultos · ocupación {f0(r.ocupacion * 100)} %</span>
+                  {r.ocupacion > 1 && <span className="sim-warn" style={{ padding: '1px 6px' }}>⚠ pasa la capacidad</span>}
+                  <select value="" onChange={(e) => { if (e.target.value) guardarPlan(planJuntar(plan, r.planId, Number(e.target.value))); }}>
+                    <option value="">Juntar con…</option>
+                    {sim.rutas.filter((x) => x.planId !== r.planId).map((x) => <option key={x.planId} value={x.planId}>Camión #{x.n}</option>)}
+                  </select>
+                  <button className="sim-btn" disabled={r.paradas.length < 2} onClick={() => guardarPlan(planPartir(plan, r.planId, r, params.deposito))}>✂️ Partir en 2</button>
+                  <button className="sim-btn" onClick={() => setAbierto(abierto === r.planId ? null : r.planId)}>{abierto === r.planId ? 'Ocultar clientes' : 'Ver clientes y orden'}</button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 6 }}>
+                  {[...porLoc.values()].map((o) => (
+                    <span key={o.loc}><b>{cap(o.loc)}</b> <span className="sim-sub">{o.cods.length} cl. · {f0(o.b)} bultos</span>{' '}
+                      <select value="" onChange={(e) => moverA(o.cods, e.target.value)}><option value="">mover a…</option>{opcionesDestino(r.planId)}</select></span>
+                  ))}
+                </div>
+                {abierto === r.planId && (
+                  <div style={{ marginTop: 8, overflowX: 'auto' }}>
+                    <div className="sim-sub" style={{ marginBottom: 4 }}>Orden: {r.ordenManual ? 'fijado a mano' : 'automático (el más corto)'}{' '}
+                      {r.ordenManual && <button className="sim-btn" onClick={() => guardarPlan(planOrdenAuto(plan, r.planId))}>Volver al orden automático</button>}</div>
+                    <table className="sim-table">
+                      <thead><tr><th></th><th>#</th><th>Cód.</th><th>Cliente</th><th>Localidad</th><th>Bultos</th><th>Orden</th></tr></thead>
+                      <tbody>
+                        {r.paradas.map((p, k) => {
+                          const cods = r.paradas.map((x) => x.c);
+                          const mover = (d) => { const n = cods.slice(); const t = n[k]; n[k] = n[k + d]; n[k + d] = t; guardarPlan(planOrdenar(plan, r.planId, n)); };
+                          return (
+                            <tr key={p.c}>
+                              <td><input type="checkbox" checked={selCli.includes(p.c)} onChange={() => setSelCli((s) => (s.includes(p.c) ? s.filter((c) => c !== p.c) : [...s, p.c]))} /></td>
+                              <td>{k + 1}</td><td>{p.c}</td><td>{p.n}</td><td>{cap(p.loc)}</td><td>{f1(p.b)}</td>
+                              <td><button className="sim-btn" disabled={k === 0} onClick={() => mover(-1)}>↑</button> <button className="sim-btn" disabled={k === r.paradas.length - 1} onClick={() => mover(1)}>↓</button></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {sim.pendEdit && sim.pendEdit.clientes.length > 0 && (
+            <div className="sim-warn">
+              <b>Quedan para otro día (por tu edición): {sim.pendEdit.clientes.length} clientes · {f0(sim.pendEdit.bultos)} bultos.</b>
+              <div style={{ marginTop: 4 }}>
+                {[...sim.pendEdit.clientes.reduce((m, p) => { const l = p.loc || 'SIN LOCALIDAD'; const o = m.get(l) || { loc: l, cods: [], b: 0 }; o.cods.push(p.c); o.b += p.b; return m.set(l, o); }, new Map()).values()].map((o) => (
+                  <span key={o.loc} style={{ marginRight: 14 }}>{cap(o.loc)} {o.cods.length} cl. · {f0(o.b)} bultos{' '}
+                    <select value="" onChange={(e) => moverA(o.cods, e.target.value)}><option value="">devolver a…</option>{sim.rutas.map((x) => <option key={x.planId} value={x.planId}>Camión #{x.n} · {x.localidades.map(cap).join(' + ')}</option>)}<option value="nuevo">➕ Camión nuevo</option></select></span>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 
   return (
@@ -822,6 +932,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                   <div className="sim-sub" style={{ marginTop: 8 }}>Tocá un camión para verlo solo en el mapa (puntos numerados en orden de visita). 🛣️ = km medidos por calles; sin eso, se estima con km en línea recta × factor de ruta ({params.factorRuta})
                     {factorCal ? <> · calibrado con tu historial: {factorCal}</> : null}.</div>
                 </div>
+                {tarjetaEditar}
                 <div className="sim-card" style={{ overflowX: 'auto' }}>
                   <h3>Resumen por localidad y costo de combustible</h3>
                   <table className="sim-table">

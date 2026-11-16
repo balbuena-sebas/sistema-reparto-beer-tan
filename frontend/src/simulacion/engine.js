@@ -313,21 +313,7 @@ export function simular(pedidos, ubic, parametros = {}) {
   }
   const grupos = camiones.map((c) => c.items);
 
-  const rutas = grupos.filter((g) => g.length).map((g, i) => {
-    const ord = ordenarVecinoCercano(dep, g);
-    const kmRecta = tourLen(dep, ord);
-    const km = kmRecta * P.factorRuta;
-    const pallets = g.reduce((s, c) => s + c.pallets, 0);
-    const bultos = g.reduce((s, c) => s + c.b, 0);
-    const localidades = [...new Set(g.map((c) => c.loc || 'SIN LOCALIDAD'))];
-    return {
-      n: i + 1, paradas: ord, localidades, km,
-      ...costearRuta(P, { km, pallets, bultos, localidades }),
-      pallets, bultos, kg: g.reduce((s, c) => s + c.kg, 0),
-      ocupacion: pallets / P.palletsPorCamion,
-      pocaCarga: pallets < P.minPalletsRuta,
-    };
-  });
+  const rutas = grupos.filter((g) => g.length).map((g, i) => armarRuta(P, g, i + 1));
   const sum = (k) => rutas.reduce((s, r) => s + r[k], 0);
   return {
     params: P, rutas, sinUbicacion: sinUbic,
@@ -336,6 +322,103 @@ export function simular(pedidos, ubic, parametros = {}) {
       camiones: rutas.length, camionesNecesarios: nCamiones, km: sum('km'),
       litros: sum('litros'), combustible: sum('combustible'),
       personas: sum('personas'), recargas: sum('recargas'),
+    },
+  };
+}
+
+// Arma un camión a partir de sus clientes: orden de visita, km, combustible, personas y recarga.
+// ordenCods (opcional): orden de visita fijado a mano; los clientes que no estén en la lista van al final.
+export function armarRuta(P, g, n, ordenCods) {
+  const dep = P.deposito;
+  let ord;
+  if (ordenCods && ordenCods.length) {
+    const idx = new Map(ordenCods.map((c, i) => [c, i]));
+    const fijos = g.filter((c) => idx.has(c.c)).sort((a, b) => idx.get(a.c) - idx.get(b.c));
+    const sueltos = g.filter((c) => !idx.has(c.c));
+    ord = fijos.concat(sueltos.length ? ordenarVecinoCercano(fijos.length ? fijos[fijos.length - 1] : dep, sueltos) : []);
+  } else ord = ordenarVecinoCercano(dep, g);
+  const km = tourLen(dep, ord) * P.factorRuta;
+  const pallets = g.reduce((s, c) => s + c.pallets, 0);
+  const bultos = g.reduce((s, c) => s + c.b, 0);
+  const localidades = [...new Set(g.map((c) => c.loc || 'SIN LOCALIDAD'))];
+  return {
+    n, paradas: ord, localidades, km,
+    ...costearRuta(P, { km, pallets, bultos, localidades }),
+    pallets, bultos, kg: g.reduce((s, c) => s + c.kg, 0),
+    ocupacion: pallets / P.palletsPorCamion,
+    pocaCarga: pallets < P.minPalletsRuta,
+  };
+}
+
+// ── Reparto editado a mano ─────────────────────────────────────────────────
+// plan = { camiones: [{ id, cods: [codigoCliente], orden: bool }], pend: [codigoCliente] }
+//   orden=true: el orden de cods es el orden de visita elegido a mano · pend: clientes que se dejan para otro día.
+export function planDesde(sim) {
+  return { camiones: sim.rutas.map((r, i) => ({ id: i + 1, cods: r.paradas.map((p) => p.c), orden: false })), pend: [] };
+}
+const planLimpio = (pl) => ({ camiones: pl.camiones.filter((t) => t.cods.length), pend: pl.pend || [] });
+// destino: id de camión · 'nuevo' (camión nuevo) · 'pend' (otro día)
+export function planMover(plan, cods, destino) {
+  const s = new Set(cods);
+  if (!s.size) return plan;
+  if (typeof destino === 'number' && !plan.camiones.some((t) => t.id === destino)) return plan;
+  const camiones = plan.camiones.map((t) => ({ ...t, cods: t.cods.filter((c) => !s.has(c)), orden: t.cods.some((c) => s.has(c)) ? false : t.orden }));
+  let pend = (plan.pend || []).filter((c) => !s.has(c));
+  if (destino === 'pend') pend = pend.concat([...s]);
+  else if (destino === 'nuevo') camiones.push({ id: Math.max(0, ...plan.camiones.map((t) => t.id)) + 1, cods: [...s], orden: false });
+  else { const t = camiones.find((x) => x.id === destino); t.cods = t.cods.concat([...s]); t.orden = false; }
+  return planLimpio({ camiones, pend });
+}
+export const planJuntar = (plan, desde, hacia) => {
+  const t = plan.camiones.find((x) => x.id === desde);
+  return t ? planMover(plan, t.cods, hacia) : plan;
+};
+// Parte un camión en dos por barrido angular desde el depósito (mitad de pallets cada uno).
+export function planPartir(plan, id, ruta, dep) {
+  if (!ruta || ruta.paradas.length < 2) return plan;
+  const ang = (c) => Math.atan2(c.lat - dep.lat, c.lon - dep.lon);
+  const ord = ruta.paradas.slice().sort((a, b) => ang(a) - ang(b));
+  const mitad = ruta.pallets / 2; let acc = 0; const resto = [];
+  for (const c of ord) { if (acc >= mitad) resto.push(c.c); acc += c.pallets; }
+  return resto.length ? planMover(plan, resto, 'nuevo') : plan;
+}
+export const planOrdenar = (plan, id, cods) => ({ ...plan, camiones: plan.camiones.map((t) => (t.id === id ? { ...t, cods, orden: true } : t)) });
+export const planOrdenAuto = (plan, id) => ({ ...plan, camiones: plan.camiones.map((t) => (t.id === id ? { ...t, orden: false } : t)) });
+
+// Aplica el plan editado sobre la propuesta automática `sim` (que aporta los clientes con su ubicación y carga).
+// Clientes nuevos (que entraron con otra carga de pedidos) se suman al camión más cercano; los que ya no están se descartan.
+export function aplicarPlan(sim, plan, parametros = {}) {
+  const P = { ...PARAMS_DEFAULT, ...parametros };
+  const por = new Map();
+  sim.rutas.forEach((r) => r.paradas.forEach((p) => por.set(p.c, p)));
+  const pend = new Set((plan.pend || []).filter((c) => por.has(c)));
+  const usados = new Set(); const grupos = [];
+  for (const t of plan.camiones || []) {
+    const g = [], ord = [];
+    (t.cods || []).forEach((c) => { const p = por.get(c); if (p && !pend.has(c) && !usados.has(c)) { g.push(p); ord.push(c); usados.add(c); } });
+    grupos.push({ id: t.id, g, ord: t.orden ? ord : null });
+  }
+  const nuevos = [...por.values()].filter((p) => !usados.has(p.c) && !pend.has(p.c));
+  const cen = (g) => ({ lat: g.reduce((s, c) => s + c.lat, 0) / g.length, lon: g.reduce((s, c) => s + c.lon, 0) / g.length });
+  const centros = grupos.map((x) => (x.g.length ? cen(x.g) : null));
+  for (const p of nuevos) {
+    let bi = -1, bd = Infinity;
+    centros.forEach((c, i) => { if (c) { const d = haversine(c, p); if (d < bd) { bd = d; bi = i; } } });
+    if (bi < 0) { grupos.push({ id: Math.max(0, ...grupos.map((x) => x.id)) + 1, g: [p], ord: null }); centros.push(cen([p])); }
+    else grupos[bi].g.push(p);
+  }
+  const rutas = grupos.filter((x) => x.g.length).map((x, i) => ({ ...armarRuta(P, x.g, i + 1, x.ord), planId: x.id, ordenManual: !!x.ord }));
+  const sum = (k) => rutas.reduce((s, r) => s + r[k], 0);
+  const pendientes = [...pend].map((c) => por.get(c));
+  const max = Math.floor(P.maxCamiones || 0);
+  return {
+    params: P, rutas, sinUbicacion: sim.sinUbicacion, editado: true, agregados: nuevos.length,
+    pendEdit: { clientes: pendientes, bultos: pendientes.reduce((s, c) => s + c.b, 0) },
+    tope: { max, necesarios: sim.tope ? sim.tope.necesarios : rutas.length, ajuste: null, faltan: max > 0 ? Math.max(0, rutas.length - max) : 0, pendientes: [] },
+    totales: {
+      clientes: por.size - pend.size, bultos: sum('bultos'), pallets: sum('pallets'),
+      camiones: rutas.length, camionesNecesarios: sim.totales.camionesNecesarios, km: sum('km'),
+      litros: sum('litros'), combustible: sum('combustible'), personas: sum('personas'), recargas: sum('recargas'),
     },
   };
 }

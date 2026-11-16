@@ -213,7 +213,7 @@ router.put('/ubicaciones', async (req, res) => {
 
 // ── Asignación de choferes del día (quién vino y quién cubre qué zona) ──────
 // Fila única y chica: { fecha, ausentes:[nombre], cubre:{ chofer: choferCuyaZonaCubre }, manual:{ clienteAncla: chofer } }
-const MAX_ASIG_BYTES = 40 * 1024;
+const MAX_ASIG_BYTES = 100 * 1024;
 router.get('/asignacion', async (req, res) => {
   try {
     await ensureSchema();
@@ -242,6 +242,15 @@ router.put('/asignacion', async (req, res) => {
       // camiones fijados a mano por localidad: { LOCALIDAD: n }
       camionesLoc: Object.fromEntries(Object.entries(b.camionesLoc && typeof b.camionesLoc === 'object' ? b.camionesLoc : {}).slice(0, 80)
         .map(([k, v]) => [String(k).slice(0, 40).toUpperCase(), Math.floor(Number(v)) || 0]).filter(([, v]) => v >= 1 && v <= 20)),
+      // reparto editado a mano: camiones con sus clientes y orden, y clientes que quedan para otro día
+      plan: (() => {
+        const p = b.plan; if (!p || typeof p !== 'object' || !Array.isArray(p.camiones)) return null;
+        const nums = (a) => (Array.isArray(a) ? a : []).map(Number).filter(Number.isFinite).slice(0, 3000);
+        return {
+          camiones: p.camiones.slice(0, 40).map((t) => ({ id: Math.floor(Number(t && t.id)) || 0, cods: nums(t && t.cods), orden: !!(t && t.orden) })).filter((t) => t.id > 0),
+          pend: nums(p.pend),
+        };
+      })(),
       // elección manual de chofer por ruta: { códigoDeClienteAncla: chofer }
       manual: Object.fromEntries(Object.entries(b.manual && typeof b.manual === 'object' ? b.manual : {}).slice(0, 80)
         .map(([k, v]) => [String(k).slice(0, 20), String(v).slice(0, 60)])),
