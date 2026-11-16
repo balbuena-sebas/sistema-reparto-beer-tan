@@ -5,9 +5,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx';
 import { apiFetch, suscribirRuteo } from '../api/client';
 import {
-  PARAMS_DEFAULT, parsePedidos, construirUbicaciones, calibrarFactor, simular, diffPedidos,
+  PARAMS_DEFAULT, parsePedidos, construirUbicaciones, calibrarFactor, diffPedidos,
   indexarRechazos, cruzarRechazos, resumenRuteados, costearRuta, comparativaMarcas, resumenPorLocalidad,
-  perfilesChoferes, asignarChoferes, zonaDelDia,
+  perfilesChoferes, asignarChoferes, zonaDelDia, simularConTope,
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
@@ -222,9 +222,10 @@ export function TSimulacion({ loggedInUser }) {
 
   const simBase = useMemo(() => {
     if (!pedidos?.data?.clientes?.length) return null;
-    return simular({ clientes: pedidos.data.clientes }, ubic, params);
+    return simularConTope({ clientes: pedidos.data.clientes }, ubic, params);
   }, [pedidos, ubic, params]);
 
+  const haceDias = (f, n) => { if (!f) return ''; const d = new Date(`${f}T12:00:00`); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
   const perfiles = useMemo(() => perfilesChoferes(hist, ubic, params.deposito, fechaPedidos), [hist, ubic, params.deposito, fechaPedidos]);
   const claveAncla = (r) => String(Math.min(...r.paradas.map((p) => p.c)));
   // Chofer por ruta: lo elegido a mano manda; el resto se asigna por zona habitual (sin repetir choferes).
@@ -589,6 +590,22 @@ export function TSimulacion({ loggedInUser }) {
 
                 <div className="sim-card" style={{ overflowX: 'auto' }}>
                   <h3>Camiones sugeridos (con lo que falta rutear)</h3>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                    <span className="sim-sub">Camiones disponibles:</span>
+                    <input type="number" min="0" style={{ width: 64 }} value={params.maxCamiones || 0} onChange={(e) => setParams((p) => ({ ...p, maxCamiones: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))} />
+                    <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, maxCamiones: Math.max(0, perfiles.filter((x) => !x.mercado && !ausentes.includes(x.nombre) && x.ultimo >= haceDias(fechaPedidos, 10)).length) }))}>Usar choferes presentes</button>
+                    <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, maxCamiones: 0 }))}>Sin tope</button>
+                    <span className="sim-sub">Hacen falta {sim.tope ? sim.tope.necesarios : sim.rutas.length} con la carga normal.</span>
+                  </div>
+                  {sim.tope && sim.tope.ajuste && sim.tope.faltan === 0 && (
+                    <div className="sim-warn" style={{ marginBottom: 8 }}>Hacían falta {sim.tope.necesarios} camiones y tenés {sim.tope.max}: para que entre se arma {sim.tope.ajuste}. Revisá la ocupación y los km de cada uno.</div>
+                  )}
+                  {sim.tope && sim.tope.pendientes.length > 0 && (
+                    <div className="sim-warn" style={{ marginBottom: 8 }}>
+                      Con {sim.tope.max} camiones no alcanza ni al límite. Quedan sin camión: {sim.tope.pendientes.map((x) => `${x.localidades.map(cap).join(' + ')} (${x.paradas} paradas, ${f0(x.bultos)} bultos)`).join(' · ')}.
+                      Opciones: sumar un camión o un utilitario, hacer un segundo viaje, o pasar esos clientes al día siguiente.
+                    </div>
+                  )}
                   <table className="sim-table">
                     <thead><tr><th>Camión</th><th>Zona</th><th>Chofer</th><th>Paradas</th><th>Bultos</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Litros</th><th>Combustible</th><th>Personas</th><th>Recarga</th></tr></thead>
                     <tbody>
@@ -642,7 +659,7 @@ export function TSimulacion({ loggedInUser }) {
                   <div className="sim-params">
                     {[['bultosPorPallet', 'Bultos por pallet'], ['palletsPorCamion', 'Pallets por camión'], ['llenado', 'Llenado objetivo (0–1)'],
                       ['factorRuta', 'Factor de ruta'], ['consumoCamion', 'Consumo camión (L/100 km)'], ['consumoUtil', 'Consumo utilitario (L/100 km)'],
-                      ['ayudantesPorCamion', 'Ayudantes por camión'], ['limiteRecarga2', 'Sin recarga hasta (2 pers.)'], ['limiteRecarga3', 'Sin recarga hasta (3 pers.)'], ['maxParadas', 'Máx. paradas por camión'], ['radioAgrupKm', 'Juntar zonas hasta (km)']].map(([k, et]) => (
+                      ['ayudantesPorCamion', 'Ayudantes por camión'], ['limiteRecarga2', 'Sin recarga hasta (2 pers.)'], ['limiteRecarga3', 'Sin recarga hasta (3 pers.)'], ['maxCamiones', 'Camiones disponibles (0 = sin tope)'], ['maxParadas', 'Máx. paradas por camión'], ['radioAgrupKm', 'Juntar zonas hasta (km)']].map(([k, et]) => (
                       <label key={k}>{et}
                         <input type="number" step="any" value={params[k]} onChange={(e) => setParams((p) => ({ ...p, [k]: Number(e.target.value) }))} />
                       </label>

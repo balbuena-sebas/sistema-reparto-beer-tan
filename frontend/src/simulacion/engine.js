@@ -22,6 +22,7 @@ export const PARAMS_DEFAULT = {
   siempreDosPersonas: ['LAS FLORES'], // localidades que salen siempre con 2 personas
   minPalletsRuta: 1,       // un camión con menos pallets que esto se intenta sumar a otro
   radioRescateKm: 60,      // ...si hay un camión con lugar a menos de esta distancia
+  maxCamiones: 0,          // camiones disponibles hoy (0 = sin tope: arma los que hagan falta)
   maxParadas: 70,          // tope de paradas por camión (límite de jornada)
   radioAgrupKm: 15,        // solo se juntan localidades a menos de esta distancia en un mismo camión
   deposito: { lat: -37.3140, lon: -59.1515 }, // calculado por trilateración con los radios del ruteador
@@ -321,6 +322,35 @@ export function simular(pedidos, ubic, parametros = {}) {
       personas: sum('personas'), recargas: sum('recargas'),
     },
   };
+}
+
+// Simula respetando el tope de camiones disponibles (P.maxCamiones). Si hacen falta más, prueba
+// cargar más cada camión y juntar zonas más lejanas; si ni así entra, informa cuánto falta.
+export function simularConTope(pedidos, ubic, parametros = {}) {
+  const P = { ...PARAMS_DEFAULT, ...parametros };
+  let sim = simular(pedidos, ubic, P);
+  const max = Math.floor(P.maxCamiones || 0);
+  sim.tope = { max, necesarios: sim.rutas.length, ajuste: null, faltan: 0, pendientes: [] };
+  if (!(max > 0) || sim.rutas.length <= max) return sim;
+  const pasos = [
+    { llenado: Math.max(P.llenado, 0.95), radioAgrupKm: Math.max(P.radioAgrupKm, 30), txt: 'cargando cada camión al 95 % y juntando zonas de hasta 30 km' },
+    { llenado: 1, radioAgrupKm: Math.max(P.radioAgrupKm, 45), radioRescateKm: Math.max(P.radioRescateKm, 90), txt: 'cargando los camiones al 100 % y juntando zonas de hasta 45 km' },
+    { llenado: 1, radioAgrupKm: 90, radioRescateKm: 150, maxParadas: Math.max(P.maxParadas, 90), txt: 'al límite: 100 % de carga, zonas lejanas juntas y más paradas por camión' },
+  ];
+  let mejor = sim;
+  for (const p of pasos) {
+    const { txt, ...cambios } = p;
+    const s = simular(pedidos, ubic, { ...P, ...cambios });
+    s.tope = { max, necesarios: sim.tope.necesarios, ajuste: txt, faltan: Math.max(0, s.rutas.length - max), pendientes: [] };
+    if (s.rutas.length < mejor.rutas.length) mejor = s;
+    if (s.rutas.length <= max) return s;
+  }
+  // No entra: se dejan los `max` camiones más cargados y el resto queda como pendiente para otro día / otro viaje.
+  const orden = mejor.rutas.map((r, i) => i).sort((a, b) => mejor.rutas[b].pallets - mejor.rutas[a].pallets);
+  const quedan = new Set(orden.slice(0, max));
+  const sacadas = mejor.rutas.filter((_, i) => !quedan.has(i));
+  mejor.tope.pendientes = sacadas.map((r) => ({ localidades: r.localidades, paradas: r.paradas.length, bultos: r.bultos, pallets: r.pallets }));
+  return mejor;
 }
 
 // ── Cambios entre dos cargas de pedidos ────────────────────────────────────
