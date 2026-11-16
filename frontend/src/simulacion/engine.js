@@ -112,6 +112,27 @@ export function construirUbicaciones(items = [], dias = {}) {
       mapa.set(p[2], { lat: p[4], lon: p[5], n: p[3] || prev?.n || '', loc: prev?.loc || '' });
     }
   });
+  // Clientes que no están en la maestra (o sin localidad cargada): se les asigna la localidad de los clientes
+  // conocidos más cercanos (mayoría de los 3 más próximos, hasta 8 km). Quedan marcados como "locEstimada".
+  const conLoc = [], sin = [];
+  for (const [c, u] of mapa) (u.loc ? conLoc : sin).push([c, u]);
+  if (conLoc.length && sin.length) {
+    const cell = (lat, lon) => `${Math.floor(lat / 0.05)}|${Math.floor(lon / 0.05)}`;
+    const grid = new Map();
+    for (const [, u] of conLoc) { const k = cell(u.lat, u.lon); (grid.get(k) || grid.set(k, []).get(k)).push(u); }
+    for (const [, u] of sin) {
+      const cand = [];
+      const i0 = Math.floor(u.lat / 0.05), j0 = Math.floor(u.lon / 0.05);
+      for (let i = i0 - 2; i <= i0 + 2; i++) for (let j = j0 - 2; j <= j0 + 2; j++) {
+        for (const v of grid.get(`${i}|${j}`) || []) cand.push([haversine(u, v), v.loc]);
+      }
+      cand.sort((a, b) => a[0] - b[0]);
+      const cerca = cand.slice(0, 3).filter((x) => x[0] <= 8);
+      if (!cerca.length) continue;
+      const votos = {}; cerca.forEach(([, l]) => { votos[l] = (votos[l] || 0) + 1; });
+      u.loc = Object.entries(votos).sort((a, b) => b[1] - a[1])[0][0]; u.locEstimada = true;
+    }
+  }
   return mapa;
 }
 

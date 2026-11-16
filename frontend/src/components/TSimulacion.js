@@ -270,8 +270,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const locsPedidos = useMemo(() => {
     const m = new Map();
     (pedidos?.data?.clientes || []).forEach((c) => {
-      const k = locDe(c.c); const o = m.get(k) || { loc: k, clientes: 0, bultos: 0 };
-      o.clientes++; o.bultos += c.b; m.set(k, o);
+      const k = locDe(c.c); const o = m.get(k) || { loc: k, clientes: 0, bultos: 0, est: 0, ej: [] };
+      o.clientes++; o.bultos += c.b; if (ubic.get(c.c)?.locEstimada) o.est++; if (o.ej.length < 12) o.ej.push(`${c.c} ${c.n || ''}`.trim()); m.set(k, o);
     });
     return [...m.values()].sort((a, b) => b.bultos - a.bultos);
   }, [pedidos, ubic]);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -561,9 +561,9 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         <div className="sim-sub" style={{ marginBottom: 6 }}>Destildá las localidades que ese día no se reparten (por ejemplo Cachari si se va el miércoles). Se sacan de la simulación y se avisa cuántos clientes y bultos quedan para otro día. Al lado de cada una podés fijar cuántos camiones salen (por ejemplo 2 a Las Flores); vacío = lo calcula solo. Se comparte en vivo.</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>
           {locsPedidos.map((o) => (
-            <label key={o.loc} style={{ minWidth: 200 }}>
+            <label key={o.loc} style={{ minWidth: 200 }} title={o.loc === 'SIN LOCALIDAD' ? `Clientes que no están en la maestra o no tienen localidad y no hay vecinos cerca para estimarla. Ej.: ${o.ej.join(' · ')}` : (o.est ? `${o.est} clientes no están en la maestra: se les estimó la localidad por los vecinos más cercanos.` : undefined)}>
               <input type="checkbox" checked={!excluidas.includes(o.loc)}
-                onChange={() => guardarAsig(ausentes, cubre, manual, excluidas.includes(o.loc) ? excluidas.filter((x) => x !== o.loc) : [...excluidas, o.loc])} /> <b>{cap(o.loc)}</b> <span className="sim-sub">{o.clientes} cl. · {f0(o.bultos)} bultos</span>
+                onChange={() => guardarAsig(ausentes, cubre, manual, excluidas.includes(o.loc) ? excluidas.filter((x) => x !== o.loc) : [...excluidas, o.loc])} /> <b>{cap(o.loc)}</b> <span className="sim-sub">{o.clientes} cl. · {f0(o.bultos)} bultos{o.est ? ` · ${o.est} estimados` : ''}{o.loc === 'SIN LOCALIDAD' ? ' · no están en la maestra' : ''}</span>
               {!excluidas.includes(o.loc) && (
                 <> <input type="number" min="0" max="20" step="1" placeholder="auto" title="Camiones para esta localidad (vacío = automático)"
                   style={{ width: 54 }} value={camionesLoc[o.loc] || ''}
