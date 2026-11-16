@@ -41,6 +41,13 @@ export const CargaRuteo = ({ loggedInUser }) => {
         <input ref={refM} type="file" accept=".xlsx,.xls" hidden
           onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) correr(() => cargarMaestra(f, hdr, prog), (n) => `Maestra cargada: ${n} clientes con ubicación.`); }} />
         <button style={btn} disabled={ocupado} onClick={() => refM.current.click()}>👥 Subir maestra de clientes</button>
+        <button style={btn} disabled={ocupado} onClick={() => correr(async () => {
+          const r = await apiFetch('/api/ruteo/combustible?refrescar=1');
+          return r.data;
+        }, (d) => `Precios de gasoil actualizados (${(d.fuentes || []).join(' y ')}): ` + d.marcas.map((m) => {
+          const f = (g) => (g ? `${Math.round(g.precio)} (${g.fecha.slice(8)}/${g.fecha.slice(5, 7)})` : '—');
+          return `${m.marca} común ${f(m.comun)} · premium ${f(m.premium)}`;
+        }).join(' | ') + ((d.fallas || []).length ? ` ⚠ ${d.fallas.join(' | ')}` : ''))}>⛽ Actualizar precios de combustible</button>
       </div>
       <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text2)' }}>
         {estado == null ? '' : estado.n > 0

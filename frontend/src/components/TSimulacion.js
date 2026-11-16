@@ -158,15 +158,17 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
 
   const fechaPedidos = pedidos?.data?.fechaEntrega;
 
-  useEffect(() => {
-    let vivo = true;
-    apiFetch('/api/ruteo/combustible').then((r) => {
-      if (!vivo || !r.data) return;
+  // Precios del gasoil: se leen al abrir y con el botón "Actualizar precios" (forzar = saltear la memoria del servidor)
+  const leerPrecios = useCallback(async (forzar = false) => {
+    setPrecioInfo({ estado: 'cargando' });
+    try {
+      const r = await apiFetch(`/api/ruteo/combustible${forzar ? '?refrescar=1' : ''}`);
+      if (!r.data) throw new Error('Respuesta vacía');
       setPrecioInfo({ estado: 'ok', fuentes: r.data.fuentes || [], fallas: r.data.fallas || [], cache: !!r.cache, aviso: r.aviso || '' });
       setDatosPrecios(r.data);
-    }).catch((e) => { if (vivo) setPrecioInfo({ estado: 'error', error: e.message }); });
-    return () => { vivo = false; };
+    } catch (e) { setPrecioInfo({ estado: 'error', error: e.message }); }
   }, []);
+  useEffect(() => { leerPrecios(false); }, [leerPrecios]);
 
   // Precios de las APIs → parámetros de costo (por marca, con la fecha de vigencia y cuántos días tiene)
   useEffect(() => {
@@ -174,12 +176,13 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     const pm = {}, fm = {};
     datosPrecios.marcas.forEach((m) => {
       const g = m[gradoGasoil] || m.comun || m.premium; if (!g) return;
+      const sinGrado = !m[gradoGasoil];
       const nombre = /SHELL/.test(m.marca) ? 'Shell' : /AXION/.test(m.marca) ? 'Axion' : /YPF/.test(m.marca) ? 'YPF' : null;
       if (!nombre) return;
       pm[nombre] = Math.round(g.precio);
       const [y, mo, d] = g.fecha.split('-');
       const dias = Math.max(0, Math.round((Date.now() - new Date(`${g.fecha}T12:00:00`)) / 864e5));
-      fm[nombre] = `${d}/${mo}/${y.slice(2)} (hace ${dias} d${dias > 14 ? ' ⚠' : ''}) · ${g.producto || (gradoGasoil === 'premium' ? 'premium' : 'común')} · ${g.origen === 'zona' ? 'zona' : 'Tandil'} · ${g.fuente || 'oficial'}`;
+      fm[nombre] = `${sinGrado ? `sin dato ${gradoGasoil === 'premium' ? 'premium' : 'común'}, se usa el otro · ` : ''}${d}/${mo}/${y.slice(2)} (hace ${dias} d${dias > 14 ? ' ⚠' : ''}) · ${g.producto || (gradoGasoil === 'premium' ? 'premium' : 'común')} · ${g.origen === 'zona' ? 'zona' : 'Tandil'} · ${g.fuente || 'oficial'}`;
     });
     if (!Object.keys(pm).length) return;
     setParams((p) => {
@@ -290,6 +293,10 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         <option value="comun">Común (Grado 2: Diesel 500 / Evolux / Diesel X10)</option>
         <option value="premium">Premium (Infinia Diesel / V-Power Diesel / Quantium Diesel)</option>
       </select>
+      {' '}<button className="sim-btn" onClick={() => leerPrecios(true)} disabled={precioInfo.estado === 'cargando'}>🔄 Actualizar precios ahora</button>
+      {gradoGasoil === 'premium' && datosPrecios && !datosPrecios.marcas.some((m) => m.premium) && (
+        <span className="sim-warn" style={{ marginLeft: 6, padding: '1px 6px' }}>El servidor todavía no devuelve premium: reiniciá el backend.</span>
+      )}
     </div>
   );
   const perfiles = useMemo(() => {
