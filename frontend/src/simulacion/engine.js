@@ -23,6 +23,7 @@ export const PARAMS_DEFAULT = {
   minPalletsRuta: 1,       // un camión con menos pallets que esto se intenta sumar a otro
   radioRescateKm: 60,      // ...si hay un camión con lugar a menos de esta distancia
   maxCamiones: 0,          // camiones disponibles hoy (0 = sin tope: arma los que hagan falta)
+  camionesPorLoc: {},      // { LOCALIDAD: n } camiones fijados a mano para esa localidad (ej. Las Flores: 2)
   maxParadas: 70,          // tope de paradas por camión (límite de jornada)
   radioAgrupKm: 15,        // solo se juntan localidades a menos de esta distancia en un mismo camión
   deposito: { lat: -37.3140, lon: -59.1515 }, // calculado por trilateración con los radios del ruteador
@@ -252,6 +253,19 @@ export function simular(pedidos, ubic, parametros = {}) {
   const unidades = [];
   for (const [loc, items] of porLoc) {
     const pal = items.reduce((s, c) => s + c.pallets, 0);
+    const fijo = Math.floor(Number((P.camionesPorLoc || {})[String(loc).toUpperCase()]) || 0);
+    if (fijo > 0) {
+      // Cantidad de camiones elegida a mano: se reparte la localidad por barrido angular en partes de igual carga
+      // y esos camiones no se mezclan con otras localidades.
+      const k = Math.min(fijo, items.length), parte = pal / k;
+      const ang = (c) => Math.atan2(c.lat - dep.lat, c.lon - dep.lon);
+      const cub = Array.from({ length: k }, () => []); let acc = 0;
+      items.slice().sort((a, b) => ang(a) - ang(b)).forEach((c) => {
+        cub[Math.min(k - 1, Math.floor((acc + c.pallets / 2) / parte))].push(c); acc += c.pallets;
+      });
+      cub.filter((g) => g.length).forEach((g) => unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true }));
+      continue;
+    }
     if (pal <= capUtil && items.length <= P.maxParadas) { unidades.push({ loc, items, pallets: pal }); continue; }
     const k = Math.max(Math.ceil(pal / capUtil), Math.ceil(items.length / P.maxParadas)), objetivo = pal / k;
     const ang = (c) => Math.atan2(c.lat - dep.lat, c.lon - dep.lon);
@@ -274,7 +288,9 @@ export function simular(pedidos, ubic, parametros = {}) {
   for (const u of unidades) {
     const cu = centro(u.items);
     let dest = null, bd = Infinity;
+    if (u.fijo) { camiones.push({ items: u.items.slice(), pallets: u.pallets, locs: new Set([u.loc]), fijo: true }); continue; }
     for (const cam of camiones) {
+      if (cam.fijo) continue;
       if (cam.pallets + u.pallets > capUtil || cam.items.length + u.items.length > P.maxParadas) continue;
       const d = haversine(centro(cam.items), cu);
       if (d <= P.radioAgrupKm && d < bd) { bd = d; dest = cam; }
@@ -285,11 +301,11 @@ export function simular(pedidos, ubic, parametros = {}) {
   // Rescate: camiones casi vacíos se suman al más cercano que tenga lugar (si no hay, quedan marcados "poca carga")
   for (let i = camiones.length - 1; i >= 0; i--) {
     const c = camiones[i];
-    if (camiones.length < 2 || c.pallets >= P.minPalletsRuta) continue;
+    if (camiones.length < 2 || c.pallets >= P.minPalletsRuta || c.fijo) continue;
     const cc = centro(c.items);
     let dest = null, bd = Infinity;
     camiones.forEach((o, j) => {
-      if (j === i || o.pallets + c.pallets > capUtil || o.items.length + c.items.length > P.maxParadas) return;
+      if (j === i || o.fijo || o.pallets + c.pallets > capUtil || o.items.length + c.items.length > P.maxParadas) return;
       const d = haversine(centro(o.items), cc);
       if (d <= P.radioRescateKm && d < bd) { bd = d; dest = o; }
     });

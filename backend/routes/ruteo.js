@@ -239,6 +239,9 @@ router.put('/asignacion', async (req, res) => {
       cubre: Object.fromEntries(Object.entries(b.cubre).slice(0, 80).map(([k, v]) => [String(k).slice(0, 60), String(v).slice(0, 60)])),
       // localidades que NO salen ese día (quedan fuera de la simulación)
       excluidas: (Array.isArray(b.excluidas) ? b.excluidas : []).map((x) => String(x).slice(0, 40)).slice(0, 80),
+      // camiones fijados a mano por localidad: { LOCALIDAD: n }
+      camionesLoc: Object.fromEntries(Object.entries(b.camionesLoc && typeof b.camionesLoc === 'object' ? b.camionesLoc : {}).slice(0, 80)
+        .map(([k, v]) => [String(k).slice(0, 40).toUpperCase(), Math.floor(Number(v)) || 0]).filter(([, v]) => v >= 1 && v <= 20)),
       // elección manual de chofer por ruta: { códigoDeClienteAncla: chofer }
       manual: Object.fromEntries(Object.entries(b.manual && typeof b.manual === 'object' ? b.manual : {}).slice(0, 80)
         .map(([k, v]) => [String(k).slice(0, 20), String(v).slice(0, 60)])),

@@ -107,6 +107,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const asigFn = useRef(null);
   const [datosPrecios, setDatosPrecios] = useState(null);     // respuesta cruda de /combustible (común y premium por marca)
   const [gradoGasoil, setGradoGasoil] = useState('comun');     // 'comun' (Grado 2) o 'premium' (Infinia / V-Power / Quantium)
+  const [camionesLoc, setCamionesLoc] = useState({});            // { LOCALIDAD: n } camiones fijados a mano
   const [excluidas, setExcluidas] = useState([]);              // localidades que NO salen el día de entrega
   const [precioInfo, setPrecioInfo] = useState({ estado: 'cargando' });   // de dónde salen los precios del gasoil
   const [hist, setHist] = useState({});                      // romaneos recientes (para aprender la zona de cada chofer)
@@ -199,20 +200,20 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
       const r = await apiFetch('/api/ruteo/asignacion'); const d = r.data;
       if (asigPend.current.enviando) return;
       const ok = d && d.fecha === fechaPedidos;
-      const a = ok ? d.ausentes || [] : [], c = ok ? d.cubre || {} : {}, m = ok ? d.manual || {} : {}, ex = ok ? d.excluidas || [] : [];
-      const k = JSON.stringify([a, c, m, ex]);
-      if (k !== asigVer.current) { asigVer.current = k; setAusentes(a); setCubre(c); setManual(m); setExcluidas(ex); }
+      const a = ok ? d.ausentes || [] : [], c = ok ? d.cubre || {} : {}, m = ok ? d.manual || {} : {}, ex = ok ? d.excluidas || [] : [], cl = ok ? d.camionesLoc || {} : {};
+      const k = JSON.stringify([a, c, m, ex, cl]);
+      if (k !== asigVer.current) { asigVer.current = k; setAusentes(a); setCubre(c); setManual(m); setExcluidas(ex); setCamionesLoc(cl); }
     } catch { /* se reintenta con el próximo evento */ }
   }, [fechaPedidos]);
   asigFn.current = cargarAsig;
   useEffect(() => { cargarAsig(); }, [cargarAsig]);
-  const guardarAsig = async (a, c, m, ex = excluidas) => {
-    setAusentes(a); setCubre(c); setManual(m); setExcluidas(ex);
-    asigVer.current = JSON.stringify([a, c, m, ex]);
+  const guardarAsig = async (a, c, m, ex = excluidas, cl = camionesLoc) => {
+    setAusentes(a); setCubre(c); setManual(m); setExcluidas(ex); setCamionesLoc(cl);
+    asigVer.current = JSON.stringify([a, c, m, ex, cl]);
     if (!fechaPedidos) return;
     // Los guardados salen de a uno y siempre con lo último elegido, para que no lleguen desordenados al servidor.
     const A = asigPend.current;
-    A.ultimo = JSON.stringify({ fecha: fechaPedidos, ausentes: a, cubre: c, manual: m, excluidas: ex });
+    A.ultimo = JSON.stringify({ fecha: fechaPedidos, ausentes: a, cubre: c, manual: m, excluidas: ex, camionesLoc: cl });
     if (A.enviando) return;
     A.enviando = true;
     try {
@@ -277,8 +278,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   }, [pedidos, ubic, excluidas]);  // eslint-disable-line react-hooks/exhaustive-deps
   const simBase = useMemo(() => {
     if (!pedidosSalen.salen.length) return null;
-    return simularConTope({ clientes: pedidosSalen.salen }, ubic, params);
-  }, [pedidosSalen, ubic, params]);
+    return simularConTope({ clientes: pedidosSalen.salen }, ubic, { ...params, camionesPorLoc: camionesLoc });
+  }, [pedidosSalen, ubic, params, camionesLoc]);
 
   const haceDias = (f, n) => { if (!f) return ''; const d = new Date(`${f}T12:00:00`); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
   // Choferes: los del historial de romaneos (con su zona) + los cargados en Config que todavía no tienen historial.
@@ -551,12 +552,17 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const tarjetaLocs = (
       <div className="sim-card">
         <h3>📍 Localidades que salen{fechaPedidos ? ` el ${fechaLarga(fechaPedidos)}` : ''}</h3>
-        <div className="sim-sub" style={{ marginBottom: 6 }}>Destildá las localidades que ese día no se reparten (por ejemplo Cachari si se va el miércoles). Se sacan de la simulación y se avisa cuántos clientes y bultos quedan para otro día. Se comparte en vivo.</div>
+        <div className="sim-sub" style={{ marginBottom: 6 }}>Destildá las localidades que ese día no se reparten (por ejemplo Cachari si se va el miércoles). Se sacan de la simulación y se avisa cuántos clientes y bultos quedan para otro día. Al lado de cada una podés fijar cuántos camiones salen (por ejemplo 2 a Las Flores); vacío = lo calcula solo. Se comparte en vivo.</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>
           {locsPedidos.map((o) => (
             <label key={o.loc} style={{ minWidth: 200 }}>
               <input type="checkbox" checked={!excluidas.includes(o.loc)}
                 onChange={() => guardarAsig(ausentes, cubre, manual, excluidas.includes(o.loc) ? excluidas.filter((x) => x !== o.loc) : [...excluidas, o.loc])} /> <b>{cap(o.loc)}</b> <span className="sim-sub">{o.clientes} cl. · {f0(o.bultos)} bultos</span>
+              {!excluidas.includes(o.loc) && (
+                <> <input type="number" min="0" max="20" step="1" placeholder="auto" title="Camiones para esta localidad (vacío = automático)"
+                  style={{ width: 54 }} value={camionesLoc[o.loc] || ''}
+                  onChange={(e) => { const n = Math.floor(Number(e.target.value)) || 0; const cl = { ...camionesLoc }; if (n > 0) cl[o.loc] = Math.min(20, n); else delete cl[o.loc]; guardarAsig(ausentes, cubre, manual, excluidas, cl); }} /> <span className="sim-sub">camiones</span></>
+              )}
             </label>
           ))}
         </div>
