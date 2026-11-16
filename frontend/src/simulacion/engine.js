@@ -276,14 +276,10 @@ export function simular(pedidos, ubic, parametros = {}) {
     const pal = items.reduce((s, c) => s + c.pallets, 0);
     const fijo = Math.floor(Number((P.camionesPorLoc || {})[String(loc).toUpperCase()]) || 0);
     if (fijo > 0) {
-      // Cantidad de camiones elegida a mano: se reparte la localidad por barrido angular en partes de igual carga
-      // y esos camiones no se mezclan con otras localidades.
-      const k = Math.min(fijo, items.length), parte = pal / k;
-      const ang = (c) => Math.atan2(c.lat - dep.lat, c.lon - dep.lon);
-      const cub = Array.from({ length: k }, () => []); let acc = 0;
-      items.slice().sort((a, b) => ang(a) - ang(b)).forEach((c) => {
-        cub[Math.min(k - 1, Math.floor((acc + c.pallets / 2) / parte))].push(c); acc += c.pallets;
-      });
+      // Cantidad de camiones elegida a mano: se reparte la localidad en zonas contiguas (sectores alrededor del depósito)
+      // con la misma cantidad de bultos y de clientes en cada camión; esos camiones no se mezclan con otras localidades.
+      const k = Math.min(fijo, items.length);
+      const cub = repartirEquilibrado(items, k, dep);
       cub.filter((g) => g.length).forEach((g) => unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true }));
       continue;
     }
@@ -345,6 +341,68 @@ export function simular(pedidos, ubic, parametros = {}) {
       personas: sum('personas'), recargas: sum('recargas'),
     },
   };
+}
+
+// Reparte `items` en k sectores contiguos (barrido angular desde el depósito) buscando el punto de corte que deja
+// lo más parejo posible tanto los bultos (pallets) como la cantidad de clientes de cada parte.
+export function repartirEquilibrado(items, k, dep) {
+  const n = items.length;
+  if (k <= 1 || n <= 1) return [items.slice()];
+  const ang = (c) => Math.atan2(c.lat - dep.lat, c.lon - dep.lon);
+  const ord = items.slice().sort((a, b) => ang(a) - ang(b));
+  const pal = ord.reduce((s, c) => s + c.pallets, 0) || 1;
+  const w = ord.map((c) => 0.5 * (c.pallets / pal) + 0.5 / n);
+  let mejor = null; const candidatos = [];
+  const paso = Math.max(1, Math.floor(n / 150));
+  for (let s0 = 0; s0 < n; s0 += paso) {
+    const cub = Array.from({ length: k }, () => []); let acc = 0;
+    for (let i = 0; i < n; i++) {
+      const c = ord[(s0 + i) % n];
+      cub[Math.min(k - 1, Math.floor(((acc + w[(s0 + i) % n] / 2) * k)))].push(c); acc += w[(s0 + i) % n];
+    }
+    if (cub.some((g) => !g.length)) continue;
+    const desv = Math.max(...cub.map((g) => Math.abs(g.reduce((s, c) => s + c.pallets, 0) / pal - 1 / k) + Math.abs(g.length / n - 1 / k)));
+    if (!mejor || desv < mejor.desv) mejor = { desv, cub };
+    candidatos.push({ desv, cub });
+  }
+  candidatos.sort((x, y) => x.desv - y.desv); candidatos.length = Math.min(candidatos.length, 6);
+  if (!mejor) return [items.slice()];
+  // Afinado: pasa o intercambia clientes de frontera entre camiones mientras mejore el equilibrio (sin romper las zonas).
+  // Se prueba desde las mejores particiones de arranque y se queda con la más pareja.
+  const cen = (g) => ({ lat: g.reduce((s, c) => s + c.lat, 0) / g.length, lon: g.reduce((s, c) => s + c.lon, 0) / g.length });
+  const afinar = (ini) => {
+    const cub = ini.map((g) => g.slice());
+    const P = cub.map((g) => g.reduce((s, c) => s + c.pallets, 0) / pal), N = cub.map((g) => g.length / n);
+    const score = (p, q) => Math.abs(p - 1 / k) + Math.abs(q - 1 / k);
+    const medida = () => Math.max(...cub.map((_, j) => score(P[j], N[j])));
+    let actual = medida();
+    for (let it = 0; it < 800; it++) {
+      const ds = cub.map((_, j) => (P[j] - 1 / k) + (N[j] - 1 / k));
+      const cercanos = (g, hacia, m) => g.map((c) => [haversine(c, hacia), c]).sort((x, y) => x[0] - y[0]).slice(0, m).map((x) => x[1]);
+      let mov = null, mejorVal = actual - 1e-9;
+      for (let A = 0; A < k; A++) for (let B = 0; B < k; B++) {
+        if (B === A || ds[B] >= ds[A] || cub[A].length <= 1) continue;
+        const cA = cen(cub[A]), cB = cen(cub[B]);
+        const candA = cercanos(cub[A], cB, 14), candB = [null, ...cercanos(cub[B], cA, 10)];
+        for (const a of candA) for (const b of candB) {
+          const pa = a.pallets / pal, pb = b ? b.pallets / pal : 0, nb = b ? 1 / n : 0;
+          const pA = P[A] - pa + pb, nA = N[A] - 1 / n + nb, pB = P[B] + pa - pb, nB = N[B] + 1 / n - nb;
+          let v = Math.max(score(pA, nA), score(pB, nB));
+          for (let j = 0; j < k; j++) if (j !== A && j !== B) v = Math.max(v, score(P[j], N[j]));
+          if (v < mejorVal) { mejorVal = v; mov = { A, B, a, b, pA, nA, pB, nB }; }
+        }
+      }
+      if (!mov) break;
+      const { A, B, a, b } = mov;
+      cub[A] = cub[A].filter((c) => c !== a); cub[B] = cub[B].concat([a]);
+      if (b) { cub[B] = cub[B].filter((c) => c !== b); cub[A] = cub[A].concat([b]); }
+      P[A] = mov.pA; N[A] = mov.nA; P[B] = mov.pB; N[B] = mov.nB; actual = mejorVal;
+    }
+    return { cub, desv: actual };
+  };
+  let res = null;
+  for (const c of candidatos) { const r = afinar(c.cub); if (!res || r.desv < res.desv) res = r; }
+  return res.cub;
 }
 
 // Arma un camión a partir de sus clientes: orden de visita, km, combustible, personas y recarga.
