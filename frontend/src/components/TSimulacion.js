@@ -105,6 +105,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const [rechPed, setRechPed] = useState(null);           // rechazos reales del día de entrega de los pedidos
 
   const asigFn = useRef(null);
+  const [precioInfo, setPrecioInfo] = useState({ estado: 'cargando' });   // de dónde salen los precios del gasoil
   const [hist, setHist] = useState({});                      // romaneos recientes (para aprender la zona de cada chofer)
   const [ausentes, setAusentes] = useState([]);           // choferes que no vinieron
   const [cubre, setCubre] = useState({});                 // { chofer: chofer cuya zona cubre }
@@ -157,6 +158,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     let vivo = true;
     apiFetch('/api/ruteo/combustible').then((r) => {
       if (!vivo || !r.data) return;
+      setPrecioInfo({ estado: 'ok', fuentes: r.data.fuentes || [], fallas: r.data.fallas || [], cache: !!r.cache, aviso: r.aviso || '' });
       const pm = {}, fm = {};
       r.data.marcas.forEach((m) => {
         const g = m.comun || m.premium; if (!g) return;
@@ -171,7 +173,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         const marca = pm[p.marca] ? p.marca : Object.keys(pm)[0];
         return { ...p, preciosMarca: { ...p.preciosMarca, ...pm }, fechasMarca: { ...p.fechasMarca, ...fm }, precioDiesel: pm[marca] || p.precioDiesel, marca };
       });
-    }).catch(() => { /* sin conexión al dato oficial: quedan los precios del Excel */ });
+    }).catch((e) => { if (vivo) setPrecioInfo({ estado: 'error', error: e.message }); });
     return () => { vivo = false; };
   }, []);
 
@@ -238,6 +240,11 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
 
   const haceDias = (f, n) => { if (!f) return ''; const d = new Date(`${f}T12:00:00`); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
   // Choferes: los del historial de romaneos (con su zona) + los cargados en Config que todavía no tienen historial.
+  const notaPrecios = precioInfo.estado === 'ok'
+    ? `Precios leídos de ${precioInfo.fuentes.join(' y ') || 'fuente oficial'} (por marca, el de fecha más reciente).${precioInfo.fallas.length ? ` ⚠ Una fuente falló: ${precioInfo.fallas.join(' | ')}.` : ''}`
+    : precioInfo.estado === 'error'
+      ? `⚠ No se pudo leer el precio actual (${precioInfo.error}). Se muestran los precios fijos del Excel, que pueden estar viejos: reiniciá el backend o revisá que tenga internet.`
+      : 'Buscando el precio actual del gasoil…';
   const perfiles = useMemo(() => {
     const base = perfilesChoferes(hist, ubic, params.deposito, fechaPedidos);
     const norm = normN;
@@ -732,7 +739,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                   <h3>⛽ ¿Dónde conviene cargar? ({f0(sim.totales.litros)} L del reparto)</h3>
                   <TarjetasMarcas litros={sim.totales.litros} km={sim.totales.km} bultos={sim.totales.bultos} clientes={sim.totales.clientes} params={params}
                     onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} />
-                  <div className="sim-sub" style={{ marginTop: 8 }}>Precios de la planilla (Secretaría de Energía; YPF es manual y puede estar desactualizado). Elegí una tarjeta para que el costo por camión use ese precio.</div>
+                  <div className="sim-sub" style={{ marginTop: 8 }}>{notaPrecios} Elegí una tarjeta para que el costo por camión use ese precio.</div>
                 </div>
                 )}
                 <div className="sim-card">
@@ -778,6 +785,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                     <h3>⛽ ¿Dónde conviene cargar? ({f0(costoDia.litros)} L del día)</h3>
                     <TarjetasMarcas litros={costoDia.litros} km={resumenDia.km} bultos={resumenDia.bultos} clientes={resumenDia.paradas} params={params}
                       onElegir={(marca, precio) => setParams((p) => ({ ...p, marca, precioDiesel: precio }))} />
+                    <div className="sim-sub" style={{ marginTop: 8 }}>{notaPrecios}</div>
                   </div>
                 )}
                 <div className="sim-card" style={{ overflowX: 'auto' }}>
