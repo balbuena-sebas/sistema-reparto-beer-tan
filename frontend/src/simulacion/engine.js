@@ -19,6 +19,7 @@ export const PARAMS_DEFAULT = {
   limiteRecarga2: 450,     // con 2 personas: sin recarga hasta estos bultos
   limiteRecarga3: 700,     // con 3 personas
   maxConRecarga: 900,      // más de esto con 1 recarga => alerta de revisión
+  zonaTau: 0.35, zonaK: 16, zonaDow: 1.6, zonaRec: 0.03, zonaMeta: 0.05, // ajuste del reparto por zonas de chofer
   siempreDosPersonas: ['LAS FLORES'], // localidades que salen siempre con 2 personas
   minPalletsRuta: 1,       // un camión con menos pallets que esto se intenta sumar a otro
   radioRescateKm: 60,      // ...si hay un camión con lugar a menos de esta distancia
@@ -271,7 +272,7 @@ export function simular(pedidos, ubic, parametros = {}) {
   // (radioAgrupKm) y respeta la capacidad. Si una localidad no entra en un camión, la parte por barrido angular.
   const porLoc = new Map();
   for (const c of conUbic) { const k = c.loc || 'SIN LOCALIDAD'; (porLoc.get(k) || porLoc.set(k, []).get(k)).push(c); }
-  const unidades = [];
+  const unidades = []; const usadosZona = new Set();
   for (const [loc, items] of porLoc) {
     const pal = items.reduce((s, c) => s + c.pallets, 0);
     const fijo = Math.floor(Number((P.camionesPorLoc || {})[String(loc).toUpperCase()]) || 0);
@@ -279,12 +280,22 @@ export function simular(pedidos, ubic, parametros = {}) {
       // Cantidad de camiones elegida a mano: se reparte la localidad en zonas contiguas (sectores alrededor del depósito)
       // con la misma cantidad de bultos y de clientes en cada camión; esos camiones no se mezclan con otras localidades.
       const k = Math.min(fijo, items.length);
+      const z = repartirPorZonas(items, k, P, { usados: usadosZona });
+      if (z) {
+        z.grupos.forEach((g, j) => { usadosZona.add(z.choferes[j]); unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true, chofer: z.choferes[j] }); });
+        continue;
+      }
       const cub = repartirEquilibrado(items, k, dep);
       cub.filter((g) => g.length).forEach((g) => unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true }));
       continue;
     }
     if (pal <= capUtil && items.length <= P.maxParadas) { unidades.push({ loc, items, pallets: pal }); continue; }
     const k = Math.max(Math.ceil(pal / capUtil), Math.ceil(items.length / P.maxParadas)), objetivo = pal / k;
+    const zAuto = k > 1 ? repartirPorZonas(items, k, P, { usados: usadosZona, capMax: capUtil * 1.03 }) : null;
+    if (zAuto) {
+      zAuto.grupos.forEach((g, j) => { usadosZona.add(zAuto.choferes[j]); unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true, chofer: zAuto.choferes[j] }); });
+      continue;
+    }
     const ang = (c) => Math.atan2(c.lat - dep.lat, c.lon - dep.lon);
     const ord = items.slice().sort((a, b) => ang(a) - ang(b));
     let cur = [], acc = 0, n = 0;
@@ -305,7 +316,7 @@ export function simular(pedidos, ubic, parametros = {}) {
   for (const u of unidades) {
     const cu = centro(u.items);
     let dest = null, bd = Infinity;
-    if (u.fijo) { camiones.push({ items: u.items.slice(), pallets: u.pallets, locs: new Set([u.loc]), fijo: true }); continue; }
+    if (u.fijo) { camiones.push({ items: u.items.slice(), pallets: u.pallets, locs: new Set([u.loc]), fijo: true, chofer: u.chofer || null }); continue; }
     for (const cam of camiones) {
       if (cam.fijo) continue;
       if (cam.pallets + u.pallets > capUtil || cam.items.length + u.items.length > P.maxParadas) continue;
@@ -328,9 +339,7 @@ export function simular(pedidos, ubic, parametros = {}) {
     });
     if (dest) { dest.items.push(...c.items); dest.pallets += c.pallets; c.locs.forEach((l) => dest.locs.add(l)); camiones.splice(i, 1); }
   }
-  const grupos = camiones.map((c) => c.items);
-
-  const rutas = grupos.filter((g) => g.length).map((g, i) => armarRuta(P, g, i + 1));
+  const rutas = camiones.filter((c) => c.items.length).map((c, i) => ({ ...armarRuta(P, c.items, i + 1), choferZona: c.chofer || null }));
   const sum = (k) => rutas.reduce((s, r) => s + r[k], 0);
   return {
     params: P, rutas, sinUbicacion: sinUbic,
@@ -405,6 +414,122 @@ export function repartirEquilibrado(items, k, dep) {
   return res.cub;
 }
 
+// ── Zonas reales de cada chofer (aprendidas de los romaneos) ──────────────────
+const esPropio = (nombre) => !MERCADOS.includes(String(nombre).toUpperCase()) && !/^CAMION /i.test(nombre);
+// Todas las paradas de los romaneos cargados: { lat, lon, ch, dow, t } (t = mediodía del día, en ms).
+export function construirZonas(dias) {
+  const out = [];
+  Object.entries(dias || {}).forEach(([f, d]) => {
+    const t = Date.parse(`${f}T12:00:00`); const dow = new Date(t).getDay();
+    d.rutas.forEach((r, i) => {
+      const ch = String(r.chofer || '').trim();
+      if (!ch || !esPropio(ch)) return;
+      d.paradas.forEach((p) => { if (p[0] === i) out.push({ lat: p[4], lon: p[5], ch, dow, t, f }); });
+    });
+  });
+  return out;
+}
+
+// Reparte `items` (clientes de una localidad) en k camiones respetando la zona que cada chofer recorre de verdad:
+// 1) elige los k choferes presentes que más reparten por esa zona (más peso los días recientes y el mismo día de la semana),
+// 2) cada cliente va al chofer cuyas paradas históricas tiene más cerca,
+// 3) si quedó desparejo en bultos/clientes, pasa clientes de frontera al vecino hasta equilibrar sin sacar a nadie de una zona
+//    donde ese chofer nunca va.
+// Devuelve { grupos, choferes } o null si no hay historial suficiente (se usa entonces el reparto geométrico).
+export function repartirPorZonas(items, k, P, opciones = {}) {
+  const zonas = P.zonas;
+  if (!zonas || !zonas.length || k < 2 || items.length < k) return null;
+  const dep = P.deposito, kx = 111.32 * Math.cos(rad(dep.lat)), ky = 110.57;
+  const xy = (c) => [(c.lon - dep.lon) * kx, (c.lat - dep.lat) * ky];
+  const objetivo = P.fechaObjetivo ? Date.parse(`${P.fechaObjetivo}T12:00:00`) : Date.now();
+  const dowT = new Date(objetivo).getDay();
+  const aus = new Set(P.ausentes || []);
+  const cubierto = {}; Object.entries(P.cubre || {}).forEach(([quien, aQuien]) => { cubierto[aQuien] = quien; });
+  const yaUsados = new Set(opciones.usados || []);
+  const ef = (ch) => (aus.has(ch) ? (cubierto[ch] && !aus.has(cubierto[ch]) ? cubierto[ch] : null) : ch);
+  // paradas históricas anteriores al día a simular, con peso por antigüedad y día de la semana
+  const H = [];
+  for (const z of zonas) {
+    if (z.t >= objetivo) continue;
+    const ch = ef(z.ch); if (!ch || yaUsados.has(ch)) continue;
+    const edad = (objetivo - z.t) / 86400000;
+    const [x, y] = xy(z);
+    H.push({ x, y, ch, w: Math.exp(-(P.zonaRec ?? 0.03) * edad) * (z.dow === dowT ? (P.zonaDow ?? 1.6) : 1) });
+  }
+  if (!H.length) return null;
+  const pts = items.map((c) => xy(c));
+  // choferes que reparten cerca de estos clientes
+  const celda = 0.6, grid = new Map();
+  pts.forEach(([x, y]) => { const key = `${Math.floor(x / celda)}|${Math.floor(y / celda)}`; grid.set(key, true); });
+  const peso = new Map();
+  for (const h of H) {
+    const cx = Math.floor(h.x / celda), cy = Math.floor(h.y / celda);
+    let cerca = false;
+    for (let a = -1; a <= 1 && !cerca; a++) for (let b = -1; b <= 1; b++) if (grid.has(`${cx + a}|${cy + b}`)) { cerca = true; break; }
+    if (cerca) peso.set(h.ch, (peso.get(h.ch) || 0) + h.w);
+  }
+  const cands = [...peso.entries()].sort((a, b) => b[1] - a[1]).slice(0, k).map((x) => x[0]);
+  if (cands.length < k) return null;
+  const idx = new Map(cands.map((c, i) => [c, i]));
+  const Hc = H.filter((h) => idx.has(h.ch));
+  // probabilidad de que cada cliente sea de cada chofer: sus 12 paradas históricas más cercanas, ponderadas por cercanía
+  const n = items.length, KK = P.zonaK ?? 12, TAU = P.zonaTau ?? 0.35;
+  const Pm = items.map((_, i) => {
+    const [px, py] = pts[i];
+    const top = [];
+    for (const h of Hc) {
+      const d = Math.hypot(h.x - px, h.y - py);
+      if (top.length < KK || d < top[top.length - 1].d) {
+        top.push({ d, h }); top.sort((a, b) => a.d - b.d); if (top.length > KK) top.pop();
+      }
+    }
+    const v = new Array(k).fill(1e-6);
+    top.forEach(({ d, h }) => { v[idx.get(h.ch)] += Math.exp(-d / TAU) * h.w; });
+    const s = v.reduce((a, b) => a + b, 0);
+    return v.map((x) => x / s);
+  });
+  let a = Pm.map((v) => v.indexOf(Math.max(...v)));
+  // equilibrio: bultos (pallets) y cantidad de clientes parejos entre camiones
+  const palTot = items.reduce((s, c) => s + c.pallets, 0) || 1;
+  const pal = Array(k).fill(0), cnt = Array(k).fill(0);
+  a.forEach((j, i) => { pal[j] += items[i].pallets / palTot; cnt[j] += 1 / n; });
+  const sc = (p, q) => Math.abs(p - 1 / k) + Math.abs(q - 1 / k);
+  const dev = () => Math.max(...pal.map((p, j) => sc(p, cnt[j])));
+  const meta = opciones.meta == null ? (P.zonaMeta ?? 0.10) : opciones.meta;
+  for (const minP of [0.05, 0.005, 0]) {
+    for (let it = 0; it < 400; it++) {
+      const cur = dev(); if (cur <= meta) break;
+      let mejor = null;
+      for (let i = 0; i < n; i++) {
+        const A = a[i], pi = items[i].pallets / palTot;
+        for (let B = 0; B < k; B++) {
+          if (B === A || Pm[i][B] < minP) continue;
+          const pA = pal[A] - pi, qA = cnt[A] - 1 / n, pB = pal[B] + pi, qB = cnt[B] + 1 / n;
+          let v = Math.max(sc(pA, qA), sc(pB, qB));
+          for (let j = 0; j < k; j++) if (j !== A && j !== B) v = Math.max(v, sc(pal[j], cnt[j]));
+          if (v >= cur - 1e-9) continue;
+          const puntaje = (cur - v) / (0.02 + Math.max(0, Pm[i][A] - Pm[i][B]));
+          if (!mejor || puntaje > mejor.puntaje) mejor = { puntaje, i, A, B, pi };
+        }
+      }
+      if (!mejor) break;
+      const { i, A, B, pi } = mejor;
+      a[i] = B; pal[A] -= pi; cnt[A] -= 1 / n; pal[B] += pi; cnt[B] += 1 / n;
+    }
+    if (dev() <= meta) break;
+  }
+  const grupos = cands.map(() => []); a.forEach((j, i) => grupos[j].push(items[i]));
+  if (opciones.capMax) {
+    // cada camión tiene que entrar en la capacidad: si no, que decida el reparto geométrico
+    if (grupos.some((g) => g.reduce((s, c) => s + c.pallets, 0) > opciones.capMax)) {
+      const m = opciones.meta == null ? (P.zonaMeta ?? 0.10) : opciones.meta;
+      return m > 0.02 ? repartirPorZonas(items, k, P, { ...opciones, meta: m > 0.05 ? 0.05 : 0.02 }) : null;
+    }
+  }
+  const out = grupos.map((g, j) => ({ items: g, chofer: cands[j] })).filter((x) => x.items.length);
+  return { grupos: out.map((x) => x.items), choferes: out.map((x) => x.chofer) };
+}
+
 // Arma un camión a partir de sus clientes: orden de visita, km, combustible, personas y recarga.
 // ordenCods (opcional): orden de visita fijado a mano; los clientes que no estén en la lista van al final.
 export function armarRuta(P, g, n, ordenCods) {
@@ -433,7 +558,7 @@ export function armarRuta(P, g, n, ordenCods) {
 // plan = { camiones: [{ id, cods: [codigoCliente], orden: bool }], pend: [codigoCliente] }
 //   orden=true: el orden de cods es el orden de visita elegido a mano · pend: clientes que se dejan para otro día.
 export function planDesde(sim) {
-  return { camiones: sim.rutas.map((r, i) => ({ id: i + 1, cods: r.paradas.map((p) => p.c), orden: false })), pend: [] };
+  return { camiones: sim.rutas.map((r, i) => ({ id: i + 1, cods: r.paradas.map((p) => p.c), orden: false, chofer: r.choferZona || null })), pend: [] };
 }
 const planLimpio = (pl) => ({ camiones: pl.camiones.filter((t) => t.cods.length), pend: pl.pend || [] });
 // destino: id de camión · 'nuevo' (camión nuevo) · 'pend' (otro día)
@@ -475,7 +600,7 @@ export function aplicarPlan(sim, plan, parametros = {}) {
   for (const t of plan.camiones || []) {
     const g = [], ord = [];
     (t.cods || []).forEach((c) => { const p = por.get(c); if (p && !pend.has(c) && !usados.has(c)) { g.push(p); ord.push(c); usados.add(c); } });
-    grupos.push({ id: t.id, g, ord: t.orden ? ord : null });
+    grupos.push({ id: t.id, g, ord: t.orden ? ord : null, chofer: t.chofer || null });
   }
   const nuevos = [...por.values()].filter((p) => !usados.has(p.c) && !pend.has(p.c));
   const cen = (g) => ({ lat: g.reduce((s, c) => s + c.lat, 0) / g.length, lon: g.reduce((s, c) => s + c.lon, 0) / g.length });
@@ -486,7 +611,7 @@ export function aplicarPlan(sim, plan, parametros = {}) {
     if (bi < 0) { grupos.push({ id: Math.max(0, ...grupos.map((x) => x.id)) + 1, g: [p], ord: null }); centros.push(cen([p])); }
     else grupos[bi].g.push(p);
   }
-  const rutas = grupos.filter((x) => x.g.length).map((x, i) => ({ ...armarRuta(P, x.g, i + 1, x.ord), planId: x.id, ordenManual: !!x.ord }));
+  const rutas = grupos.filter((x) => x.g.length).map((x, i) => ({ ...armarRuta(P, x.g, i + 1, x.ord), planId: x.id, ordenManual: !!x.ord, choferZona: x.chofer }));
   const sum = (k) => rutas.reduce((s, r) => s + r[k], 0);
   const pendientes = [...pend].map((c) => por.get(c));
   const max = Math.floor(P.maxCamiones || 0);

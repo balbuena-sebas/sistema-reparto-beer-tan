@@ -247,7 +247,7 @@ router.put('/asignacion', async (req, res) => {
         const p = b.plan; if (!p || typeof p !== 'object' || !Array.isArray(p.camiones)) return null;
         const nums = (a) => (Array.isArray(a) ? a : []).map(Number).filter(Number.isFinite).slice(0, 3000);
         return {
-          camiones: p.camiones.slice(0, 40).map((t) => ({ id: Math.floor(Number(t && t.id)) || 0, cods: nums(t && t.cods), orden: !!(t && t.orden) })).filter((t) => t.id > 0),
+          camiones: p.camiones.slice(0, 40).map((t) => ({ id: Math.floor(Number(t && t.id)) || 0, cods: nums(t && t.cods), orden: !!(t && t.orden), chofer: t && t.chofer ? String(t.chofer).slice(0, 60) : null })).filter((t) => t.id > 0),
           pend: nums(p.pend),
         };
       })(),

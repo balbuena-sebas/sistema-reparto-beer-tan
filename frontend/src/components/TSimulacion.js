@@ -8,7 +8,7 @@ import {
   PARAMS_DEFAULT, parsePedidos, construirUbicaciones, calibrarFactor, diffPedidos,
   indexarRechazos, cruzarRechazos, resumenRuteados, costearRuta, comparativaMarcas, resumenPorLocalidad,
   perfilesChoferes, asignarChoferes, zonaDelDia, simularConTope,
-  planDesde, planMover, planJuntar, planPartir, planOrdenar, planOrdenAuto, aplicarPlan,
+  planDesde, planMover, planJuntar, planPartir, planOrdenar, planOrdenAuto, aplicarPlan, construirZonas,
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
@@ -230,7 +230,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   };
   useEffect(() => {
     let vivo = true;
-    const fechas = lista.map((x) => x.fecha).sort().slice(-12);
+    const fechas = lista.map((x) => x.fecha).sort().slice(-30);
     (async () => {
       const h = {};
       for (const f of fechas) { try { const d = await traerDia(f); if (d) h[f] = d; } catch { /* sigue */ } if (!vivo) return; }
@@ -280,13 +280,6 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     const todos = pedidos?.data?.clientes || [];
     return { salen: todos.filter((c) => !ex.has(locDe(c.c))), quedan: todos.filter((c) => ex.has(locDe(c.c))) };
   }, [pedidos, ubic, excluidas]);  // eslint-disable-line react-hooks/exhaustive-deps
-  const simAuto = useMemo(() => {
-    if (!pedidosSalen.salen.length) return null;
-    return simularConTope({ clientes: pedidosSalen.salen }, ubic, { ...params, camionesPorLoc: camionesLoc });
-  }, [pedidosSalen, ubic, params, camionesLoc]);
-  // Con reparto editado a mano manda el plan; si no, la propuesta del motor.
-  const simBase = useMemo(() => (simAuto && plan ? aplicarPlan(simAuto, plan, params) : simAuto), [simAuto, plan, params]);
-
   const haceDias = (f, n) => { if (!f) return ''; const d = new Date(`${f}T12:00:00`); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
   // Choferes: los del historial de romaneos (con su zona) + los cargados en Config que todavía no tienen historial.
   const notaPrecios = precioInfo.estado === 'ok'
@@ -314,6 +307,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
       .map((n) => ({ nombre: String(n).replace(/\s+/g, ' ').trim(), dias: 0, ultimo: '', etiqueta: 'sin historial de romaneo (Config)', deZonaDelDia: false, mercado: false, soloConfig: true }));
     return [...base, ...deConfig];
   }, [hist, ubic, params.deposito, fechaPedidos, cfg]);
+  // Paradas de los romaneos recientes: de acá sale la zona que cada chofer recorre de verdad
+  const zonas = useMemo(() => construirZonas(hist), [hist]);
   // Ausencias cargadas en la pestaña Ausencias que cubren el día de entrega (nombre normalizado → motivo)
   const ausAuto = useMemo(() => {
     const m = new Map();
@@ -333,11 +328,19 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     const aus = new Set([...ausAuto.keys(), ...ausentes.map(normN)]);
     return [...todos.keys()].filter((k) => !aus.has(k)).length;
   }, [cfg, ausAuto, ausentes]);
+  const simAuto = useMemo(() => {
+    if (!pedidosSalen.salen.length) return null;
+    return simularConTope({ clientes: pedidosSalen.salen }, ubic, { ...params, camionesPorLoc: camionesLoc, zonas, fechaObjetivo: fechaPedidos, ausentes: ausEf, cubre });
+  }, [pedidosSalen, ubic, params, camionesLoc, zonas, fechaPedidos, ausEf, cubre]);
+  // Con reparto editado a mano manda el plan; si no, la propuesta del motor.
+  const simBase = useMemo(() => (simAuto && plan ? aplicarPlan(simAuto, plan, params) : simAuto), [simAuto, plan, params]);
+
   const claveAncla = (r) => (r.planId ? `p${r.planId}` : String(Math.min(...r.paradas.map((p) => p.c))));
   // Chofer por ruta: lo elegido a mano manda; el resto se asigna por zona habitual (sin repetir choferes).
   const choferesRutas = useMemo(() => {
     if (!simBase) return [];
-    const out = simBase.rutas.map((r) => (manual[claveAncla(r)] ? { chofer: manual[claveAncla(r)], motivo: 'elegido a mano' } : null));
+    const out = simBase.rutas.map((r) => (manual[claveAncla(r)] ? { chofer: manual[claveAncla(r)], motivo: 'elegido a mano' }
+      : r.choferZona && !ausEf.includes(r.choferZona) ? { chofer: r.choferZona, motivo: 'reparte esta zona en los romaneos' } : null));
     const libres = simBase.rutas.map((r, i) => i).filter((i) => !out[i]);
     const ocupados = out.filter(Boolean).map((x) => x.chofer);
     const auto = asignarChoferes(libres.map((i) => simBase.rutas[i]), perfiles, [...ausEf, ...ocupados], cubre);
