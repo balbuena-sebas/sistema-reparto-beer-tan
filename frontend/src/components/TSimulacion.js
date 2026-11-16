@@ -11,7 +11,7 @@ import {
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
-import { motivoNoLaborable } from './diasTrabajados';
+import { motivoNoLaborable, calcDiasTrabajados } from './diasTrabajados';
 import '../simulacion/simulacion.css';
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -298,6 +298,19 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     return { ...simBase, rutas, conCalle, totales: { ...simBase.totales, km: sum('km'), litros: sum('litros'), combustible: sum('combustible'), personas: sum('personas'), recargas: sum('recargas') } };
   }, [simBase, calles, callesOn, params, rutasSimMapa]);
 
+  // Costo de personal del día: sueldo mensual de Config (o el del mes en "paramXMes") ÷ días trabajados del mes
+  // (lunes a sábado sin feriados ni días no trabajados), igual que el resto de la app.
+  const costoPers = useMemo(() => {
+    if (!sim || !fechaPedidos) return null;
+    const mes = fechaPedidos.slice(0, 7), pm = (cfg?.paramXMes || {})[mes] || {};
+    const ch = Number(pm.costoChofer ?? cfg?.costoChofer) || 0, ay = Number(pm.costoAyudante ?? cfg?.costoAyudante) || 0;
+    const [y, m] = mes.split('-').map(Number);
+    const ultimo = new Date(y, m, 0).getDate();
+    const dias = calcDiasTrabajados(`${mes}-01`, `${mes}-${String(ultimo).padStart(2, '0')}`, (cfg?.diasNoTrabajados || []).map((d) => d.fecha)) || 26;
+    const de = (personas) => (ch + Math.max(0, personas - 1) * ay) / dias;
+    const porRuta = sim.rutas.map((r) => de(r.personas));
+    return { porRuta, total: porRuta.reduce((s, x) => s + x, 0), dias, ch, ay };
+  }, [sim, fechaPedidos, cfg]);
   const resumenLoc = useMemo(() => (sim ? resumenPorLocalidad(sim.rutas) : []), [sim]);
   // Costo del día real (mismas reglas de combustible y recarga que la planilla)
   const costoDia = useMemo(() => {
@@ -565,6 +578,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                     <div className="sim-kpi"><b>{f0(sim.totales.km)}</b><span>Km {sim.conCalle === sim.rutas.length && sim.conCalle > 0 ? 'por calles' : 'estimados'}</span></div>
                     <div className="sim-kpi"><b>{money(sim.totales.combustible)}</b><span>Combustible ({f0(sim.totales.litros)} L)</span></div>
                     <div className="sim-kpi"><b>{sim.totales.recargas}</b><span>Recargas</span></div>
+                    {costoPers && costoPers.total > 0 && <div className="sim-kpi"><b>{money(costoPers.total)}</b><span>Personal del día ({costoPers.dias} días hábiles)</span></div>}
+                    {costoPers && costoPers.total > 0 && <div className="sim-kpi"><b>{money(costoPers.total + sim.totales.combustible)}</b><span>Combustible + personal{sim.totales.bultos ? ` · ${money((costoPers.total + sim.totales.combustible) / sim.totales.bultos)}/bulto` : ''}</span></div>}
                   </div>
                   {cambios && (cambios.salen + cambios.entran + cambios.cambian > 0) && (
                     <div className="sim-msg" style={{ marginTop: 10 }}>
@@ -671,7 +686,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                     </div>
                   )}
                   <table className="sim-table">
-                    <thead><tr><th>Camión</th><th>Zona</th><th>Chofer</th><th>Paradas</th><th>Bultos</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Litros</th><th>Combustible</th><th>Personas</th><th>Recarga</th></tr></thead>
+                    <thead><tr><th>Camión</th><th>Zona</th><th>Chofer</th><th>Paradas</th><th>Bultos</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Litros</th><th>Combustible</th><th>Personas</th><th>Personal</th><th>Total</th><th>Recarga</th></tr></thead>
                     <tbody>
                       {sim.rutas.map((r, i) => (
                         <tr key={r.n} className={`click ${rutaSel === i ? 'rsel' : ''}`} onClick={() => setRutaSel(rutaSel === i ? null : i)}>
@@ -689,6 +704,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                           <td><div className="sim-bar"><i className={r.ocupacion > 0.8 ? 'alto' : r.ocupacion < 0.4 ? 'bajo' : ''} style={{ width: `${Math.min(100, r.ocupacion * 100)}%` }} /></div></td>
                           <td>{f0(r.km)}{r.kmCalle ? ' 🛣️' : ''}</td><td>{f1(r.litros)}{r.utilitario ? ' (util.)' : ''}</td><td>{money(r.combustible)}</td>
                           <td>{r.personas}</td>
+                          <td>{costoPers ? money(costoPers.porRuta[i]) : '—'}</td>
+                          <td><b>{costoPers ? money(costoPers.porRuta[i] + r.combustible) : money(r.combustible)}</b></td>
                           <td>{r.recargas ? (r.alertaRecarga ? <span className="sim-warn" style={{ padding: '1px 6px' }} title={`Más de ${params.maxConRecarga} bultos con recarga: revisar`}>1 ⚠ revisar</span> : '1') : `no (≤${r.limiteRecarga})`}</td>
                         </tr>
                       ))}
