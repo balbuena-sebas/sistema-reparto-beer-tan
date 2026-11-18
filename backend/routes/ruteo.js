@@ -8,7 +8,7 @@ const { query } = require('../db');
 const { comprimir, descomprimirSafe } = require('../compress');
 
 const MAX_DIA_BYTES     = 1.5 * 1024 * 1024; // romaneo de un día
-const MAX_PEDIDOS_BYTES = 600 * 1024;        // pedidos vigentes
+const MAX_PEDIDOS_BYTES = 1500 * 1024;        // pedidos vigentes
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 let schemaPromise = null;

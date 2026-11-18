@@ -480,47 +480,64 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const elegirVista = (k) => { setVista(k); if (mapRef.current) cambiarVista(mapRef.current, k, redibujar); };
 
   // ── Pedidos ──────────────────────────────────────────────────────────────
-  const subirPedidos = async (file, fechaEntrega, sumar = false) => {
-    const previo0 = pedidos?.data;
-    if (!sumar && previo0 && previo0.fechaEntrega === fechaEntrega && previo0.clientes?.length &&
-        !window.confirm(`Ya hay ${previo0.clientes.length} clientes cargados para ese día (${previo0.archivo}).\n\n¿Reemplazarlos por este archivo?\nSi es el otro archivo del mismo día (por ejemplo Las Flores), cancelá y usá «Sumar otro archivo».`)) return;
+  // Los pedidos de un día de entrega se arman por CAPAS: una por cada fecha de pedido (el Excel de Chess no trae la fecha
+  // de cada pedido, la indica quien lo sube). El total por cliente es la suma de todas las capas.
+  //   · Subir pedidos del día      → reemplaza la capa de esa fecha de pedido (volver a subir el mismo día no duplica).
+  //   · Sumar otro archivo         → agrega clientes a esa misma capa (otra zona del mismo día, ej. Las Flores y zona).
+  const capasDe = (p, fechaEntrega) => (p && p.fechaEntrega === fechaEntrega
+    ? (p.capas || (p.clientes && p.clientes.length ? { '': { archivo: p.archivo, clientes: p.clientes } } : {})) : {});
+  const totalCapas = (capas) => {
+    const m = new Map();
+    Object.keys(capas).sort().forEach((k) => capas[k].clientes.forEach((c) => {
+      const a = m.get(c.c);
+      if (!a) m.set(c.c, { ...c });
+      else m.set(c.c, { ...a, n: a.n || c.n, b: Math.round((a.b + c.b) * 100) / 100, p: (a.p || 0) + (c.p || 0), neto: (a.neto || 0) + (c.neto || 0) });
+    }));
+    return [...m.values()];
+  };
+  const subirPedidos = async (file, fechaEntrega, fechaPedido, sumar = false) => {
+    const capas0 = capasDe(pedidos?.data, fechaEntrega);
+    if (!sumar && capas0[fechaPedido] &&
+        !window.confirm(`Ya cargaste pedidos con fecha ${fechaLarga(fechaPedido)} (${capas0[fechaPedido].archivo}).\n\n¿Reemplazarlos por este archivo?\nSi es el otro archivo del mismo día (por ejemplo Las Flores), cancelá y usá «Sumar otro archivo».`)) return;
     setOcupado(true);
     try {
       const wb = XLSX.read(await leerArchivo(file), { type: 'array' });
       const m = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
-      await guardarPedidos(parsePedidos(m), file.name, fechaEntrega, sumar);
+      await guardarPedidos(parsePedidos(m), file.name, fechaEntrega, sumar, fechaPedido);
     } catch (e) { aviso(e.message, 'err'); }
     setOcupado(false);
   };
 
-  const guardarPedidos = async (ped, archivoNombre, fechaEntrega, sumar, extra = '') => {
+  const guardarPedidos = async (ped, archivoNombre, fechaEntrega, sumar, fechaPedido, quitar = false) => {
     const previo = pedidos?.data;
-      const snap = previo ? previo.clientes.map((c) => [c.c, c.b, c.n]) : null;
-      const anterior = previo ? { archivo: previo.archivo, cargadoEn: pedidos.updatedAt, clientes: snap } : null;
-      // "base" = primera carga del día de entrega: permite saber qué pedidos ya se ruteó y salieron de la lista
-      let base = previo && previo.fechaEntrega === fechaEntrega ? (previo.base || snap) : null;
-      let clientes = ped.clientes, archivo = archivoNombre;
-      if (sumar && previo && previo.fechaEntrega === fechaEntrega) {
-        // Se suma al día ya cargado, por código de cliente. Si un cliente está en los dos archivos hay que decidir:
-        // pedidos de OTRO día (se suman los bultos) u otra zona del mismo día (el archivo nuevo reemplaza, no duplica).
-        const m = new Map(previo.clientes.map((c) => [c.c, c]));
-        const repetidos = ped.clientes.filter((c) => m.has(c.c)).length;
-        const sumarBultos = repetidos > 0 && window.confirm(`${repetidos} clientes están en los dos archivos.\n\nAceptar = son pedidos de OTRO día: se SUMAN los bultos de cada cliente.\nCancelar = es el mismo pedido (ej. otra zona): el archivo nuevo reemplaza, sin duplicar.`);
-        ped.clientes.forEach((c) => {
-          const a = m.get(c.c);
-          m.set(c.c, sumarBultos && a ? { ...c, b: Math.round((a.b + c.b) * 100) / 100, p: (a.p || 0) + (c.p || 0), neto: (a.neto || 0) + (c.neto || 0) } : c);
-        });
-        clientes = [...m.values()];
-        archivo = `${previo.archivo} + ${archivoNombre}`.slice(0, 200);
-        const bm = new Map((base || snap || []).map((r) => [r[0], r]));
-        ped.clientes.forEach((c) => { const a = sumarBultos && bm.get(c.c); bm.set(c.c, [c.c, a ? Math.round((a[1] + c.b) * 100) / 100 : c.b, c.n]); });
-        base = [...bm.values()];
-      } else if (sumar) { throw new Error('Para sumar, la fecha de entrega tiene que ser la de los pedidos ya cargados.'); }
-      await apiFetch('/api/ruteo/pedidos', { method: 'PUT', headers: hdr,
-        body: JSON.stringify({ archivo, fechaEntrega, clientes, anterior, base }) });
-      const totB = clientes.reduce((s, c) => s + c.b, 0);
-      aviso(`${extra}${sumar ? 'Sumado' : 'Pedidos cargados'}: ${sumar ? `${ped.total.clientes} clientes de ${archivoNombre}. Total del día: ` : ''}${clientes.length} clientes, ${f0(totB)} bultos. Todos los usuarios con acceso lo ven al instante.`);
-      await cargarPedidos();
+    const mismo = !!previo && previo.fechaEntrega === fechaEntrega;
+    const snap = previo ? previo.clientes.map((c) => [c.c, c.b, c.n]) : null;
+    const anterior = previo ? { archivo: previo.archivo, cargadoEn: pedidos.updatedAt, clientes: snap } : null;
+    const capas = { ...capasDe(previo, fechaEntrega) };
+    const act = capas[fechaPedido];
+    const nueva = !act;
+    if (quitar) delete capas[fechaPedido];
+    else if (sumar && act) {
+      const m = new Map(act.clientes.map((c) => [c.c, c]));
+      ped.clientes.forEach((c) => m.set(c.c, c));               // un cliente repetido en la misma fecha no se duplica
+      capas[fechaPedido] = { archivo: (act.archivo || '').split(' + ').includes(archivoNombre) ? act.archivo : `${act.archivo} + ${archivoNombre}`.slice(0, 200), clientes: [...m.values()] };
+    } else capas[fechaPedido] = { archivo: archivoNombre, clientes: ped.clientes };
+    const clientes = totalCapas(capas);
+    const archivo = [...new Set(Object.keys(capas).sort().map((k) => capas[k].archivo))].join(' + ').slice(0, 200) || archivoNombre;
+    // "base" = primera carga del día de entrega: permite saber qué pedidos ya se ruteó y salieron de la lista.
+    // Al sumar pedidos nuevos (otra zona u otra fecha) la base sube con ellos; al reemplazar una capa queda como estaba.
+    let base = mismo ? (previo.base || snap) : null;
+    if (mismo && !quitar && (sumar || nueva)) {
+      const tot = new Map(clientes.map((c) => [c.c, c]));
+      const bm = new Map((base || snap || []).map((r) => [r[0], r]));
+      ped.clientes.forEach((c) => { const t = tot.get(c.c); bm.set(c.c, [c.c, t ? t.b : c.b, c.n]); });
+      base = [...bm.values()];
+    }
+    await apiFetch('/api/ruteo/pedidos', { method: 'PUT', headers: hdr,
+      body: JSON.stringify({ archivo, fechaEntrega, clientes, anterior, base, capas }) });
+    const totB = clientes.reduce((s, c) => s + c.b, 0);
+    aviso(`${quitar ? 'Quitado' : sumar ? 'Sumado' : 'Pedidos cargados'}: ${clientes.length} clientes, ${f0(totB)} bultos para el ${fechaLarga(fechaEntrega)} (${Object.keys(capas).length} fecha${Object.keys(capas).length === 1 ? '' : 's'} de pedido). Todos los usuarios con acceso lo ven al instante.`);
+    await cargarPedidos();
   };
 
   // ── Calendario ───────────────────────────────────────────────────────────
@@ -535,6 +552,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const hoyISO = iso(new Date());
 
   const [fechaNueva, setFechaNueva] = useState(() => proximoDiaHabil(new Date(), cfg?.diasNoTrabajados));
+  const [fechaPed, setFechaPed] = useState(() => iso(new Date()));       // fecha en que se hicieron los pedidos del archivo
   const refPed2 = useRef(null);
   const refPed = useRef(null);
 
@@ -735,12 +753,26 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                 <input className="sim-input" type="date" value={fechaNueva} onChange={(e) => setFechaNueva(e.target.value)} />
               </label>
               <input ref={refPed} type="file" accept=".xlsx,.xls,.csv" hidden
-                onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva); }} />
-              <button className="sim-btn pri" disabled={ocupado} onClick={() => refPed.current.click()}>📦 Subir pedidos (Excel)</button>
+                onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva, fechaPed); }} />
+              <label className="sim-sub">Pedidos hechos el día
+                <input className="sim-input" type="date" value={fechaPed} onChange={(e) => setFechaPed(e.target.value)} />
+              </label>
+              <button className="sim-btn pri" disabled={ocupado || !fechaPed} onClick={() => refPed.current.click()}>📦 Subir pedidos del día (Excel)</button>
               <input ref={refPed2} type="file" accept=".xlsx,.xls,.csv" hidden
-                onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva, true); }} />
-              <button className="sim-btn" disabled={ocupado || !pedidos?.data} onClick={() => refPed2.current.click()}
-                title="Suma un segundo archivo sin borrar lo anterior: otra zona del mismo día (Tandil y zona + Las Flores y zona) o pedidos de otro día, que se suman por cliente">➕ Sumar otro archivo</button>
+                onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva, fechaPed, true); }} />
+              <button className="sim-btn" disabled={ocupado || !fechaPed || !pedidos?.data} onClick={() => refPed2.current.click()}
+                title="Otro archivo de la misma fecha de pedido (ej. Tandil y zona + Las Flores y zona): se agrega sin borrar el anterior">➕ Sumar otro archivo (misma fecha)</button>
+              {pedidos?.data && pedidos.data.fechaEntrega === fechaNueva && Object.keys(capasDe(pedidos.data, fechaNueva)).length > 0 && (
+                <div className="sim-sub" style={{ borderTop: '1px solid var(--border, #cdd4e4)', paddingTop: 6 }}>
+                  <b>Se entrega el {fechaLarga(fechaNueva)} · pedidos acumulados:</b>
+                  {Object.entries(capasDe(pedidos.data, fechaNueva)).sort().map(([k, v]) => (
+                    <div key={k}>{k ? `Hechos el ${fechaLarga(k)}` : 'Carga anterior'}: {v.clientes.length} cl. · {f0(v.clientes.reduce((t, c) => t + c.b, 0))} bultos{' '}
+                      <button className="sim-btn" disabled={ocupado} title="Quitar los pedidos de esta fecha"
+                        onClick={() => { if (window.confirm(`¿Quitar los pedidos hechos el ${k ? fechaLarga(k) : 'de la carga anterior'}?`)) { setOcupado(true); guardarPedidos({ clientes: [] }, '', fechaNueva, false, k, true).catch((e) => aviso(e.message, 'err')).finally(() => setOcupado(false)); } }}>🗑</button></div>
+                  ))}
+                  <b>Total: {pedidos.data.clientes.length} clientes · {f0(pedidos.data.clientes.reduce((t, c) => t + c.b, 0))} bultos</b>
+                </div>
+              )}
               <div className="sim-sub">
                 {pedidos?.data ? <>Vigente: <b>{pedidos.data.archivo}</b> para el <b>{fechaLarga(pedidos.data.fechaEntrega)}</b>
                   {pedidos.updatedBy ? <> · cargó {decodeURIComponent(pedidos.updatedBy)}</> : null}
