@@ -111,6 +111,11 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const [plan, setPlan] = useState(null);                         // reparto editado a mano (null = automático)
   const [selCli, setSelCli] = useState([]);                       // clientes marcados para mover
   const [abierto, setAbierto] = useState(null);                   // camión con la lista de clientes abierta
+  const [fTxt, setFTxt] = useState('');                           // planilla de armado: búsqueda
+  const [fEstado, setFEstado] = useState('todos');                // todos | fuera | grandes | camión (id)
+  const [fLoc, setFLoc] = useState('');
+  const [umbralGrande, setUmbralGrande] = useState(300);          // bultos desde los que un cliente se marca como "grande"
+  const [ordenPl, setOrdenPl] = useState({ k: 'b', d: -1 });
   const [camionesLoc, setCamionesLoc] = useState({});            // { LOCALIDAD: n } camiones fijados a mano
   const [excluidas, setExcluidas] = useState([]);              // localidades que NO salen el día de entrega
   const [precioInfo, setPrecioInfo] = useState({ estado: 'cargando' });   // de dónde salen los precios del gasoil
@@ -597,8 +602,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   // ── Edición manual del reparto (sobre la propuesta del motor) ─────────────
   const guardarPlan = (pl) => guardarAsig(ausentes, cubre, manual, excluidas, camionesLoc, pl);
   const moverA = (cods, v) => {
-    if (!v || !plan || !cods.length) return;
-    guardarPlan(planMover(plan, cods, v === 'nuevo' || v === 'pend' ? v : Number(v)));
+    if (!v || !sim || !cods.length) return;
+    guardarPlan(planMover(plan || planDesde(simAuto), cods, v === 'nuevo' || v === 'pend' ? v : Number(v)));
     setSelCli((s) => s.filter((c) => !cods.includes(c)));
   };
   const opcionesDestino = (idExcluir) => (
@@ -608,6 +613,98 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
       <option value="pend">📅 Otro día</option>
     </>
   );
+
+  // ── Planilla de armado (como el listado de ruteo de Chess): todos los clientes con tilde, camión y estado ──
+  const tarjetaPlanilla = sim && (() => {
+    const pid = (r, i) => (r.planId != null ? r.planId : i + 1);   // sin plan editado, el id de camión es su posición (igual que planDesde)
+    const filas = [];
+    sim.rutas.forEach((r, i) => r.paradas.forEach((p) => filas.push({ c: p.c, n: p.n, loc: p.loc || 'SIN LOCALIDAD', b: p.b, pal: p.pallets, cam: pid(r, i), nCam: r.n, ch: (choferesRutas[i] && choferesRutas[i].chofer) || '', ord: 0 })));
+    ((sim.pendEdit && sim.pendEdit.clientes) || []).forEach((p) => filas.push({ c: p.c, n: p.n, loc: p.loc || 'SIN LOCALIDAD', b: p.b, pal: p.pallets, cam: 'pend', nCam: 0, ch: '' }));
+    (sim.sinUbicacion || []).forEach((p) => filas.push({ c: p.c, n: p.n, loc: 'SIN UBICACIÓN', b: p.b, pal: p.pallets || 0, cam: 'sinub', nCam: 0, ch: '' }));
+    pedidosSalen.quedan.forEach((p) => filas.push({ c: p.c, n: p.n, loc: locDe(p.c), b: p.b, pal: 0, cam: 'loc', nCam: 0, ch: '' }));
+    const grande = (f) => f.b >= umbralGrande;
+    const q = fTxt.trim().toLowerCase();
+    const vis = filas.filter((f) => (!q || `${f.c} ${f.n} ${f.loc}`.toLowerCase().includes(q)) && (!fLoc || f.loc === fLoc)
+      && (fEstado === 'todos' || (fEstado === 'fuera' ? (f.cam === 'pend' || f.cam === 'loc') : fEstado === 'grandes' ? grande(f) : String(f.cam) === fEstado)))
+      .sort((x, y) => { const k = ordenPl.k; const a = k === 'n' || k === 'loc' ? String(x[k]) : x[k], b = k === 'n' || k === 'loc' ? String(y[k]) : y[k]; return (a < b ? -1 : a > b ? 1 : 0) * ordenPl.d; });
+    const locs = [...new Set(filas.map((f) => f.loc))].sort();
+    const grandes = filas.filter(grande);
+    const dentro = (f) => typeof f.cam === 'number';
+    const editables = vis.filter(dentro).concat(vis.filter((f) => f.cam === 'pend'));
+    const th = (k, t) => <th style={{ cursor: 'pointer' }} onClick={() => setOrdenPl((o) => ({ k, d: o.k === k ? -o.d : (k === 'b' ? -1 : 1) }))}>{t}{ordenPl.k === k ? (ordenPl.d > 0 ? ' ▲' : ' ▼') : ''}</th>;
+    const sel = new Set(selCli);
+    const todosSel = editables.length > 0 && editables.every((f) => sel.has(f.c));
+    return (
+      <div className="sim-card">
+        <h3>📋 Planilla de armado</h3>
+        <div className="sim-sub" style={{ marginBottom: 8 }}>Todos los clientes del día con sus bultos, localidad y camión. Tildá los que quieras y <b>sumalos a un camión</b> o <b>dejalos fuera</b> (quedan para otro día). Cada cambio recalcula km, combustible y personas y se comparte en vivo.
+          Los clientes de mucho volumen aparecen marcados con ⚠ para que decidas uno por uno si salen.</div>
+        <div className="sim-row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          {sim.rutas.map((r, i) => (
+            <button key={pid(r, i)} className="sim-btn" style={{ borderLeft: `6px solid ${COLORES[i % COLORES.length]}`, background: fEstado === String(pid(r, i)) ? '#e8eefc' : undefined }}
+              onClick={() => setFEstado(fEstado === String(pid(r, i)) ? 'todos' : String(pid(r, i)))}>
+              #{r.n} {(choferesRutas[i] && choferesRutas[i].chofer) || ''} · {r.paradas.length} cl. · {f0(r.bultos)} b · {f0(r.ocupacion * 100)} %{r.ocupacion > 1 ? ' ⚠' : ''}
+            </button>
+          ))}
+          {sim.pendEdit && sim.pendEdit.clientes.length > 0 && (
+            <button className="sim-btn" onClick={() => setFEstado(fEstado === 'fuera' ? 'todos' : 'fuera')}>🚫 Fuera: {sim.pendEdit.clientes.length} cl. · {f0(sim.pendEdit.bultos)} b</button>
+          )}
+        </div>
+        <div className="sim-row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          <input placeholder="Buscar cliente, código o localidad…" value={fTxt} onChange={(e) => setFTxt(e.target.value)} style={{ minWidth: 220 }} />
+          <select value={fLoc} onChange={(e) => setFLoc(e.target.value)}><option value="">Todas las localidades</option>{locs.map((l) => <option key={l} value={l}>{cap(l)}</option>)}</select>
+          <select value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
+            <option value="todos">Todos</option><option value="fuera">Solo los que están fuera</option><option value="grandes">Solo los grandes ⚠</option>
+            {sim.rutas.map((r, i) => <option key={pid(r, i)} value={String(pid(r, i))}>Camión #{r.n}</option>)}
+          </select>
+          <span className="sim-sub">Grande desde <input type="number" min="1" value={umbralGrande} style={{ width: 70 }} onChange={(e) => setUmbralGrande(Math.max(1, Math.floor(Number(e.target.value)) || 1))} /> bultos</span>
+          {grandes.length > 0 && <span className="sim-warn" style={{ padding: '2px 8px' }}>⚠ {grandes.length} clientes grandes · {f0(grandes.reduce((t, f) => t + f.b, 0))} bultos</span>}
+        </div>
+        {selCli.length > 0 && (
+          <div className="sim-row" style={{ marginBottom: 8, gap: 8, flexWrap: 'wrap', background: '#fff8e1', padding: 6, borderRadius: 8 }}>
+            <b>{selCli.length} marcados · {f0(filas.filter((f) => sel.has(f.c)).reduce((t, f) => t + f.b, 0))} bultos</b>
+            <select value="" onChange={(e) => moverA(selCli, e.target.value)}>
+              <option value="">➕ Sumar a camión…</option>
+              {sim.rutas.map((x, k) => <option key={pid(x, k)} value={pid(x, k)}>Camión #{x.n} · {x.localidades.map(cap).join(' + ')}</option>)}
+              <option value="nuevo">➕ Camión nuevo</option>
+            </select>
+            <button className="sim-btn" onClick={() => moverA(selCli, 'pend')}>🚫 Dejar fuera</button>
+            <button className="sim-btn" onClick={() => setSelCli([])}>Desmarcar</button>
+          </div>
+        )}
+        <div className="sim-row" style={{ gap: 8, marginBottom: 6 }}>
+          <button className="sim-btn" onClick={() => setSelCli(todosSel ? [] : editables.map((f) => f.c))}>{todosSel ? 'Desmarcar visibles' : `Marcar visibles (${editables.length})`}</button>
+          {grandes.some(dentro) && <button className="sim-btn" onClick={() => setSelCli(grandes.filter((f) => dentro(f) || f.cam === 'pend').map((f) => f.c))}>Marcar los grandes</button>}
+        </div>
+        <div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto' }}>
+          <table className="sim-table">
+            <thead><tr><th></th>{th('c', 'Cód.')}{th('n', 'Cliente')}{th('loc', 'Localidad')}{th('b', 'Bultos')}{th('cam', 'Camión')}<th>Chofer</th></tr></thead>
+            <tbody>
+              {vis.map((f) => {
+                const edit = dentro(f) || f.cam === 'pend';
+                const fuera = f.cam === 'pend' || f.cam === 'loc';
+                return (
+                  <tr key={`${f.c}-${f.cam}`} style={{ opacity: fuera ? 0.6 : 1, background: grande(f) ? '#fff6e5' : undefined }}>
+                    <td><input type="checkbox" disabled={!edit} checked={sel.has(f.c)} onChange={() => setSelCli((a) => (a.includes(f.c) ? a.filter((x) => x !== f.c) : [...a, f.c]))} /></td>
+                    <td>{f.c}</td><td>{f.n}{grande(f) && <span title="Cliente de mucho volumen: decidí si sale" style={{ marginLeft: 6 }}>⚠ grande</span>}</td><td>{cap(f.loc)}</td><td>{f1(f.b)}</td>
+                    <td>{edit ? (
+                      <select value={f.cam === 'pend' ? 'pend' : String(f.cam)} onChange={(e) => moverA([f.c], e.target.value)}>
+                        {sim.rutas.map((x, k) => <option key={pid(x, k)} value={String(pid(x, k))}>#{x.n}</option>)}
+                        <option value="nuevo">➕ Nuevo</option><option value="pend">🚫 Fuera</option>
+                      </select>
+                    ) : f.cam === 'loc' ? 'Localidad fuera' : 'Sin ubicación'}</td>
+                    <td>{f.ch}</td>
+                  </tr>
+                );
+              })}
+              {vis.length === 0 && <tr><td colSpan="7" className="sim-sub">Ningún cliente con ese filtro.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="sim-sub" style={{ marginTop: 6 }}>Mostrando {vis.length} de {filas.length} clientes.</div>
+      </div>
+    );
+  })();
   const tarjetaEditar = sim && (
     <div className="sim-card">
       <h3>✏️ Editar el reparto</h3>
@@ -957,6 +1054,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                   <div className="sim-sub" style={{ marginTop: 8 }}>Tocá un camión para verlo solo en el mapa (puntos numerados en orden de visita). 🛣️ = km medidos por calles; sin eso, se estima con km en línea recta × factor de ruta ({params.factorRuta})
                     {factorCal ? <> · calibrado con tu historial: {factorCal}</> : null}.</div>
                 </div>
+                {tarjetaPlanilla}
                 {tarjetaEditar}
                 <div className="sim-card" style={{ overflowX: 'auto' }}>
                   <h3>Resumen por localidad y costo de combustible</h3>
