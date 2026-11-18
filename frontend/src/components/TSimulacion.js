@@ -493,20 +493,6 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     setOcupado(false);
   };
 
-  // Trae los pedidos pendientes desde la API de Chess (ya vienen sumados por cliente hasta el día de entrega)
-  const traerDeChess = async () => {
-    if (!fechaNueva) return;
-    setOcupado(true);
-    try {
-      const r = await apiFetch(`/api/ruteo/chess/pedidos?fechaEntrega=${fechaNueva}`);
-      const d = r.data;
-      if (!d.clientes.length) throw new Error(`Chess respondió ${d.crudos} pedidos pero ninguno entra para el ${fechaLarga(fechaNueva)} (revisar estados y campos). Muestra del primero: ${JSON.stringify(d.muestra || {}).slice(0, 300)}`);
-      const fechas = Object.entries(d.detalle.bultosPorFecha).sort().map(([f, b]) => `${f.slice(8)}/${f.slice(5, 7)}: ${f0(b)}`).join(' · ');
-      await guardarPedidos({ clientes: d.clientes, total: d.total }, `Chess (API) hasta ${fechaNueva}`, fechaNueva, false, `Pedidos por fecha: ${fechas}. `);
-    } catch (e) { aviso(e.message, 'err'); }
-    setOcupado(false);
-  };
-
   const guardarPedidos = async (ped, archivoNombre, fechaEntrega, sumar, extra = '') => {
     const previo = pedidos?.data;
       const snap = previo ? previo.clientes.map((c) => [c.c, c.b, c.n]) : null;
@@ -515,13 +501,19 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
       let base = previo && previo.fechaEntrega === fechaEntrega ? (previo.base || snap) : null;
       let clientes = ped.clientes, archivo = archivoNombre;
       if (sumar && previo && previo.fechaEntrega === fechaEntrega) {
-        // Se suma al día ya cargado: por código de cliente, lo del archivo nuevo pisa al mismo cliente (no duplica).
+        // Se suma al día ya cargado, por código de cliente. Si un cliente está en los dos archivos hay que decidir:
+        // pedidos de OTRO día (se suman los bultos) u otra zona del mismo día (el archivo nuevo reemplaza, no duplica).
         const m = new Map(previo.clientes.map((c) => [c.c, c]));
-        ped.clientes.forEach((c) => m.set(c.c, c));
+        const repetidos = ped.clientes.filter((c) => m.has(c.c)).length;
+        const sumarBultos = repetidos > 0 && window.confirm(`${repetidos} clientes están en los dos archivos.\n\nAceptar = son pedidos de OTRO día: se SUMAN los bultos de cada cliente.\nCancelar = es el mismo pedido (ej. otra zona): el archivo nuevo reemplaza, sin duplicar.`);
+        ped.clientes.forEach((c) => {
+          const a = m.get(c.c);
+          m.set(c.c, sumarBultos && a ? { ...c, b: Math.round((a.b + c.b) * 100) / 100, p: (a.p || 0) + (c.p || 0), neto: (a.neto || 0) + (c.neto || 0) } : c);
+        });
         clientes = [...m.values()];
         archivo = `${previo.archivo} + ${archivoNombre}`.slice(0, 200);
         const bm = new Map((base || snap || []).map((r) => [r[0], r]));
-        ped.clientes.forEach((c) => bm.set(c.c, [c.c, c.b, c.n]));
+        ped.clientes.forEach((c) => { const a = sumarBultos && bm.get(c.c); bm.set(c.c, [c.c, a ? Math.round((a[1] + c.b) * 100) / 100 : c.b, c.n]); });
         base = [...bm.values()];
       } else if (sumar) { throw new Error('Para sumar, la fecha de entrega tiene que ser la de los pedidos ya cargados.'); }
       await apiFetch('/api/ruteo/pedidos', { method: 'PUT', headers: hdr,
@@ -745,12 +737,10 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
               <input ref={refPed} type="file" accept=".xlsx,.xls,.csv" hidden
                 onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva); }} />
               <button className="sim-btn pri" disabled={ocupado} onClick={() => refPed.current.click()}>📦 Subir pedidos (Excel)</button>
-              <button className="sim-btn pri" disabled={ocupado} onClick={traerDeChess}
-                title="Trae los pedidos de Chess (Tandil y Las Flores) y suma todos los de fecha hasta el día de entrega">⬇️ Traer pedidos de Chess (API)</button>
               <input ref={refPed2} type="file" accept=".xlsx,.xls,.csv" hidden
                 onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva, true); }} />
               <button className="sim-btn" disabled={ocupado || !pedidos?.data} onClick={() => refPed2.current.click()}
-                title="Para el segundo archivo del mismo día (ej. Tandil y zona + Las Flores y zona): se suma sin borrar lo anterior">➕ Sumar otro archivo (mismo día)</button>
+                title="Suma un segundo archivo sin borrar lo anterior: otra zona del mismo día (Tandil y zona + Las Flores y zona) o pedidos de otro día, que se suman por cliente">➕ Sumar otro archivo</button>
               <div className="sim-sub">
                 {pedidos?.data ? <>Vigente: <b>{pedidos.data.archivo}</b> para el <b>{fechaLarga(pedidos.data.fechaEntrega)}</b>
                   {pedidos.updatedBy ? <> · cargó {decodeURIComponent(pedidos.updatedBy)}</> : null}
