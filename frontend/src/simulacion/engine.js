@@ -323,7 +323,7 @@ export function simular(pedidos, ubic, parametros = {}) {
       continue;
     }
     if (pal <= capUtil && items.length <= P.maxParadas) { unidades.push({ loc, items, pallets: pal }); continue; }
-    const k = Math.max(Math.ceil(pal / capUtil), Math.ceil(items.length / P.maxParadas)), objetivo = pal / k;
+    const k = Math.max(Math.ceil(pal / capUtil), Math.ceil(items.length / P.maxParadas));
     const zAuto = k > 1 ? repartirPorZonas(items, k, P, { usados: usadosZona, capMax: capUtil * 1.03 }) : null;
     if (zAuto) {
       zAuto.grupos.forEach((g, j) => { usadosZona.add(zAuto.choferes[j]); unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true, chofer: zAuto.choferes[j] }); });

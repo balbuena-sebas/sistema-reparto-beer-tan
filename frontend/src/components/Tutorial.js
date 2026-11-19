@@ -2,7 +2,7 @@
 // La primera vez que un usuario entra se muestra el recorrido general de su rol (admin / chofer / ayudante);
 // la primera vez que abre una sección con ayuda, se muestra el de esa sección. Después queda solo el botón ❓.
 // "Visto" se guarda por usuario en este navegador (localStorage).
-import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import '../styles/tutorial.css';
 
 const T = (id) => ({ tab: id });                       // resalta la pestaña del menú
@@ -75,9 +75,12 @@ const claveDe = (u, id) => `tut:${(u && (u.dni || u.nombre)) || 'anon'}:${id}`;
 const visto = (u, id) => { try { return localStorage.getItem(claveDe(u, id)) === '1'; } catch { return false; } };
 const marcar = (u, id) => { try { localStorage.setItem(claveDe(u, id), '1'); } catch { /* sin almacenamiento: se muestra de nuevo la próxima vez */ } };
 
+const visible = (e) => !!e && e.getClientRects().length > 0;
+// En pantallas chicas el menú de pestañas se oculta detrás de la hamburguesa: se resalta ese botón.
+const hamburguesa = () => { const h = document.querySelector('.nav-hamburger'); return visible(h) ? h : null; };
 function buscarEl(p) {
-  if (p.sel) return document.querySelector(p.sel);
-  if (p.tab) return document.querySelector(`[data-tut="tab-${p.tab}"]`);
+  if (p.sel) { const e = document.querySelector(p.sel); return visible(e) ? e : hamburguesa() || e; }
+  if (p.tab) { const e = document.querySelector(`[data-tut="tab-${p.tab}"]`); if (!e) return null; return visible(e) ? e : hamburguesa() || e; }
   if (p.buscar) {
     const q = p.buscar.toLowerCase();
     const el = [...document.querySelectorAll('h1,h2,h3,button,.card-title,.dash-title')].find((e) => e.offsetParent && (e.textContent || '').toLowerCase().includes(q));
@@ -91,6 +94,9 @@ export function Tutorial({ user, tab }) {
   const [ses, setSes] = useState(null);                    // { id, pasos, i }
   const [rect, setRect] = useState(null);
   const [menu, setMenu] = useState(false);
+  const cajaRef = useRef(null);
+  const [alto, setAlto] = useState(200);
+  const [viaMenu, setViaMenu] = useState(false);   // pantalla chica: la sección está dentro del menú ☰
   const rol = rolDe(user);
   const general = GENERAL[rol];
   const seccion = (rol === 'persona' && SECCION_PERSONA[tab]) || SECCION[tab] || null;
@@ -116,6 +122,7 @@ export function Tutorial({ user, tab }) {
     if (!paso) return;
     const el = buscarEl(paso);
     if (!el) { setRect(null); return; }
+    setViaMenu(!!paso.tab && el.classList.contains('nav-hamburger'));
     const r = el.getBoundingClientRect();
     setRect(r.width && r.height ? { top: r.top, left: r.left, width: r.width, height: r.height } : null);
   }, [paso]);
@@ -134,25 +141,27 @@ export function Tutorial({ user, tab }) {
     window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
   }, [ses, cerrar]);
 
+  useLayoutEffect(() => { if (cajaRef.current) setAlto(cajaRef.current.offsetHeight); }, [ses]);
   if (!user) return null;
   const ir = (d) => setSes((s) => ({ ...s, i: s.i + d }));
   const ultimo = ses && ses.i === ses.pasos.length - 1;
   // Posición de la tarjeta: debajo del elemento resaltado si entra, si no arriba; centrada si no hay elemento
   let pos = { top: '50%', left: '50%', transform: 'translate(-50%,-50%)' };
   if (rect) {
-    const h = window.innerHeight, w = window.innerWidth, ancho = Math.min(340, w - 24);
-    const abajo = rect.top + rect.height + 12 + 190 < h;
-    pos = { top: abajo ? rect.top + rect.height + 12 : Math.max(12, rect.top - 190), left: Math.max(12, Math.min(rect.left, w - ancho - 12)) };
+    const h = window.innerHeight, w = window.innerWidth, ancho = Math.min(340, w - 24), izq = Math.max(12, Math.min(rect.left, w - ancho - 12));
+    if (rect.top + rect.height + 12 + alto <= h - 12) pos = { top: rect.top + rect.height + 12, left: izq };
+    else if (rect.top - 12 - alto >= 12) pos = { top: rect.top - 12 - alto, left: izq };
+    else pos = { bottom: 12, left: '50%', transform: 'translateX(-50%)' };   // elemento muy grande: la tarjeta va abajo, fija
   }
   return (
     <>
       {ses && paso && (
         <div className="tut-capa" role="dialog" aria-label="Tutorial">
           {rect ? <div className="tut-foco" style={{ top: rect.top - 6, left: rect.left - 6, width: rect.width + 12, height: rect.height + 12 }} /> : <div className="tut-fondo" />}
-          <div className="tut-caja" style={pos}>
+          <div className="tut-caja" style={pos} ref={cajaRef}>
             <div className="tut-paso">Paso {ses.i + 1} de {ses.pasos.length}</div>
             <div className="tut-titulo">{paso.titulo}</div>
-            <div className="tut-texto">{paso.texto}</div>
+            <div className="tut-texto">{paso.texto}{viaMenu && <span className="tut-hint"> Está dentro del menú ☰.</span>}</div>
             <div className="tut-botones">
               <button className="tut-btn tut-omitir" onClick={cerrar}>Omitir</button>
               <span style={{ flex: 1 }} />

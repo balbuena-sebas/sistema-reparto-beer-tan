@@ -191,7 +191,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
       if (ev === 'dia') { cacheDias.current.delete(info.fecha); cargarLista(); setDiaSel((s) => { if (s === info.fecha) cargarDia(s); return s; }); }
     }, setEnVivo);
     return parar;
-  }, [cargarPedidos, cargarUbic, cargarLista, cargarDia, cargarAprend]);
+  }, [cargarPedidos, cargarUbic, cargarLista, cargarDia, cargarAprend, cargarFrec]);
   useEffect(() => {
     if (enVivo) return undefined;
     const t = setInterval(cargarPedidos, 20000); return () => clearInterval(t);
