@@ -271,6 +271,63 @@ router.put('/asignacion', async (req, res) => {
   }
 });
 
+// ── Aprendizaje: qué se hizo con los clientes de mucho volumen ───────────────
+// { umbral, procesadas:[fechas ya aprendidas del romaneo real], grandes:{ cod:{ n, s, f, ds, df, u } } }
+//   s/f = veces que salió / quedó fuera según el romaneo real · ds/df = decisiones tomadas a mano en la planilla
+const MAX_APR_BYTES = 300 * 1024;
+const aprVacio = () => ({ umbral: 300, procesadas: [], grandes: {} });
+router.get('/aprendizaje', async (req, res) => {
+  try {
+    await ensureSchema();
+    const r = await query(`SELECT version, datos_gz FROM sim_estado WHERE clave = 'aprendizaje'`);
+    if (!r.rows.length) return res.json({ ok: true, version: 0, data: aprVacio() });
+    res.json({ ok: true, version: Number(r.rows[0].version), data: await descomprimirSafe(r.rows[0].datos_gz, aprVacio()) });
+  } catch (err) {
+    console.error('GET /ruteo/aprendizaje:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al obtener el aprendizaje' });
+  }
+});
+
+router.put('/aprendizaje', async (req, res) => {
+  try {
+    const b = req.body || {};
+    await ensureSchema();
+    const prev = await query(`SELECT datos_gz FROM sim_estado WHERE clave = 'aprendizaje'`);
+    const d = prev.rows.length ? await descomprimirSafe(prev.rows[0].datos_gz, aprVacio()) : aprVacio();
+    d.grandes = d.grandes && typeof d.grandes === 'object' ? d.grandes : {};
+    d.procesadas = Array.isArray(d.procesadas) ? d.procesadas : [];
+    const u = Math.floor(Number(b.umbral));
+    if (Number.isFinite(u) && u >= 1 && u <= 100000) d.umbral = u;
+    const fechaReal = FECHA_RE.test(String(b.fechaReal || '')) ? b.fechaReal : null;
+    const yaReal = !!fechaReal && d.procesadas.includes(fechaReal);
+    for (const e of (Array.isArray(b.eventos) ? b.eventos : []).slice(0, 300)) {
+      const c = Math.floor(Number(e && e.c)); if (!Number.isFinite(c) || c <= 0) continue;
+      if (e.d !== 'sale' && e.d !== 'fuera') continue;
+      const real = !!e.real; if (real && (!fechaReal || yaReal)) continue;
+      const g = d.grandes[c] || (d.grandes[c] = { n: '', s: 0, f: 0, ds: 0, df: 0, u: '' });
+      g.n = String(e.n || g.n || '').slice(0, 60);
+      if (real) { if (e.d === 'sale') g.s++; else g.f++; } else if (e.d === 'sale') g.ds++; else g.df++;
+      const f = FECHA_RE.test(String(e.f || '')) ? e.f : (fechaReal || ''); if (f > g.u) g.u = f;
+    }
+    if (fechaReal && !yaReal) d.procesadas = [...d.procesadas, fechaReal].sort().slice(-120);
+    const claves = Object.keys(d.grandes);
+    if (claves.length > 800) claves.sort((x, y) => String(d.grandes[x].u).localeCompare(String(d.grandes[y].u))).slice(0, claves.length - 800).forEach((k) => delete d.grandes[k]);
+    if (sizeOf(d) > MAX_APR_BYTES) return res.status(413).json({ ok: false, error: 'Aprendizaje demasiado grande' });
+    const gz = await comprimir(d);
+    const r = await query(
+      `INSERT INTO sim_estado (clave, version, datos_gz, updated_at, updated_by)
+       VALUES ('aprendizaje', 1, $1, NOW(), $2)
+       ON CONFLICT (clave) DO UPDATE SET version = sim_estado.version + 1,
+         datos_gz=$1, updated_at=NOW(), updated_by=$2
+       RETURNING version`, [gz, quien(req)]);
+    difundir('aprendizaje', { version: Number(r.rows[0].version), updatedBy: quien(req) });
+    res.json({ ok: true, version: Number(r.rows[0].version), data: d });
+  } catch (err) {
+    console.error('PUT /ruteo/aprendizaje:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al guardar el aprendizaje' });
+  }
+});
+
 // ── Tiempo real (Server-Sent Events) ────────────────────────────────────────
 router.get('/stream', (req, res) => {
   if (clientes.size >= 50) return res.status(503).end();

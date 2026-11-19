@@ -9,6 +9,7 @@ import {
   indexarRechazos, cruzarRechazos, resumenRuteados, costearRuta, comparativaMarcas, resumenPorLocalidad,
   perfilesChoferes, asignarChoferes, zonaDelDia, simularConTope,
   planDesde, planMover, planJuntar, planPartir, planOrdenar, planOrdenAuto, aplicarPlan, construirZonas,
+  probarContraDia, clientesEnRutaPropia,
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
@@ -116,6 +117,9 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const [fLoc, setFLoc] = useState('');
   const [umbralGrande, setUmbralGrande] = useState(300);          // bultos desde los que un cliente se marca como "grande"
   const [ordenPl, setOrdenPl] = useState({ k: 'b', d: -1 });
+  const [aprend, setAprend] = useState({ umbral: 300, procesadas: [], grandes: {} });   // lo aprendido (compartido): qué pasó con los clientes grandes
+  const [aprendOk, setAprendOk] = useState(false);
+  const [prueba, setPrueba] = useState(null);                     // resultado de probar el motor contra un día real
   const [camionesLoc, setCamionesLoc] = useState({});            // { LOCALIDAD: n } camiones fijados a mano
   const [excluidas, setExcluidas] = useState([]);              // localidades que NO salen el día de entrega
   const [precioInfo, setPrecioInfo] = useState({ estado: 'cargando' });   // de dónde salen los precios del gasoil
@@ -139,6 +143,19 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const cargarPedidos = useCallback(async () => {
     try { const r = await apiFetch('/api/ruteo/pedidos'); setPedidos(r.data ? r : null); } catch (e) { aviso(e.message, 'err'); }
   }, [aviso]);
+  const cargarAprend = useCallback(async () => {
+    try {
+      const r = await apiFetch('/api/ruteo/aprendizaje');
+      if (r.data) { setAprend(r.data); if (r.data.umbral) setUmbralGrande(r.data.umbral); }
+      setAprendOk(true);
+    } catch { /* se reintenta con el próximo evento */ }
+  }, []);
+  const registrarAprend = useCallback(async (cuerpo) => {
+    try {
+      const r = await apiFetch('/api/ruteo/aprendizaje', { method: 'PUT', headers: hdr, body: JSON.stringify(cuerpo) });
+      if (r.data) setAprend(r.data);
+    } catch { /* el aprendizaje es de apoyo: si falla no frena el trabajo */ }
+  }, [hdr]);
   const traerDia = useCallback(async (fecha) => {
     if (cacheDias.current.has(fecha)) return cacheDias.current.get(fecha);
     const r = await apiFetch(`/api/ruteo/dia/${fecha}`);
@@ -150,17 +167,18 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     try { setDiaDatos(await traerDia(fecha)); } catch (e) { aviso(e.message, 'err'); }
   }, [traerDia, aviso]);
 
-  useEffect(() => { cargarLista(); cargarUbic(); cargarPedidos(); }, [cargarLista, cargarUbic, cargarPedidos]);
+  useEffect(() => { cargarLista(); cargarUbic(); cargarPedidos(); cargarAprend(); }, [cargarLista, cargarUbic, cargarPedidos, cargarAprend]);
 
   useEffect(() => {
     const parar = suscribirRuteo((ev, info) => {
       if (ev === 'pedidos') cargarPedidos();
       if (ev === 'ubicaciones') cargarUbic();
+      if (ev === 'aprendizaje') cargarAprend();
       if (ev === 'asignacion' && asigFn.current) asigFn.current();
       if (ev === 'dia') { cacheDias.current.delete(info.fecha); cargarLista(); setDiaSel((s) => { if (s === info.fecha) cargarDia(s); return s; }); }
     }, setEnVivo);
     return parar;
-  }, [cargarPedidos, cargarUbic, cargarLista, cargarDia]);
+  }, [cargarPedidos, cargarUbic, cargarLista, cargarDia, cargarAprend]);
   useEffect(() => {
     if (enVivo) return undefined;
     const t = setInterval(cargarPedidos, 20000); return () => clearInterval(t);
@@ -603,6 +621,12 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const guardarPlan = (pl) => guardarAsig(ausentes, cubre, manual, excluidas, camionesLoc, pl);
   const moverA = (cods, v) => {
     if (!v || !sim || !cods.length) return;
+    // Decisión sobre clientes grandes (sale / queda fuera): se guarda para sugerirla la próxima vez.
+    const dePend = new Set(((sim.pendEdit && sim.pendEdit.clientes) || []).map((p) => p.c));
+    const porCod = new Map(); sim.rutas.forEach((r) => r.paradas.forEach((p) => porCod.set(p.c, p))); ((sim.pendEdit && sim.pendEdit.clientes) || []).forEach((p) => porCod.set(p.c, p));
+    const ev = cods.map((c) => porCod.get(c)).filter((p) => p && p.b >= umbralGrande && ((v === 'pend') !== dePend.has(p.c)))
+      .map((p) => ({ c: p.c, n: p.n, d: v === 'pend' ? 'fuera' : 'sale', f: fechaPedidos || iso(new Date()) }));
+    if (ev.length) registrarAprend({ eventos: ev });
     guardarPlan(planMover(plan || planDesde(simAuto), cods, v === 'nuevo' || v === 'pend' ? v : Number(v)));
     setSelCli((s) => s.filter((c) => !cods.includes(c)));
   };
@@ -615,6 +639,21 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   );
 
   // ── Planilla de armado (como el listado de ruteo de Chess): todos los clientes con tilde, camión y estado ──
+  // Aprende de lo que realmente pasó: cuando ya está el romaneo del día de entrega, los clientes grandes del pedido
+  // que fueron en una ruta normal "salieron" y los que se llevaron aparte (mercados, terceros) o no fueron "quedaron fuera".
+  useEffect(() => {
+    const base = pedidos && pedidos.data && pedidos.data.base;
+    if (!aprendOk || !diaRuteado || !base || !fechaPedidos || (aprend.procesadas || []).includes(fechaPedidos)) return;
+    const normales = clientesEnRutaPropia(diaRuteado);
+    const ev = base.filter(([, b]) => b >= umbralGrande).map(([c, , n]) => ({ c, n, d: normales.has(c) ? 'sale' : 'fuera', real: true, f: fechaPedidos }));
+    registrarAprend({ eventos: ev, fechaReal: fechaPedidos });
+  }, [aprendOk, diaRuteado, pedidos, fechaPedidos, aprend.procesadas, umbralGrande, registrarAprend]);
+  const habitual = (c) => {      // lo que suele pasar con este cliente grande: 'fuera' | 'sale' | null (sin historial)
+    const h = aprend.grandes && aprend.grandes[c]; if (!h) return null;
+    const f = (h.f || 0) + (h.df || 0), sl = (h.s || 0) + (h.ds || 0);
+    return f === sl ? null : (f > sl ? 'fuera' : 'sale');
+  };
+
   const tarjetaPlanilla = sim && (() => {
     const pid = (r, i) => (r.planId != null ? r.planId : i + 1);   // sin plan editado, el id de camión es su posición (igual que planDesde)
     const filas = [];
@@ -657,7 +696,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
             <option value="todos">Todos</option><option value="fuera">Solo los que están fuera</option><option value="grandes">Solo los grandes ⚠</option>
             {sim.rutas.map((r, i) => <option key={pid(r, i)} value={String(pid(r, i))}>Camión #{r.n}</option>)}
           </select>
-          <span className="sim-sub">Grande desde <input type="number" min="1" value={umbralGrande} style={{ width: 70 }} onChange={(e) => setUmbralGrande(Math.max(1, Math.floor(Number(e.target.value)) || 1))} /> bultos</span>
+          <span className="sim-sub">Grande desde <input type="number" min="1" value={umbralGrande} style={{ width: 70 }} onChange={(e) => setUmbralGrande(Math.max(1, Math.floor(Number(e.target.value)) || 1))} onBlur={() => { if (umbralGrande !== aprend.umbral) registrarAprend({ umbral: umbralGrande }); }} /> bultos</span>
           {grandes.length > 0 && <span className="sim-warn" style={{ padding: '2px 8px' }}>⚠ {grandes.length} clientes grandes · {f0(grandes.reduce((t, f) => t + f.b, 0))} bultos</span>}
         </div>
         {selCli.length > 0 && (
@@ -674,6 +713,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         )}
         <div className="sim-row" style={{ gap: 8, marginBottom: 6 }}>
           <button className="sim-btn" onClick={() => setSelCli(todosSel ? [] : editables.map((f) => f.c))}>{todosSel ? 'Desmarcar visibles' : `Marcar visibles (${editables.length})`}</button>
+          {(() => { const lista = grandes.filter((f) => typeof f.cam === 'number' && habitual(f.c) === 'fuera').map((f) => f.c);
+            return lista.length > 0 && <button className="sim-btn" title="Según el historial, estos clientes grandes casi siempre se llevan aparte o no salen en el ruteo" onClick={() => moverA(lista, 'pend')}>🧠 Dejar fuera los que suelen ir aparte ({lista.length})</button>; })()}
           {grandes.some(dentro) && <button className="sim-btn" onClick={() => setSelCli(grandes.filter((f) => dentro(f) || f.cam === 'pend').map((f) => f.c))}>Marcar los grandes</button>}
         </div>
         <div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto' }}>
@@ -686,7 +727,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                 return (
                   <tr key={`${f.c}-${f.cam}`} style={{ opacity: fuera ? 0.6 : 1, background: grande(f) ? '#fff6e5' : undefined }}>
                     <td><input type="checkbox" disabled={!edit} checked={sel.has(f.c)} onChange={() => setSelCli((a) => (a.includes(f.c) ? a.filter((x) => x !== f.c) : [...a, f.c]))} /></td>
-                    <td>{f.c}</td><td>{f.n}{grande(f) && <span title="Cliente de mucho volumen: decidí si sale" style={{ marginLeft: 6 }}>⚠ grande</span>}</td><td>{cap(f.loc)}</td><td>{f1(f.b)}</td>
+                    <td>{f.c}</td><td>{f.n}{grande(f) && <span title="Cliente de mucho volumen: decidí si sale" style={{ marginLeft: 6 }}>⚠ grande</span>}
+                      {grande(f) && aprend.grandes[f.c] && (() => { const h = aprend.grandes[f.c]; return <span className="sim-sub" style={{ marginLeft: 6 }} title="Según romaneos reales y tus decisiones">historial: salió {h.s || 0} · aparte/fuera {h.f || 0}{(h.ds || h.df) ? ` · vos: sale ${h.ds || 0} / fuera ${h.df || 0}` : ''}</span>; })()}</td><td>{cap(f.loc)}</td><td>{f1(f.b)}</td>
                     <td>{edit ? (
                       <select value={f.cam === 'pend' ? 'pend' : String(f.cam)} onChange={(e) => moverA([f.c], e.target.value)}>
                         {sim.rutas.map((x, k) => <option key={pid(x, k)} value={String(pid(x, k))}>#{x.n}</option>)}
@@ -1115,6 +1157,31 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                     {cruceDia && <div className="sim-kpi"><b>{f0(cruceDia.total.r)}</b><span>Rechazados{cruceDia.total.b ? ` (${f1(cruceDia.total.r / cruceDia.total.b * 100)} %)` : ''}</span></div>}
                   </div>
                   {puedeVerRechazos && rechDia && rechDia.length === 0 && <div className="sim-sub" style={{ marginTop: 8 }}>No hay rechazos cargados para este día (se cargan en 📂 Importar).</div>}
+                </div>
+                <div className="sim-card">
+                  <h3>🧪 Probar el motor con este día</h3>
+                  <div className="sim-sub" style={{ marginBottom: 8 }}>Rearma los pedidos de este día, le pide al motor que los reparta <b>sin mirar este día en el historial</b> y compara con lo que el ruteador hizo de verdad.
+                    Los mercados, camiones de terceros y salidas de 1-2 paradas se cuentan aparte (los decide una persona).</div>
+                  <button className="sim-btn" onClick={() => { try { setPrueba(probarContraDia(diaSel, diaDatos, hist, ubicItems, params)); } catch (e) { aviso(e.message, 'err'); } }}>▶ Probar con el {fechaLarga(diaSel)}</button>
+                  {prueba && prueba.fecha === diaSel && (
+                    <div style={{ marginTop: 10 }}>
+                      <div className="sim-kpis">
+                        <div className="sim-kpi"><b>{prueba.motor.camiones} vs {prueba.real.camiones}</b><span>Camiones (motor vs real, sin los de aparte)</span></div>
+                        <div className="sim-kpi"><b>{f0(prueba.motor.km)} vs {f0(prueba.real.km)}</b><span>Km (motor vs real)</span></div>
+                        <div className="sim-kpi"><b>{f0(prueba.agrupamiento * 100)} %</b><span>Clientes que el motor junta como el ruteador</span></div>
+                        <div className="sim-kpi"><b>{f0(prueba.choferClientes * 100)} %</b><span>Clientes con el mismo chofer</span></div>
+                        <div className="sim-kpi"><b>{prueba.aparte.clientes} · {f0(prueba.aparte.bultos)} b</b><span>Se llevaron aparte</span></div>
+                      </div>
+                      <div className="sim-sub" style={{ margin: '8px 0 4px' }}>"Juntos" = qué parte de los clientes de la ruta real el motor deja en un mismo camión. El chofer del motor sale del historial sin ausencias, así que si ese día faltó alguien baja el porcentaje.</div>
+                      <table className="sim-table">
+                        <thead><tr><th>Ruta real</th><th>Clientes</th><th>Juntos en el motor</th><th>Camión del motor</th><th>Chofer del motor</th></tr></thead>
+                        <tbody>{prueba.porRuta.map((o) => (
+                          <tr key={o.ri}><td>{o.chofer}</td><td>{o.clientes}</td><td>{f0(o.juntos * 100)} %</td><td>#{o.camionSim}</td><td>{o.choferSim || '—'}</td></tr>
+                        ))}</tbody>
+                      </table>
+                      {prueba.aparte.lista.length > 0 && <div className="sim-sub" style={{ marginTop: 6 }}>Aparte: {prueba.aparte.lista.map((x) => `${x.n} (${f0(x.b)} b, ${x.chofer})`).join(' · ')}</div>}
+                    </div>
+                  )}
                 </div>
                 {costoDia && (
                   <div className="sim-card">

@@ -800,3 +800,83 @@ export function asignarChoferes(rutas, perfiles, ausentes = [], cubre = {}) {
   }
   return out;
 }
+
+// ── Prueba del motor contra un día real ────────────────────────────────────
+// Índice de Rand ajustado entre dos agrupamientos (1 = idénticos, 0 = como al azar).
+function indiceRand(a, b) {
+  const n = a.length; if (n < 2) return 0;
+  const c2 = (x) => (x * (x - 1)) / 2;
+  const tab = new Map(), ra = new Map(), rb = new Map();
+  for (let i = 0; i < n; i++) {
+    const k = `${a[i]}|${b[i]}`;
+    tab.set(k, (tab.get(k) || 0) + 1); ra.set(a[i], (ra.get(a[i]) || 0) + 1); rb.set(b[i], (rb.get(b[i]) || 0) + 1);
+  }
+  let sT = 0, sA = 0, sB = 0;
+  tab.forEach((v) => { sT += c2(v); }); ra.forEach((v) => { sA += c2(v); }); rb.forEach((v) => { sB += c2(v); });
+  const esp = (sA * sB) / c2(n), max = (sA + sB) / 2;
+  return max === esp ? 1 : (sT - esp) / (max - esp);
+}
+
+// Rutas "aparte": mercados, camiones de terceros y salidas de 1-2 paradas (clientes grandes que se llevan por separado).
+export const rutaAparte = (r, nParadas) => !esPropio(r.chofer) || nParadas <= 2;
+// Códigos de cliente que fueron en una ruta normal (propia, con varias paradas) en ese romaneo.
+export function clientesEnRutaPropia(dia) {
+  const out = new Set();
+  (dia.rutas || []).forEach((r, ri) => {
+    const pts = dia.paradas.filter((p) => p[0] === ri);
+    if (!rutaAparte(r, pts.length)) pts.forEach((p) => out.add(p[2]));
+  });
+  return out;
+}
+
+// Rearma los "pedidos" de un día ya repartido (los bultos de cada ruta se reparten entre sus paradas según el peso),
+// corre el motor SIN mirar ese día en el historial y compara con lo que el ruteador hizo de verdad.
+export function probarContraDia(fecha, dia, hist, ubicItems, parametros = {}) {
+  if (!dia || !dia.rutas || !dia.rutas.length) throw new Error('El día no tiene rutas.');
+  const P = { ...PARAMS_DEFAULT, ...parametros };
+  const histSin = { ...(hist || {}) }; delete histSin[fecha];
+  const ubic = construirUbicaciones(ubicItems || [], { ...histSin, [fecha]: dia });
+  const por = new Map(); const rutaReal = new Map();
+  const aparte = [];
+  dia.rutas.forEach((r, ri) => {
+    const pts = dia.paradas.filter((p) => p[0] === ri); if (!pts.length) return;
+    if (rutaAparte(r, pts.length)) { pts.forEach((p) => aparte.push({ c: p[2], n: p[3], b: (r.bultos || 0) / pts.length, chofer: r.chofer })); return; }
+    const kg = pts.reduce((s, p) => s + (p[6] || 0), 0);
+    pts.forEach((p) => {
+      const b = (r.bultos || 0) * (kg > 0 ? (p[6] || 0) / kg : 1 / pts.length);
+      const a = por.get(p[2]) || { c: p[2], n: p[3], b: 0, p: 1, neto: 0 }; a.b += b; por.set(p[2], a);
+      if (!rutaReal.has(p[2])) rutaReal.set(p[2], ri);
+    });
+  });
+  const clientes = [...por.values()].filter((x) => x.b > 0).map((x) => ({ ...x, b: Math.round(x.b * 100) / 100 }));
+  const sim = simularConTope({ clientes }, ubic, { ...P, camionesPorLoc: {}, maxCamiones: 0, zonas: construirZonas(histSin), fechaObjetivo: fecha, ausentes: [], cubre: {} });
+  const perfiles = perfilesChoferes(histSin, ubic, P.deposito, fecha);
+  const auto = asignarChoferes(sim.rutas, perfiles, [], {});
+  const choferSim = sim.rutas.map((r, i) => r.choferZona || (auto[i] && auto[i].chofer) || '');
+  const rutaSim = new Map(); sim.rutas.forEach((r, i) => r.paradas.forEach((p) => rutaSim.set(p.c, i)));
+  const propias = dia.rutas.map((r, ri) => ri).filter((ri) => { const n = dia.paradas.filter((p) => p[0] === ri).length; return n && !rutaAparte(dia.rutas[ri], n); });
+  const comunes = [...rutaReal.keys()].filter((c) => rutaSim.has(c));
+  const norm = (x) => String(x || '').trim().toUpperCase();
+  let mismoChofer = 0, bultosComunes = 0, bultosMismo = 0;
+  comunes.forEach((c) => {
+    const b = por.get(c).b; bultosComunes += b;
+    if (norm(choferSim[rutaSim.get(c)]) && norm(choferSim[rutaSim.get(c)]) === norm(dia.rutas[rutaReal.get(c)].chofer)) { mismoChofer++; bultosMismo += b; }
+  });
+  const porRuta = dia.rutas.map((r, ri) => {
+    const cl = comunes.filter((c) => rutaReal.get(c) === ri); if (!cl.length) return null;
+    const cuenta = new Map(); cl.forEach((c) => cuenta.set(rutaSim.get(c), (cuenta.get(rutaSim.get(c)) || 0) + 1));
+    const [mejor, n] = [...cuenta.entries()].sort((a, b) => b[1] - a[1])[0];
+    return { ri, chofer: r.chofer, clientes: cl.length, juntos: n / cl.length, camionSim: sim.rutas[mejor].n, choferSim: choferSim[mejor] };
+  }).filter(Boolean);
+  const kmReal = propias.reduce((s, ri) => s + (dia.rutas[ri].km || 0), 0);
+  return {
+    fecha, clientes: clientes.length, comunes: comunes.length,
+    aparte: { clientes: aparte.length, bultos: aparte.reduce((s, x) => s + x.b, 0), lista: aparte.sort((a, b) => b.b - a.b).slice(0, 12) },
+    real: { camiones: propias.length, km: kmReal, bultos: propias.reduce((s, ri) => s + (dia.rutas[ri].bultos || 0), 0), total: dia.rutas.length },
+    motor: { camiones: sim.rutas.length, km: sim.totales.km, bultos: sim.totales.bultos, combustible: sim.totales.combustible },
+    agrupamiento: indiceRand(comunes.map((c) => rutaReal.get(c)), comunes.map((c) => rutaSim.get(c))),
+    choferClientes: comunes.length ? mismoChofer / comunes.length : 0,
+    choferBultos: bultosComunes ? bultosMismo / bultosComunes : 0,
+    porRuta,
+  };
+}
