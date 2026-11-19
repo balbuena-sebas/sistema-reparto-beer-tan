@@ -1,0 +1,16 @@
+name: Keep services awake
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend /api/dbstats (keeps Render + Supabase + Neon awake)
+        run: |
+          curl -sS -m 30 -o /dev/null -w "HTTP %{http_code}\n" \
+            -H "x-api-key: ${{ secrets.RENDER_API_SECRET_KEY }}" \
+            https://sistema-reparto-beer-tan.onrender.com/api/dbstats
