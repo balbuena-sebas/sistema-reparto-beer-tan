@@ -213,6 +213,7 @@ router.put('/ubicaciones', async (req, res) => {
 // ── Asignación de choferes del día (quién vino y quién cubre qué zona) ──────
 // Fila única y chica: { fecha, ausentes:[nombre], cubre:{ chofer: choferCuyaZonaCubre }, manual:{ clienteAncla: chofer } }
 const MAX_ASIG_BYTES = 100 * 1024;
+const MOTIVOS = ['Geo incorrecta', 'Fuera de ruta', 'Comercial', 'Bajo drop', 'Exceso SLA', 'Vta depósito', 'Jornada reducida', 'Posdateo logístico'];
 router.get('/asignacion', async (req, res) => {
   try {
     await ensureSchema();
@@ -248,6 +249,14 @@ router.put('/asignacion', async (req, res) => {
         return {
           camiones: p.camiones.slice(0, 40).map((t) => ({ id: Math.floor(Number(t && t.id)) || 0, cods: nums(t && t.cods), orden: !!(t && t.orden), chofer: t && t.chofer ? String(t.chofer).slice(0, 60) : null })).filter((t) => t.id > 0),
           pend: nums(p.pend),
+          // motivo de no ruteo por cliente que queda fuera: { cod: motivo }
+          motivos: Object.fromEntries(Object.entries(p.motivos && typeof p.motivos === 'object' ? p.motivos : {}).slice(0, 3000)
+            .filter(([k, v]) => Number.isFinite(Number(k)) && MOTIVOS.includes(v))),
+          // división de carga: { cod: [{ id: camión, b: bultos }] }
+          division: Object.fromEntries(Object.entries(p.division && typeof p.division === 'object' ? p.division : {}).slice(0, 200)
+            .map(([k, v]) => [k, (Array.isArray(v) ? v : []).slice(0, 10).map((x) => ({ id: Math.floor(Number(x && x.id)) || 0, b: Math.round(Number(x && x.b) * 100) / 100 }))
+              .filter((x) => x.id > 0 && x.b > 0 && x.b < 1e6)])
+            .filter(([k, v]) => Number.isFinite(Number(k)) && v.length >= 2)),
         };
       })(),
       // elección manual de chofer por ruta: { códigoDeClienteAncla: chofer }
@@ -268,6 +277,45 @@ router.put('/asignacion', async (req, res) => {
   } catch (err) {
     console.error('PUT /ruteo/asignacion:', err.message);
     res.status(500).json({ ok: false, error: 'Error al guardar la asignación' });
+  }
+});
+
+// ── Frecuencia de entrega por cliente: { cod: máscara } (1 = lunes … 32 = sábado) ──
+const MAX_FREC_BYTES = 600 * 1024;
+router.get('/frecuencia', async (req, res) => {
+  try {
+    await ensureSchema();
+    const r = await query(`SELECT version, datos_gz FROM sim_estado WHERE clave = 'frecuencia'`);
+    if (!r.rows.length) return res.json({ ok: true, version: 0, data: {} });
+    res.json({ ok: true, version: Number(r.rows[0].version), data: await descomprimirSafe(r.rows[0].datos_gz, {}) });
+  } catch (err) {
+    console.error('GET /ruteo/frecuencia:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al obtener las frecuencias' });
+  }
+});
+
+router.put('/frecuencia', async (req, res) => {
+  try {
+    const it = req.body && req.body.items;
+    if (!it || typeof it !== 'object' || Array.isArray(it)) return res.status(400).json({ ok: false, error: 'Frecuencias inválidas' });
+    const limpio = {};
+    for (const [k, v] of Object.entries(it).slice(0, 30000)) {
+      const c = Math.floor(Number(k)), m = Math.floor(Number(v));
+      if (c > 0 && m >= 1 && m <= 63) limpio[c] = m;
+    }
+    if (sizeOf(limpio) > MAX_FREC_BYTES) return res.status(413).json({ ok: false, error: 'Frecuencias demasiado grandes' });
+    await ensureSchema();
+    const gz = await comprimir(limpio);
+    const r = await query(
+      `INSERT INTO sim_estado (clave, version, datos_gz, updated_at, updated_by)
+       VALUES ('frecuencia', 1, $1, NOW(), $2)
+       ON CONFLICT (clave) DO UPDATE SET version = sim_estado.version + 1,
+         datos_gz=$1, updated_at=NOW(), updated_by=$2
+       RETURNING version`, [gz, quien(req)]);
+    res.json({ ok: true, version: Number(r.rows[0].version), total: Object.keys(limpio).length });
+  } catch (err) {
+    console.error('PUT /ruteo/frecuencia:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al guardar las frecuencias' });
   }
 });
 
@@ -307,6 +355,7 @@ router.put('/aprendizaje', async (req, res) => {
       const g = d.grandes[c] || (d.grandes[c] = { n: '', s: 0, f: 0, ds: 0, df: 0, u: '' });
       g.n = String(e.n || g.n || '').slice(0, 60);
       if (real) { if (e.d === 'sale') g.s++; else g.f++; } else if (e.d === 'sale') g.ds++; else g.df++;
+      if (!real && e.d === 'fuera' && MOTIVOS.includes(e.m)) { g.mo = g.mo || {}; g.mo[e.m] = (g.mo[e.m] || 0) + 1; }
       const f = FECHA_RE.test(String(e.f || '')) ? e.f : (fechaReal || ''); if (f > g.u) g.u = f;
     }
     if (fechaReal && !yaReal) d.procesadas = [...d.procesadas, fechaReal].sort().slice(-120);

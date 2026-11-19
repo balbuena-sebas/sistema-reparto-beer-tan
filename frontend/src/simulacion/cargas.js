@@ -2,7 +2,7 @@
 // Se usa desde la pestaña Importar; la pestaña Simulación se actualiza sola por el canal en vivo.
 import * as XLSX from 'xlsx';
 import { apiFetch } from '../api/client';
-import { parseRomaneo, parseMaestra } from './engine';
+import { parseRomaneo, parseMaestra, parseFrecuencia } from './engine';
 
 const leer = (file) => new Promise((ok, mal) => {
   const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => mal(r.error); r.readAsArrayBuffer(file);
@@ -14,7 +14,7 @@ export async function cargarRomaneos(files, hdr, progreso = () => {}) {
   for (const file of files) {
     progreso(`Leyendo ${file.name}…`); await cede();
     // Sirve el Excel del ruteador (hoja "Romaneiro") o el Excel de entrega diaria (hoja "Datos", con todos los días juntos).
-    const wb = XLSX.read(await leer(file), { type: 'array', sheets: ['Romaneiro', 'Datos'] });
+    const wb = XLSX.read(await leer(file), { type: 'array', sheets: ['Romaneiro', 'Datos', 'Frecuencia'] });
     const hoja = wb.Sheets.Romaneiro || wb.Sheets.Datos;
     if (!hoja) throw new Error(`${file.name}: no tiene la hoja "Romaneiro" ni la hoja "Datos".`);
     const dias = parseRomaneo(XLSX.utils.sheet_to_json(hoja));
@@ -25,6 +25,11 @@ export async function cargarRomaneos(files, hdr, progreso = () => {}) {
         body: JSON.stringify({ rutas: d.rutas, paradas: d.paradas, resumen: d.resumen }) });
       nDias++;
       d.paradas.forEach((p) => ubic.set(p[2], [p[2], p[4], p[5], p[3], '']));
+    }
+    // Frecuencia de entrega por cliente (si el Excel del ruteador trae la hoja "Frecuencia")
+    if (wb.Sheets.Frecuencia) {
+      const fr = parseFrecuencia(XLSX.utils.sheet_to_json(wb.Sheets.Frecuencia));
+      if (Object.keys(fr).length) { progreso('Guardando frecuencias de entrega…'); await apiFetch('/api/ruteo/frecuencia', { method: 'PUT', headers: hdr, body: JSON.stringify({ items: fr }) }); }
     }
   }
   if (ubic.size) await apiFetch('/api/ruteo/ubicaciones', { method: 'PUT', headers: hdr, body: JSON.stringify({ items: [...ubic.values()] }) });

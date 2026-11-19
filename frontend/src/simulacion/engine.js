@@ -103,6 +103,24 @@ export function parseMaestra(rows) {
   return out;
 }
 
+// Frecuencia de entrega (hoja "Frecuencia" del ruteador): columnas Cliente, LU..SA con "X".
+// Devuelve { codigo: máscara } con bit 1 = lunes … 32 = sábado. Los clientes sin ningún día marcado se omiten (= sin dato).
+export function parseFrecuencia(rows) {
+  const dias = ['LU', 'MA', 'MI', 'JU', 'VI', 'SA'], out = {};
+  for (const r of rows) {
+    const c = Math.round(num(r['Cliente'])); if (!c) continue;
+    let m = 0; dias.forEach((d, i) => { if (String(r[d] || '').trim().toUpperCase() === 'X') m |= 1 << i; });
+    if (m) out[c] = m;
+  }
+  return out;
+}
+// Bit del día de la semana de una fecha YYYY-MM-DD (lunes = 1 … sábado = 32; domingo = 0)
+export function bitDia(fecha) {
+  const d = new Date(`${fecha}T12:00:00`).getDay(); return d === 0 ? 0 : 1 << (d - 1);
+}
+export const NOMBRES_DIA = ['LU', 'MA', 'MI', 'JU', 'VI', 'SA'];
+export const diasDeMascara = (m) => NOMBRES_DIA.filter((_, i) => m & (1 << i)).join(' ');
+
 // Ubicaciones por código: primero la maestra, y encima la última posición real de entrega.
 // items: [[c,lat,lon,nombre,localidad]]  ·  dias: salida de parseRomaneo (opcional)
 export function construirUbicaciones(items = [], dias = {}) {
@@ -615,7 +633,38 @@ export function armarRuta(P, g, n, ordenCods) {
 export function planDesde(sim) {
   return { camiones: sim.rutas.map((r, i) => ({ id: i + 1, cods: r.paradas.map((p) => p.c), orden: false, chofer: r.choferZona || null })), pend: [] };
 }
-const planLimpio = (pl) => ({ camiones: pl.camiones.filter((t) => t.cods.length), pend: pl.pend || [] });
+const planLimpio = (pl) => {
+  const enDiv = new Set(); Object.values(pl.division || {}).forEach((ps) => ps.forEach((x) => enDiv.add(x.id)));
+  const out = { camiones: pl.camiones.filter((t) => t.cods.length || enDiv.has(t.id)), pend: pl.pend || [] };
+  const pend = new Set(out.pend);
+  const mot = Object.fromEntries(Object.entries(pl.motivos || {}).filter(([c]) => pend.has(Number(c))));
+  if (Object.keys(mot).length) out.motivos = mot;
+  const ids = new Set(out.camiones.map((t) => t.id));
+  const div = Object.fromEntries(Object.entries(pl.division || {}).map(([c, ps]) => [c, ps.filter((x) => ids.has(x.id))]).filter(([, ps]) => ps.length >= 2));
+  if (Object.keys(div).length) out.division = div;
+  return out;
+};
+// Motivos de no ruteo (los mismos que usa Way Route en "Lista no ruteados")
+export const MOTIVOS = ['Geo incorrecta', 'Fuera de ruta', 'Comercial', 'Bajo drop', 'Exceso SLA', 'Vta depósito', 'Jornada reducida', 'Posdateo logístico'];
+export const planMotivo = (plan, cods, motivo) => {
+  const pend = new Set(plan.pend || []);
+  const motivos = { ...(plan.motivos || {}) };
+  cods.forEach((c) => { if (!pend.has(c)) return; if (motivo) motivos[c] = motivo; else delete motivos[c]; });
+  const out = { ...plan }; if (Object.keys(motivos).length) out.motivos = motivos; else delete out.motivos;
+  return out;
+};
+// División de carga: el cliente `cod` se entrega entre varios camiones. partes: [{ id: camión, b: bultos }] (al menos 2).
+export function planDividir(plan, cod, partes) {
+  const ps = (partes || []).filter((x) => x && x.b > 0 && plan.camiones.some((t) => t.id === x.id));
+  if (ps.length < 2) return plan;
+  return planLimpio({ ...plan, camiones: plan.camiones.map((t) => ({ ...t, cods: t.cods.filter((c) => c !== cod) })),
+    pend: (plan.pend || []).filter((c) => c !== cod), division: { ...(plan.division || {}), [cod]: ps } });
+}
+export const planUnir = (plan, cod, id) => {
+  const division = { ...(plan.division || {}) }; delete division[cod];
+  const base = { ...plan, division };
+  return planMover(base, [cod], id);
+};
 // destino: id de camión · 'nuevo' (camión nuevo) · 'pend' (otro día)
 export function planMover(plan, cods, destino) {
   const s = new Set(cods);
@@ -623,10 +672,13 @@ export function planMover(plan, cods, destino) {
   if (typeof destino === 'number' && !plan.camiones.some((t) => t.id === destino)) return plan;
   const camiones = plan.camiones.map((t) => ({ ...t, cods: t.cods.filter((c) => !s.has(c)), orden: t.cods.some((c) => s.has(c)) ? false : t.orden }));
   let pend = (plan.pend || []).filter((c) => !s.has(c));
+  const motivos = { ...(plan.motivos || {}) }; s.forEach((c) => delete motivos[c]);
+  const division = { ...(plan.division || {}) }; s.forEach((c) => delete division[c]);
+  plan = { ...plan, motivos, division };
   if (destino === 'pend') pend = pend.concat([...s]);
   else if (destino === 'nuevo') camiones.push({ id: Math.max(0, ...plan.camiones.map((t) => t.id)) + 1, cods: [...s], orden: false });
   else { const t = camiones.find((x) => x.id === destino); t.cods = t.cods.concat([...s]); t.orden = false; }
-  return planLimpio({ camiones, pend });
+  return planLimpio({ camiones, pend, motivos, division });
 }
 export const planJuntar = (plan, desde, hacia) => {
   const t = plan.camiones.find((x) => x.id === desde);
@@ -652,10 +704,23 @@ export function aplicarPlan(sim, plan, parametros = {}) {
   sim.rutas.forEach((r) => r.paradas.forEach((p) => por.set(p.c, p)));
   const pend = new Set((plan.pend || []).filter((c) => por.has(c)));
   const usados = new Set(); const grupos = [];
+  const div = Object.entries(plan.division || {}).filter(([c, ps]) => por.has(Number(c)) && !pend.has(Number(c)) && ps.length >= 2);
+  div.forEach(([c]) => usados.add(Number(c)));
   for (const t of plan.camiones || []) {
     const g = [], ord = [];
     (t.cods || []).forEach((c) => { const p = por.get(c); if (p && !pend.has(c) && !usados.has(c)) { g.push(p); ord.push(c); usados.add(c); } });
     grupos.push({ id: t.id, g, ord: t.orden ? ord : null, chofer: t.chofer || null });
+  }
+  // Clientes divididos: cada camión lleva una parte (bultos, pallets y kg proporcionales)
+  const divididos = [];
+  for (const [cs, ps] of div) {
+    const p = por.get(Number(cs)); const tot = ps.reduce((s, x) => s + x.b, 0) || 1;
+    for (const x of ps) {
+      const gr = grupos.find((q) => q.id === x.id); if (!gr) continue;
+      const f = x.b / tot;
+      gr.g.push({ ...p, b: p.b * f, pallets: p.pallets * f, kg: p.kg * f, parte: true });
+    }
+    divididos.push({ c: p.c, n: p.n, b: p.b, partes: ps.map((x) => ({ id: x.id, b: Math.round((p.b * x.b) / tot * 10) / 10 })) });
   }
   const nuevos = [...por.values()].filter((p) => !usados.has(p.c) && !pend.has(p.c));
   const cen = (g) => ({ lat: g.reduce((s, c) => s + c.lat, 0) / g.length, lon: g.reduce((s, c) => s + c.lon, 0) / g.length });
@@ -671,7 +736,7 @@ export function aplicarPlan(sim, plan, parametros = {}) {
   const pendientes = [...pend].map((c) => por.get(c));
   const max = Math.floor(P.maxCamiones || 0);
   return {
-    params: P, rutas, sinUbicacion: sim.sinUbicacion, editado: true, agregados: nuevos.length,
+    params: P, rutas, sinUbicacion: sim.sinUbicacion, editado: true, agregados: nuevos.length, divididos,
     pendEdit: { clientes: pendientes, bultos: pendientes.reduce((s, c) => s + c.b, 0) },
     tope: { max, necesarios: sim.tope ? sim.tope.necesarios : rutas.length, ajuste: null, faltan: max > 0 ? Math.max(0, rutas.length - max) : 0, pendientes: [] },
     totales: {

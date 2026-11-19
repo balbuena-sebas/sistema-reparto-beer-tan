@@ -11,6 +11,7 @@ import {
   perfilesChoferes, asignarChoferes, zonaDelDia, simularConTope,
   planDesde, planMover, planJuntar, planPartir, planOrdenar, planOrdenAuto, aplicarPlan, construirZonas,
   probarContraDia, clientesEnRutaPropia, ajustarTiempos, minutosRuta,
+  MOTIVOS, planMotivo, planDividir, planUnir, bitDia, diasDeMascara,
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
@@ -121,6 +122,10 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const [ordenPl, setOrdenPl] = useState({ k: 'b', d: -1 });
   const [aprend, setAprend] = useState({ umbral: 300, procesadas: [], grandes: {} });   // lo aprendido (compartido): qué pasó con los clientes grandes
   const [aprendOk, setAprendOk] = useState(false);
+  const [frec, setFrec] = useState({});                           // frecuencia de entrega por cliente: { cod: máscara LU..SA }
+  const [motivoNuevo, setMotivoNuevo] = useState('Comercial');    // motivo de no ruteo que se asigna al dejar clientes fuera
+  const [dividiendo, setDividiendo] = useState(null);             // cliente cuya carga se está dividiendo entre camiones
+  const [partesDiv, setPartesDiv] = useState({});                 // { idCamión: bultos } de la división en curso
   const [herr, setHerr] = useState('');                           // herramienta de selección sobre el mapa: '' | circulo | lazo | rect
   const [prueba, setPrueba] = useState(null);                     // resultado de probar el motor contra un día real
   const [camionesLoc, setCamionesLoc] = useState({});            // { LOCALIDAD: n } camiones fijados a mano
@@ -153,6 +158,9 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
       setAprendOk(true);
     } catch { /* se reintenta con el próximo evento */ }
   }, []);
+  const cargarFrec = useCallback(async () => {
+    try { const r = await apiFetch('/api/ruteo/frecuencia'); setFrec(r.data || {}); } catch { /* es de apoyo */ }
+  }, []);
   const registrarAprend = useCallback(async (cuerpo) => {
     try {
       const r = await apiFetch('/api/ruteo/aprendizaje', { method: 'PUT', headers: hdr, body: JSON.stringify(cuerpo) });
@@ -170,12 +178,12 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     try { setDiaDatos(await traerDia(fecha)); } catch (e) { aviso(e.message, 'err'); }
   }, [traerDia, aviso]);
 
-  useEffect(() => { cargarLista(); cargarUbic(); cargarPedidos(); cargarAprend(); }, [cargarLista, cargarUbic, cargarPedidos, cargarAprend]);
+  useEffect(() => { cargarLista(); cargarUbic(); cargarPedidos(); cargarAprend(); cargarFrec(); }, [cargarLista, cargarUbic, cargarPedidos, cargarAprend, cargarFrec]);
 
   useEffect(() => {
     const parar = suscribirRuteo((ev, info) => {
       if (ev === 'pedidos') cargarPedidos();
-      if (ev === 'ubicaciones') cargarUbic();
+      if (ev === 'ubicaciones') { cargarUbic(); cargarFrec(); }
       if (ev === 'aprendizaje') cargarAprend();
       if (ev === 'asignacion' && asigFn.current) asigFn.current();
       if (ev === 'dia') { cacheDias.current.delete(info.fecha); cargarLista(); setDiaSel((s) => { if (s === info.fecha) cargarDia(s); return s; }); }
@@ -633,16 +641,28 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
 
   // ── Edición manual del reparto (sobre la propuesta del motor) ─────────────
   const guardarPlan = (pl) => guardarAsig(ausentes, cubre, manual, excluidas, camionesLoc, pl);
-  const moverA = (cods, v) => {
+  const moverA = (cods, v, motivo = motivoNuevo) => {
     if (!v || !sim || !cods.length) return;
     // Decisión sobre clientes grandes (sale / queda fuera): se guarda para sugerirla la próxima vez.
     const dePend = new Set(((sim.pendEdit && sim.pendEdit.clientes) || []).map((p) => p.c));
     const porCod = new Map(); sim.rutas.forEach((r) => r.paradas.forEach((p) => porCod.set(p.c, p))); ((sim.pendEdit && sim.pendEdit.clientes) || []).forEach((p) => porCod.set(p.c, p));
     const ev = cods.map((c) => porCod.get(c)).filter((p) => p && p.b >= umbralGrande && ((v === 'pend') !== dePend.has(p.c)))
-      .map((p) => ({ c: p.c, n: p.n, d: v === 'pend' ? 'fuera' : 'sale', f: fechaPedidos || iso(new Date()) }));
+      .map((p) => ({ c: p.c, n: p.n, d: v === 'pend' ? 'fuera' : 'sale', f: fechaPedidos || iso(new Date()), ...(v === 'pend' ? { m: motivo } : {}) }));
     if (ev.length) registrarAprend({ eventos: ev });
-    guardarPlan(planMover(plan || planDesde(simAuto), cods, v === 'nuevo' || v === 'pend' ? v : Number(v)));
+    let np = planMover(plan || planDesde(simAuto), cods, v === 'nuevo' || v === 'pend' ? v : Number(v));
+    if (v === 'pend' && motivo) np = planMotivo(np, cods, motivo);
+    guardarPlan(np);
     setSelCli((s) => s.filter((c) => !cods.includes(c)));
+  };
+  const abrirDividir = (c) => {
+    const d = plan && plan.division && plan.division[c];
+    setDividiendo(c); setPartesDiv(d ? Object.fromEntries(d.map((x) => [x.id, x.b])) : {});
+  };
+  const aplicarDivision = (c) => {
+    const partes = Object.entries(partesDiv).map(([id, b]) => ({ id: Number(id), b: Number(b) })).filter((x) => x.b > 0);
+    if (partes.length < 2) { aviso('Elegí al menos dos camiones con bultos para dividir la carga.', 'err'); return; }
+    guardarPlan(planDividir(plan || planDesde(simAuto), c, partes));
+    setDividiendo(null); setPartesDiv({}); setSelCli([]);
   };
   const pidDe = (r, i) => (r.planId != null ? r.planId : i + 1);        // id de camión (sin plan editado = su posición)
   // Puntos del mapa que se pueden elegir con círculo / lazo / rectángulo (los de una localidad que no sale no se mueven)
@@ -717,14 +737,18 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const tarjetaPlanilla = sim && (() => {
     const pid = (r, i) => (r.planId != null ? r.planId : i + 1);   // sin plan editado, el id de camión es su posición (igual que planDesde)
     const filas = [];
-    sim.rutas.forEach((r, i) => r.paradas.forEach((p) => filas.push({ c: p.c, n: p.n, lat: p.lat, lon: p.lon, loc: p.loc || 'SIN LOCALIDAD', b: p.b, pal: p.pallets, cam: pid(r, i), nCam: r.n, ch: (choferesRutas[i] && choferesRutas[i].chofer) || '', ord: 0 })));
+    sim.rutas.forEach((r, i) => r.paradas.forEach((p) => filas.push({ c: p.c, n: p.n, lat: p.lat, lon: p.lon, loc: p.loc || 'SIN LOCALIDAD', b: p.b, pal: p.pallets, cam: pid(r, i), nCam: r.n, ch: (choferesRutas[i] && choferesRutas[i].chofer) || '', ord: 0, parte: !!p.parte })));
     ((sim.pendEdit && sim.pendEdit.clientes) || []).forEach((p) => filas.push({ c: p.c, n: p.n, lat: p.lat, lon: p.lon, loc: p.loc || 'SIN LOCALIDAD', b: p.b, pal: p.pallets, cam: 'pend', nCam: 0, ch: '' }));
     (sim.sinUbicacion || []).forEach((p) => filas.push({ c: p.c, n: p.n, loc: 'SIN UBICACIÓN', b: p.b, pal: p.pallets || 0, cam: 'sinub', nCam: 0, ch: '' }));
     pedidosSalen.quedan.forEach((p) => filas.push({ c: p.c, n: p.n, loc: locDe(p.c), b: p.b, pal: 0, cam: 'loc', nCam: 0, ch: '' }));
+    const bit = fechaPedidos ? bitDia(fechaPedidos) : 0;
+    const noToca = (f) => { const m = frec[f.c]; return !!m && !!bit && !(m & bit); };
+    const motDe = (c) => (plan && plan.motivos && plan.motivos[c]) || '';
+    const totalDe = (c) => { const p = (simAuto ? simAuto.rutas : []).flatMap((r) => r.paradas).find((x) => x.c === c); return p ? p.b : 0; };
     const grande = (f) => f.b >= umbralGrande;
     const q = fTxt.trim().toLowerCase();
     const vis = filas.filter((f) => (!q || `${f.c} ${f.n} ${f.loc}`.toLowerCase().includes(q)) && (!fLoc || f.loc === fLoc)
-      && (fEstado === 'todos' || (fEstado === 'fuera' ? (f.cam === 'pend' || f.cam === 'loc') : fEstado === 'grandes' ? grande(f) : String(f.cam) === fEstado)))
+      && (fEstado === 'todos' || (fEstado === 'fuera' ? (f.cam === 'pend' || f.cam === 'loc') : fEstado === 'grandes' ? grande(f) : fEstado === 'notoca' ? noToca(f) : String(f.cam) === fEstado)))
       .sort((x, y) => { const k = ordenPl.k; const a = k === 'n' || k === 'loc' ? String(x[k]) : x[k], b = k === 'n' || k === 'loc' ? String(y[k]) : y[k]; return (a < b ? -1 : a > b ? 1 : 0) * ordenPl.d; });
     const locs = [...new Set(filas.map((f) => f.loc))].sort();
     const grandes = filas.filter(grande);
@@ -758,7 +782,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           <input placeholder="Buscar cliente, código o localidad…" value={fTxt} onChange={(e) => setFTxt(e.target.value)} style={{ minWidth: 220 }} />
           <select value={fLoc} onChange={(e) => setFLoc(e.target.value)}><option value="">Todas las localidades</option>{locs.map((l) => <option key={l} value={l}>{cap(l)}</option>)}</select>
           <select value={fEstado} onChange={(e) => setFEstado(e.target.value)}>
-            <option value="todos">Todos</option><option value="fuera">Solo los que están fuera</option><option value="grandes">Solo los grandes ⚠</option>
+            <option value="todos">Todos</option><option value="fuera">Solo los que están fuera</option><option value="grandes">Solo los grandes ⚠</option><option value="notoca">Solo los que hoy no tocan 📅</option>
             {sim.rutas.map((r, i) => <option key={pid(r, i)} value={String(pid(r, i))}>Camión #{r.n}</option>)}
           </select>
           <span className="sim-sub">Grande desde <input type="number" min="1" value={umbralGrande} style={{ width: 70 }} onChange={(e) => setUmbralGrande(Math.max(1, Math.floor(Number(e.target.value)) || 1))} onBlur={() => { if (umbralGrande !== aprend.umbral) registrarAprend({ umbral: umbralGrande }); }} /> bultos</span>
@@ -772,27 +796,61 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
               {sim.rutas.map((x, k) => <option key={pid(x, k)} value={pid(x, k)}>Camión #{x.n} · {x.localidades.map(cap).join(' + ')}</option>)}
               <option value="nuevo">➕ Camión nuevo</option>
             </select>
+            <select value={motivoNuevo} onChange={(e) => setMotivoNuevo(e.target.value)} title="Motivo de no ruteo que se anota al dejar fuera">{MOTIVOS.map((m) => <option key={m} value={m}>Motivo: {m}</option>)}</select>
             <button className="sim-btn" onClick={() => moverA(selCli, 'pend')}>🚫 Dejar fuera</button>
+            {selCli.length === 1 && filas.some((f) => f.c === selCli[0] && dentro(f)) && <button className="sim-btn" onClick={() => abrirDividir(selCli[0])}>✂ Dividir carga</button>}
             <button className="sim-btn" onClick={() => setSelCli([])}>Desmarcar</button>
           </div>
         )}
+        {dividiendo !== null && (() => {
+          const tot = totalDe(dividiendo) || filas.filter((f) => f.c === dividiendo).reduce((t, f) => t + f.b, 0);
+          const nom = (filas.find((f) => f.c === dividiendo) || {}).n || dividiendo;
+          const marc = sim.rutas.map((x, k) => pid(x, k)).filter((id) => partesDiv[id] !== undefined);
+          const suma = marc.reduce((t, id) => t + (Number(partesDiv[id]) || 0), 0);
+          const parejo = () => { const n = marc.length || 0; if (!n) return; const o = {}; marc.forEach((id) => { o[id] = Math.round((tot / n) * 10) / 10; }); setPartesDiv(o); };
+          return (
+            <div className="sim-card" style={{ background: '#f3f7ff', marginBottom: 8 }}>
+              <b>✂ Dividir la carga de {nom} (cód. {dividiendo}) · {f1(tot)} bultos</b>
+              <div className="sim-sub" style={{ margin: '4px 0' }}>Tildá los camiones que van a llevar una parte y poné los bultos de cada uno. El cliente aparece en cada camión con su parte (km, pallets y personas se recalculan).</div>
+              <div className="sim-row" style={{ gap: 10, flexWrap: 'wrap' }}>
+                {sim.rutas.map((x, k) => { const id = pid(x, k); const on = partesDiv[id] !== undefined; return (
+                  <label key={id} className="sim-sub" style={{ border: '1px solid #cfd8ea', borderRadius: 6, padding: '2px 6px' }}>
+                    <input type="checkbox" checked={on} onChange={(e) => setPartesDiv((o) => { const n = { ...o }; if (e.target.checked) n[id] = 0; else delete n[id]; return n; })} /> #{x.n} {x.localidades.map(cap).join('+')}
+                    {on && <> <input type="number" min="0" value={partesDiv[id]} style={{ width: 70 }} onChange={(e) => setPartesDiv((o) => ({ ...o, [id]: e.target.value }))} /> b</>}
+                  </label>); })}
+              </div>
+              <div className="sim-row" style={{ gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                <button className="sim-btn" onClick={parejo}>Repartir parejo</button>
+                <span className="sim-sub" style={{ color: Math.abs(suma - tot) > 0.6 ? '#b45309' : undefined }}>Suma {f1(suma)} de {f1(tot)} bultos{Math.abs(suma - tot) > 0.6 ? ' (se ajusta en proporción)' : ''}</span>
+                <button className="sim-btn" onClick={() => aplicarDivision(dividiendo)}>Aplicar división</button>
+                {plan && plan.division && plan.division[dividiendo] && (
+                  <select value="" onChange={(e) => { if (e.target.value) { guardarPlan(planUnir(plan, dividiendo, e.target.value === 'nuevo' ? 'nuevo' : Number(e.target.value))); setDividiendo(null); } }}>
+                    <option value="">Volver a un solo camión…</option>{sim.rutas.map((x, k) => <option key={pid(x, k)} value={pid(x, k)}>#{x.n}</option>)}
+                  </select>)}
+                <button className="sim-btn" onClick={() => { setDividiendo(null); setPartesDiv({}); }}>Cancelar</button>
+              </div>
+            </div>);
+        })()}
         <div className="sim-row" style={{ gap: 8, marginBottom: 6 }}>
           <button className="sim-btn" onClick={() => setSelCli(todosSel ? [] : editables.map((f) => f.c))}>{todosSel ? 'Desmarcar visibles' : `Marcar visibles (${editables.length})`}</button>
           {(() => { const lista = grandes.filter((f) => typeof f.cam === 'number' && habitual(f.c) === 'fuera').map((f) => f.c);
             return lista.length > 0 && <button className="sim-btn" title="Según el historial, estos clientes grandes casi siempre se llevan aparte o no salen en el ruteo" onClick={() => moverA(lista, 'pend')}>🧠 Dejar fuera los que suelen ir aparte ({lista.length})</button>; })()}
+          {(() => { const lista = filas.filter((f) => dentro(f) && noToca(f)).map((f) => f.c);
+            return lista.length > 0 && <button className="sim-btn" title="Según la hoja Frecuencia del ruteador, estos clientes no tienen entrega este día de la semana" onClick={() => moverA(lista, 'pend')}>📅 Dejar fuera los que hoy no tocan ({lista.length})</button>; })()}
           {grandes.some(dentro) && <button className="sim-btn" onClick={() => setSelCli(grandes.filter((f) => dentro(f) || f.cam === 'pend').map((f) => f.c))}>Marcar los grandes</button>}
         </div>
         <div style={{ overflowX: 'auto', maxHeight: 460, overflowY: 'auto' }}>
           <table className="sim-table">
-            <thead><tr><th></th>{th('c', 'Cód.')}{th('n', 'Cliente')}{th('loc', 'Localidad')}{th('b', 'Bultos')}{th('cam', 'Camión')}<th>Chofer</th></tr></thead>
+            <thead><tr><th></th>{th('c', 'Cód.')}{th('n', 'Cliente')}{th('loc', 'Localidad')}{th('b', 'Bultos')}{th('cam', 'Camión')}<th>Chofer</th><th>Frec.</th><th>Motivo</th></tr></thead>
             <tbody>
-              {vis.map((f) => {
+              {vis.map((f, vi) => {
                 const edit = dentro(f) || f.cam === 'pend';
                 const fuera = f.cam === 'pend' || f.cam === 'loc';
                 return (
-                  <tr key={`${f.c}-${f.cam}`} style={{ opacity: fuera ? 0.6 : 1, background: grande(f) ? '#fff6e5' : undefined }}>
+                  <tr key={`${f.c}-${f.cam}-${vi}`} style={{ opacity: fuera ? 0.6 : 1, background: grande(f) ? '#fff6e5' : undefined }}>
                     <td><input type="checkbox" disabled={!edit} checked={sel.has(f.c)} onChange={() => setSelCli((a) => (a.includes(f.c) ? a.filter((x) => x !== f.c) : [...a, f.c]))} /></td>
-                    <td>{f.lat ? <button className="sim-btn" style={{ padding: '0 4px' }} title="Ver en el mapa" onClick={() => { const m = mapRef.current; if (m && m.flyTo) m.flyTo({ center: [f.lon, f.lat], zoom: 14 }); }}>📍</button> : null} {f.c}</td><td>{f.n}{grande(f) && <span title="Cliente de mucho volumen: decidí si sale" style={{ marginLeft: 6 }}>⚠ grande</span>}
+                    <td>{f.lat ? <button className="sim-btn" style={{ padding: '0 4px' }} title="Ver en el mapa" onClick={() => { const m = mapRef.current; if (m && m.flyTo) m.flyTo({ center: [f.lon, f.lat], zoom: 14 }); }}>📍</button> : null} {f.c}</td><td>{f.n}{f.parte && <span className="sim-sub" title="Carga dividida entre camiones" style={{ marginLeft: 6 }}>✂ parte</span>}{grande(f) && <span title="Cliente de mucho volumen: decidí si sale" style={{ marginLeft: 6 }}>⚠ grande</span>}
+                      {dentro(f) && (grande(f) || f.parte) && <button className="sim-btn" style={{ padding: '0 4px', marginLeft: 4 }} title="Dividir la carga de este cliente entre varios camiones" onClick={() => abrirDividir(f.c)}>✂</button>}
                       {grande(f) && aprend.grandes[f.c] && (() => { const h = aprend.grandes[f.c]; return <span className="sim-sub" style={{ marginLeft: 6 }} title="Según romaneos reales y tus decisiones">historial: salió {h.s || 0} · aparte/fuera {h.f || 0}{(h.ds || h.df) ? ` · vos: sale ${h.ds || 0} / fuera ${h.df || 0}` : ''}</span>; })()}</td><td>{cap(f.loc)}</td><td>{f1(f.b)}</td>
                     <td>{edit ? (
                       <select value={f.cam === 'pend' ? 'pend' : String(f.cam)} onChange={(e) => moverA([f.c], e.target.value)}>
@@ -801,10 +859,14 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                       </select>
                     ) : f.cam === 'loc' ? 'Localidad fuera' : 'Sin ubicación'}</td>
                     <td>{f.ch}</td>
+                    <td>{frec[f.c] ? <span className="sim-sub" style={noToca(f) ? { color: '#b45309', fontWeight: 600 } : undefined} title={noToca(f) ? 'Hoy no es día de entrega de este cliente' : 'Días de entrega'}>{noToca(f) ? '📅 ' : ''}{diasDeMascara(frec[f.c])}</span> : ''}</td>
+                    <td>{f.cam === 'pend' ? (
+                      <select value={motDe(f.c)} onChange={(e) => guardarPlan(planMotivo(plan, [f.c], e.target.value))}><option value="">— elegí —</option>{MOTIVOS.map((m) => <option key={m} value={m}>{m}</option>)}</select>
+                    ) : ''}</td>
                   </tr>
                 );
               })}
-              {vis.length === 0 && <tr><td colSpan="7" className="sim-sub">Ningún cliente con ese filtro.</td></tr>}
+              {vis.length === 0 && <tr><td colSpan="9" className="sim-sub">Ningún cliente con ese filtro.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1013,6 +1075,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                         <b>{selCli.length} cl. · {f0(bs)} b →</b>
                         {sim.rutas.map((r, i) => <button key={pidDe(r, i)} className="sim-btn" style={{ borderLeft: `6px solid ${COLORES[i % COLORES.length]}` }} onClick={() => moverA(selCli, pidDe(r, i))}>#{r.n}</button>)}
                         <button className="sim-btn" onClick={() => moverA(selCli, 'nuevo')}>➕ Nuevo</button>
+                        <select value={motivoNuevo} onChange={(e) => setMotivoNuevo(e.target.value)} title="Motivo de no ruteo">{MOTIVOS.map((m) => <option key={m} value={m}>{m}</option>)}</select>
                         <button className="sim-btn" onClick={() => moverA(selCli, 'pend')}>🚫 Fuera</button>
                         <button className="sim-btn" onClick={() => setSelCli([])}>✖</button>
                       </div>
