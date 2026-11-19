@@ -20,7 +20,8 @@ export const PARAMS_DEFAULT = {
   limiteRecarga3: 700,     // con 3 personas
   maxConRecarga: 900,      // más de esto con 1 recarga => alerta de revisión
   zonaTau: 0.35, zonaK: 16, zonaDow: 1.6, zonaRec: 0.03, zonaMeta: 0.02, // ajuste del reparto por zonas de chofer
-  siempreDosPersonas: ['LAS FLORES'], // localidades que salen siempre con 2 personas
+  autoelevador: [],        // localidades que se descargan con autoelevador: chofer solo y sin recarga (ej. ['LAS FLORES'])
+  ayudantesDisp: null,     // ayudantes presentes hoy (null = no se sabe: nunca se suma un 2º ayudante)
   minPalletsRuta: 1,       // un camión con menos pallets que esto se intenta sumar a otro
   ahorroMinKm: 15,         // dos camiones se juntan si el recorrido único ahorra al menos esto (y 10 %)
   radioRescateKm: 60,      // ...si hay un camión con lugar a menos de esta distancia
@@ -234,12 +235,25 @@ export function calibrarFactor(dias, dep = PARAMS_DEFAULT.deposito) {
 export function costearRuta(P, { km, pallets, cap, bultos, localidades = [] }) {
   const util = cap != null && cap <= P.palletsUtil; // solo si se conoce la capacidad del vehículo (romaneo)
   const litros = (km * (util ? P.consumoUtil : P.consumoCamion)) / 100;
-  const dos = localidades.some((l) => (P.siempreDosPersonas || []).includes(String(l).toUpperCase()));
-  const personas = dos ? 2 : 1 + P.ayudantesPorCamion;
+  // Descarga con autoelevador (ej. Las Flores): sale el chofer solo y no se paga recarga
+  const auto = localidades.length > 0 && localidades.every((l) => (P.autoelevador || []).includes(String(l).toUpperCase()));
+  const personas = auto ? 1 : 1 + P.ayudantesPorCamion;
   const limite = personas >= 3 ? P.limiteRecarga3 : P.limiteRecarga2;
-  const recargas = bultos > limite ? 1 : 0;
-  return { litros, combustible: litros * P.precioDiesel, utilitario: util, personas, limiteRecarga: limite, recargas,
+  const recargas = auto ? 0 : bultos > limite ? 1 : 0;
+  return { litros, combustible: litros * P.precioDiesel, utilitario: util, personas, limiteRecarga: auto ? null : limite, recargas, autoelevador: auto,
     alertaRecarga: recargas > 0 && bultos > P.maxConRecarga };
+}
+
+// Reparto del personal entre los camiones del día: todos salen con chofer + 1 ayudante. Si un camión caería en recarga
+// pero con un 2º ayudante (3 personas) no la necesita, y sobran ayudantes, se le suma. Un camión hace como mucho 1 recarga.
+export function asignarPersonal(P, rutas) {
+  if (P.ayudantesDisp == null) return rutas;
+  const conAyud = rutas.filter((r) => !r.autoelevador).length;
+  let sobran = Math.max(0, P.ayudantesDisp - conAyud);
+  rutas.filter((r) => !r.autoelevador && r.recargas > 0 && r.bultos <= P.limiteRecarga3)
+    .sort((a, b) => b.bultos - a.bultos)
+    .forEach((r) => { if (sobran > 0) { sobran--; r.personas = 3; r.recargas = 0; r.limiteRecarga = P.limiteRecarga3; r.alertaRecarga = false; r.extraAyudante = true; } });
+  return rutas;
 }
 
 // Mismo litros con el precio de cada marca (Shell / Axion / YPF) y el usado en el cálculo.
@@ -373,6 +387,7 @@ export function simular(pedidos, ubic, parametros = {}) {
     if (dest) { dest.items.push(...c.items); dest.pallets += c.pallets; c.locs.forEach((l) => dest.locs.add(l)); camiones.splice(i, 1); }
   }
   const rutas = camiones.filter((c) => c.items.length).map((c, i) => ({ ...armarRuta(P, c.items, i + 1), choferZona: c.chofer || null }));
+  asignarPersonal(P, rutas);
   const sum = (k) => rutas.reduce((s, r) => s + r[k], 0);
   return {
     params: P, rutas, sinUbicacion: sinUbic,
@@ -732,6 +747,7 @@ export function aplicarPlan(sim, plan, parametros = {}) {
     else grupos[bi].g.push(p);
   }
   const rutas = grupos.filter((x) => x.g.length).map((x, i) => ({ ...armarRuta(P, x.g, i + 1, x.ord), planId: x.id, ordenManual: !!x.ord, choferZona: x.chofer }));
+  asignarPersonal(P, rutas);
   const sum = (k) => rutas.reduce((s, r) => s + r[k], 0);
   const pendientes = [...pend].map((c) => por.get(c));
   const max = Math.floor(P.maxCamiones || 0);

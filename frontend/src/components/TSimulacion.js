@@ -98,6 +98,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   // Límites de recarga y de alerta salen de la Configuración de la app (param1/2/3), no de valores fijos.
   const [params, setParams] = useState(() => ({
     ...PARAMS_DEFAULT,
+    maxCamiones: 7,                 // flota de 8 camiones, 1 en el taller
+    autoelevador: [],
     ...(Number(cfg?.param1) > 0 ? { limiteRecarga2: Number(cfg.param1) } : {}),
     ...(Number(cfg?.param2) > 0 ? { limiteRecarga3: Number(cfg.param2) } : {}),
     ...(Number(cfg?.param3) > 0 ? { maxConRecarga: Number(cfg.param3) } : {}),
@@ -362,13 +364,20 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     const aus = new Set([...ausAuto.keys(), ...ausentes.map(normN)]);
     return [...todos.keys()].filter((k) => !aus.has(k)).length;
   }, [cfg, ausAuto, ausentes]);
+  // Ayudantes de Config que están presentes ese día (null si Config no tiene la lista: entonces no se suma un 2º ayudante)
+  const ayudantesPresentes = useMemo(() => {
+    const lista = cfg?.ayudantes || []; if (!lista.length) return null;
+    const aus = new Set([...ausAuto.keys(), ...ausentes.map(normN)]);
+    return lista.filter((n) => !aus.has(normN(n))).length;
+  }, [cfg, ausAuto, ausentes]);
+  const paramsEf = useMemo(() => ({ ...params, ayudantesDisp: ayudantesPresentes }), [params, ayudantesPresentes]);
   const tiempos = useMemo(() => ajustarTiempos(hist), [hist]);       // minutos por parada / km / bulto aprendidos de los romaneos
   const simAuto = useMemo(() => {
     if (!pedidosSalen.salen.length) return null;
-    return simularConTope({ clientes: pedidosSalen.salen }, ubic, { ...params, camionesPorLoc: camionesLoc, zonas, fechaObjetivo: fechaPedidos, ausentes: ausEf, cubre, tiempos });
-  }, [pedidosSalen, ubic, params, camionesLoc, zonas, fechaPedidos, ausEf, cubre, tiempos]);
+    return simularConTope({ clientes: pedidosSalen.salen }, ubic, { ...paramsEf, camionesPorLoc: camionesLoc, zonas, fechaObjetivo: fechaPedidos, ausentes: ausEf, cubre, tiempos });
+  }, [pedidosSalen, ubic, paramsEf, camionesLoc, zonas, fechaPedidos, ausEf, cubre, tiempos]);
   // Con reparto editado a mano manda el plan; si no, la propuesta del motor.
-  const simBase = useMemo(() => (simAuto && plan ? aplicarPlan(simAuto, plan, params) : simAuto), [simAuto, plan, params]);
+  const simBase = useMemo(() => (simAuto && plan ? aplicarPlan(simAuto, plan, paramsEf) : simAuto), [simAuto, plan, paramsEf]);
 
   const claveAncla = (r) => (r.planId ? `p${r.planId}` : String(Math.min(...r.paradas.map((p) => p.c))));
   // Chofer por ruta: lo elegido a mano manda; el resto se asigna por zona habitual (sin repetir choferes).
@@ -415,7 +424,10 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     const dias = calcDiasTrabajados(`${mes}-01`, `${mes}-${String(ultimo).padStart(2, '0')}`, (cfg?.diasNoTrabajados || []).map((d) => d.fecha)) || 26;
     const de = (personas) => (ch + Math.max(0, personas - 1) * ay) / dias;
     const porRuta = sim.rutas.map((r) => de(r.personas));
-    return { porRuta, total: porRuta.reduce((s, x) => s + x, 0), dias, ch, ay };
+    // Una recarga la hacen el chofer y su(s) ayudante(s) del camión: sale lo que cuesta ese personal en el día
+    const porRecarga = sim.rutas.map((r, i) => (r.recargas ? porRuta[i] : 0));
+    const extra = sim.rutas.filter((r) => r.extraAyudante).length * (ay / dias);
+    return { porRuta, total: porRuta.reduce((s, x) => s + x, 0), dias, ch, ay, porRecarga, recargas: porRecarga.reduce((s, x) => s + x, 0), extra, dia1: de(2) };
   }, [sim, fechaPedidos, cfg]);
   const resumenLoc = useMemo(() => (sim ? resumenPorLocalidad(sim.rutas) : []), [sim]);
   // Costo del día real (mismas reglas de combustible y recarga que la planilla)
@@ -1112,6 +1124,9 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                     <div className="sim-kpi"><b>{f0(sim.totales.km)}</b><span>Km {sim.conCalle === sim.rutas.length && sim.conCalle > 0 ? 'por calles' : 'estimados'}</span></div>
                     <div className="sim-kpi"><b>{money(sim.totales.combustible)}</b><span>Combustible ({f0(sim.totales.litros)} L)</span></div>
                     <div className="sim-kpi"><b>{sim.totales.recargas}</b><span>Recargas</span></div>
+                    {costoPers && costoPers.total > 0 && sim.totales.recargas > 0 && <div className="sim-kpi" title="Chofer + ayudante(s) de cada camión con recarga, a valor de un día (sueldo de Configuración ÷ días hábiles)"><b>{money(costoPers.recargas)}</b><span>Costo de las {sim.totales.recargas} recargas · {money(costoPers.recargas / sim.totales.recargas)} c/u</span></div>}
+                    {costoPers && costoPers.total > 0 && costoPers.extra > 0 && <div className="sim-kpi" title="Un 2º ayudante evita la recarga en esos camiones"><b>{money(costoPers.extra)}</b><span>2º ayudante en {sim.rutas.filter((r) => r.extraAyudante).length} camión(es)</span></div>}
+                    {costoPers && costoPers.total === 0 && sim.totales.recargas > 0 && <div className="sim-sub">Cargá el costo de chofer y ayudante en Configuración para ver cuánto sale cada recarga.</div>}
                     {costoPers && costoPers.total > 0 && <div className="sim-kpi"><b>{money(costoPers.total)}</b><span>Personal del día ({costoPers.dias} días hábiles)</span></div>}
                     {costoPers && costoPers.total > 0 && <div className="sim-kpi"><b>{money(costoPers.total + sim.totales.combustible)}</b><span>Combustible + personal{sim.totales.bultos ? ` · ${money((costoPers.total + sim.totales.combustible) / sim.totales.bultos)}/bulto` : ''}</span></div>}
                   </div>
@@ -1195,7 +1210,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                   })}
                   {sim && sim.totales && (
                     <div className="sim-sub" style={{ marginTop: 6 }}>
-                      Personal presente según Config y Ausencias: <b>{personalPresente}</b> personas · la simulación necesita <b>{sim.totales.personas}</b> ({sim.rutas.length} camiones × chofer + {params.ayudantesPorCamion} ayudante{params.ayudantesPorCamion === 1 ? '' : 's'}, y 2 en Las Flores).
+                      Personal presente según Config y Ausencias: <b>{personalPresente}</b> personas · la simulación necesita <b>{sim.totales.personas}</b> ({sim.rutas.length} camiones × chofer + {params.ayudantesPorCamion} ayudante{params.ayudantesPorCamion === 1 ? '' : 's'}; si sobran ayudantes, el 2º va al camión que así evita la recarga; con autoelevador sale el chofer solo).
                       {sim.totales.personas > personalPresente && <span className="sim-warn" style={{ marginLeft: 6, padding: '1px 6px' }}>⚠ falta personal</span>}
                     </div>
                   )}
@@ -1239,7 +1254,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                           <td>{r.paradas.length}</td><td>{f0(r.bultos)}</td><td>{f1(r.pallets)}</td>
                           <td><div className="sim-bar"><i className={r.ocupacion > 0.8 ? 'alto' : r.ocupacion < 0.4 ? 'bajo' : ''} style={{ width: `${Math.min(100, r.ocupacion * 100)}%` }} /></div></td>
                           <td>{f0(r.km)}{r.kmCalle ? ' 🛣️' : ''}</td><td>{f1(r.litros)}{r.utilitario ? ' (util.)' : ''}</td><td>{money(r.combustible)}</td>
-                          <td>{r.personas}</td>
+                          <td>{r.personas}{r.extraAyudante && <span className="sim-sub" style={{ marginLeft: 4 }} title="2º ayudante: con 3 personas este camión no necesita recarga">+ayud.</span>}{r.autoelevador && <span className="sim-sub" style={{ marginLeft: 4 }} title="Descarga con autoelevador: chofer solo, sin recarga">autoelev.</span>}</td>
                           <td>{costoPers ? money(costoPers.porRuta[i]) : '—'}</td>
                           <td><b>{costoPers ? money(costoPers.porRuta[i] + r.combustible) : money(r.combustible)}</b></td>
                           <td>{r.recargas ? (r.alertaRecarga ? <span className="sim-warn" style={{ padding: '1px 6px' }} title={`Más de ${params.maxConRecarga} bultos con recarga: revisar`}>1 ⚠ revisar</span> : '1') : `no (≤${r.limiteRecarga})`}</td>
@@ -1277,6 +1292,10 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                 )}
                 <div className="sim-card">
                   <h3>Parámetros (ajustables)</h3>
+                  <label className="sim-sub" style={{ display: 'block', marginBottom: 6 }}>
+                    <input type="checkbox" checked={(params.autoelevador || []).includes('LAS FLORES')}
+                      onChange={(e) => setParams((p) => ({ ...p, autoelevador: e.target.checked ? ['LAS FLORES'] : [] }))} /> Las Flores se descarga con autoelevador: sale el chofer solo y no se paga recarga (si es descarga manual, destildar)
+                  </label>
                   <div className="sim-params">
                     {[['bultosPorPallet', 'Bultos por pallet'], ['palletsPorCamion', 'Pallets por camión'], ['llenado', 'Llenado objetivo (0–1)'],
                       ['factorRuta', 'Factor de ruta'], ['consumoCamion', 'Consumo camión (L/100 km)'], ['consumoUtil', 'Consumo utilitario (L/100 km)'],
