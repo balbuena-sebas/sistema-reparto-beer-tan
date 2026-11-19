@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { apiFetch, suscribirRuteo } from '../api/client';
+import { CapaSeleccion } from '../simulacion/seleccion';
 import {
   PARAMS_DEFAULT, parsePedidos, construirUbicaciones, calibrarFactor, diffPedidos,
   indexarRechazos, cruzarRechazos, resumenRuteados, costearRuta, comparativaMarcas, resumenPorLocalidad,
@@ -120,6 +121,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const [ordenPl, setOrdenPl] = useState({ k: 'b', d: -1 });
   const [aprend, setAprend] = useState({ umbral: 300, procesadas: [], grandes: {} });   // lo aprendido (compartido): qué pasó con los clientes grandes
   const [aprendOk, setAprendOk] = useState(false);
+  const [herr, setHerr] = useState('');                           // herramienta de selección sobre el mapa: '' | circulo | lazo | rect
   const [prueba, setPrueba] = useState(null);                     // resultado de probar el motor contra un día real
   const [camionesLoc, setCamionesLoc] = useState({});            // { LOCALIDAD: n } camiones fijados a mano
   const [excluidas, setExcluidas] = useState([]);              // localidades que NO salen el día de entrega
@@ -474,7 +476,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     if (modo !== 'simulacion' || !simBase) return [];
     const out = [];
     ((simBase.pendEdit && simBase.pendEdit.clientes) || []).forEach((p) => out.push({ lat: p.lat, lon: p.lon, cod: p.c, titulo: p.n, detalle: `Cód. ${p.c} · ${f1(p.b)} bultos · ${cap(p.loc)} · otro día` }));
-    pedidosSalen.quedan.forEach((p) => { const u = ubic.get(p.c); if (u) out.push({ lat: u.lat, lon: u.lon, cod: p.c, titulo: p.n || String(p.c), detalle: `Cód. ${p.c} · ${f1(p.b)} bultos · ${cap(locDe(p.c))} · localidad fuera` }); });
+    pedidosSalen.quedan.forEach((p) => { const u = ubic.get(p.c); if (u) out.push({ lat: u.lat, lon: u.lon, cod: p.c, titulo: p.n || String(p.c), detalle: `Cód. ${p.c} · ${f1(p.b)} bultos · ${cap(locDe(p.c))} · localidad fuera`, bloq: true }); });
     return out;
   }, [modo, simBase, pedidosSalen, ubic]);  // eslint-disable-line react-hooks/exhaustive-deps
   const onPuntoRef = useRef(null);
@@ -642,6 +644,19 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     guardarPlan(planMover(plan || planDesde(simAuto), cods, v === 'nuevo' || v === 'pend' ? v : Number(v)));
     setSelCli((s) => s.filter((c) => !cods.includes(c)));
   };
+  const pidDe = (r, i) => (r.planId != null ? r.planId : i + 1);        // id de camión (sin plan editado = su posición)
+  // Puntos del mapa que se pueden elegir con círculo / lazo / rectángulo (los de una localidad que no sale no se mueven)
+  const puntosElegibles = () => {
+    const d = datosMapa.current; if (!d) return [];
+    const out = [];
+    (d.rutas || []).forEach((r, i) => { if (d.soloRuta != null && d.soloRuta !== i) return; r.puntos.forEach((p) => { if (p.cod) out.push({ cod: p.cod, lon: p.lon, lat: p.lat }); }); });
+    (d.fuera || []).forEach((p) => { if (p.cod && !p.bloq) out.push({ cod: p.cod, lon: p.lon, lat: p.lat }); });
+    return out;
+  };
+  const alSeleccionar = (cods, suma) => {
+    setHerr('');
+    setSelCli((a) => (suma ? [...new Set([...a, ...cods])] : cods));
+  };
   const opcionesDestino = (idExcluir) => (
     <>
       {sim && sim.rutas.filter((x) => x.planId !== idExcluir).map((x) => <option key={x.planId} value={x.planId}>Camión #{x.n} · {x.localidades.map(cap).join(' + ')}</option>)}
@@ -723,6 +738,11 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         <h3>📋 Planilla de armado</h3>
         <div className="sim-sub" style={{ marginBottom: 8 }}>Todos los clientes del día con sus bultos, localidad y camión. Tildá los que quieras y <b>sumalos a un camión</b> o <b>dejalos fuera</b> (quedan para otro día). Cada cambio recalcula km, combustible y personas y se comparte en vivo.
           Los clientes de mucho volumen aparecen marcados con ⚠ para que decidas uno por uno si salen.</div>
+        <div className="sim-sub" style={{ marginBottom: 6 }}>
+          <b>Del día:</b> {sim.totales.clientes} clientes ruteados de {filas.filter((f) => typeof f.cam === 'number' || f.cam === 'pend' || f.cam === 'loc').length} ·
+          no ruteados {filas.filter((f) => f.cam === 'pend' || f.cam === 'loc' || f.cam === 'sinub').length} ({f0((100 * filas.filter((f) => f.cam === 'pend' || f.cam === 'loc' || f.cam === 'sinub').length) / Math.max(1, filas.length))} %) ·
+          camiones {sim.rutas.length}{sim.tope && sim.tope.max > 0 ? ` de ${sim.tope.max} disponibles` : ''} · recargas {sim.totales.recargas} · {f1(sim.totales.pallets)} pallets
+        </div>
         <div className="sim-row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
           {sim.rutas.map((r, i) => (
             <button key={pid(r, i)} className="sim-btn" style={{ borderLeft: `6px solid ${COLORES[i % COLORES.length]}`, background: fEstado === String(pid(r, i)) ? '#e8eefc' : undefined }}
@@ -976,7 +996,33 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
               ))}
               <button className={callesOn ? 'on' : ''} onClick={() => setCallesOn((v) => !v)} title="Dibuja el recorrido real por calles y rutas (OSRM)">🛣️ Por calles</button>
             </div>
-            <div ref={mapDiv} className="sim-map" />
+            <div style={{ position: 'relative' }}>
+              <div ref={mapDiv} className="sim-map" />
+              {modo === 'simulacion' && sim && (
+                <div style={{ position: 'absolute', top: 8, left: 8, zIndex: 6, display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: 'calc(100% - 60px)' }}>
+                  <div className="sim-seg">
+                    {[['', '✋', 'Mover el mapa'], ['circulo', '⭕', 'Círculo: arrastrá desde el centro'], ['lazo', '✏️', 'Lazo: dibujá alrededor de los clientes'], ['rect', '▭', 'Rectángulo']].map(([k, ic, tt]) => (
+                      <button key={k || 'mano'} className={herr === k ? 'on' : ''} title={tt} onClick={() => setHerr(k)}>{ic}</button>
+                    ))}
+                  </div>
+                  {selCli.length > 0 && (() => {
+                    const por = new Map(); sim.rutas.forEach((r) => r.paradas.forEach((p) => por.set(p.c, p))); ((sim.pendEdit && sim.pendEdit.clientes) || []).forEach((p) => por.set(p.c, p));
+                    const bs = selCli.reduce((t, c) => t + ((por.get(c) || {}).b || 0), 0);
+                    return (
+                      <div className="sim-card" style={{ margin: 0, padding: '4px 8px', display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <b>{selCli.length} cl. · {f0(bs)} b →</b>
+                        {sim.rutas.map((r, i) => <button key={pidDe(r, i)} className="sim-btn" style={{ borderLeft: `6px solid ${COLORES[i % COLORES.length]}` }} onClick={() => moverA(selCli, pidDe(r, i))}>#{r.n}</button>)}
+                        <button className="sim-btn" onClick={() => moverA(selCli, 'nuevo')}>➕ Nuevo</button>
+                        <button className="sim-btn" onClick={() => moverA(selCli, 'pend')}>🚫 Fuera</button>
+                        <button className="sim-btn" onClick={() => setSelCli([])}>✖</button>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+              <CapaSeleccion herramienta={modo === 'simulacion' ? herr : ''} getPuntos={puntosElegibles} onSeleccion={alSeleccionar} onCancelar={() => setHerr('')}
+                proyectar={(p) => { const q = mapRef.current.project([p.lon, p.lat]); return [q.x, q.y]; }} />
+            </div>
             {rutasMapa.length > 0 && (
               <div className="sim-anim">
                 <button className="sim-btn" onClick={() => { if (animF >= 1) setAnimF(0); setAnimOn((v) => !v); }}>

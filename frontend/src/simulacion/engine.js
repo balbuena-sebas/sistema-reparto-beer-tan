@@ -19,7 +19,7 @@ export const PARAMS_DEFAULT = {
   limiteRecarga2: 450,     // con 2 personas: sin recarga hasta estos bultos
   limiteRecarga3: 700,     // con 3 personas
   maxConRecarga: 900,      // más de esto con 1 recarga => alerta de revisión
-  zonaTau: 0.35, zonaK: 16, zonaDow: 1.6, zonaRec: 0.03, zonaMeta: 0.05, // ajuste del reparto por zonas de chofer
+  zonaTau: 0.35, zonaK: 16, zonaDow: 1.6, zonaRec: 0.03, zonaMeta: 0.02, // ajuste del reparto por zonas de chofer
   siempreDosPersonas: ['LAS FLORES'], // localidades que salen siempre con 2 personas
   minPalletsRuta: 1,       // un camión con menos pallets que esto se intenta sumar a otro
   ahorroMinKm: 15,         // dos camiones se juntan si el recorrido único ahorra al menos esto (y 10 %)
@@ -286,7 +286,7 @@ export function simular(pedidos, ubic, parametros = {}) {
         z.grupos.forEach((g, j) => { usadosZona.add(z.choferes[j]); unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true, chofer: z.choferes[j] }); });
         continue;
       }
-      const cub = repartirEquilibrado(items, k, dep);
+      const cub = afinarEquilibrio(repartirEquilibrado(items, k, dep));
       cub.filter((g) => g.length).forEach((g) => unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true }));
       continue;
     }
@@ -297,16 +297,9 @@ export function simular(pedidos, ubic, parametros = {}) {
       zAuto.grupos.forEach((g, j) => { usadosZona.add(zAuto.choferes[j]); unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true, chofer: zAuto.choferes[j] }); });
       continue;
     }
-    const ang = (c) => Math.atan2(c.lat - dep.lat, c.lon - dep.lon);
-    const ord = items.slice().sort((a, b) => ang(a) - ang(b));
-    let cur = [], acc = 0, n = 0;
-    for (const c of ord) {
-      if (acc + c.pallets > objetivo * 1.05 && cur.length && n < k - 1) {
-        unidades.push({ loc, items: cur, pallets: acc }); cur = []; acc = 0; n++;
-      }
-      cur.push(c); acc += c.pallets;
-    }
-    if (cur.length) unidades.push({ loc, items: cur, pallets: acc });
+    // Sin historial de zonas: se parte en k sectores con los bultos y los clientes lo más parejos posible
+    afinarEquilibrio(repartirEquilibrado(items, k, dep)).filter((g) => g.length)
+      .forEach((g) => unidades.push({ loc, items: g, pallets: g.reduce((s2, c) => s2 + c.pallets, 0) }));
   }
   const centro = (items) => ({
     lat: items.reduce((s, c) => s + c.lat, 0) / items.length,
@@ -372,6 +365,46 @@ export function simular(pedidos, ubic, parametros = {}) {
       personas: sum('personas'), recargas: sum('recargas'),
     },
   };
+}
+
+// Afina un reparto en k grupos para que los bultos y los clientes queden parejos: pasa de a uno el cliente que más
+// mejora el equilibrio, siempre que el camión que lo recibe no quede a más de `maxKm` más lejos que el que lo cede.
+// Mide el desvío de cada grupo como |parte de bultos − 1/k| + |parte de clientes − 1/k| y baja el peor.
+export function afinarEquilibrio(grupos, opciones = {}) {
+  const k = grupos.length; if (k < 2) return grupos;
+  const maxKm = opciones.maxKm ?? 5, meta = opciones.meta ?? 0.05;
+  const g = grupos.map((x) => x.slice());
+  const n = g.reduce((s, x) => s + x.length, 0), palTot = g.reduce((s, x) => s + x.reduce((a, c) => a + c.pallets, 0), 0) || 1;
+  if (n < k * 2) return grupos;
+  const pal = g.map((x) => x.reduce((a, c) => a + c.pallets, 0) / palTot), cnt = g.map((x) => x.length / n);
+  const sc = (p, q) => Math.abs(p - 1 / k) + Math.abs(q - 1 / k);
+  const dev = () => Math.max(...pal.map((p, j) => sc(p, cnt[j])));
+  const cen = (x) => ({ lat: x.reduce((a, c) => a + c.lat, 0) / x.length, lon: x.reduce((a, c) => a + c.lon, 0) / x.length });
+  for (let it = 0; it < 500; it++) {
+    const cur = dev(); if (cur <= meta) break;
+    const ce = g.map((x) => (x.length ? cen(x) : null));
+    let mejor = null;
+    for (let A = 0; A < k; A++) {
+      if (g[A].length < 2) continue;
+      for (let i = 0; i < g[A].length; i++) {
+        const c = g[A][i], pi = c.pallets / palTot;
+        for (let B = 0; B < k; B++) {
+          if (B === A || !ce[B]) continue;
+          const extra = haversine(c, ce[B]) - haversine(c, ce[A]);
+          if (extra > maxKm) continue;
+          let v = Math.max(sc(pal[A] - pi, cnt[A] - 1 / n), sc(pal[B] + pi, cnt[B] + 1 / n));
+          for (let j = 0; j < k; j++) if (j !== A && j !== B) v = Math.max(v, sc(pal[j], cnt[j]));
+          if (v >= cur - 1e-9) continue;
+          const puntaje = (cur - v) / (0.5 + Math.max(0, extra));
+          if (!mejor || puntaje > mejor.puntaje) mejor = { puntaje, A, i, B, pi };
+        }
+      }
+    }
+    if (!mejor) break;
+    const [c] = g[mejor.A].splice(mejor.i, 1); g[mejor.B].push(c);
+    pal[mejor.A] -= mejor.pi; pal[mejor.B] += mejor.pi; cnt[mejor.A] -= 1 / n; cnt[mejor.B] += 1 / n;
+  }
+  return g;
 }
 
 // Reparte `items` en k sectores contiguos (barrido angular desde el depósito) buscando el punto de corte que deja
