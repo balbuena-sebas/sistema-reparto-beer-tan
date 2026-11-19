@@ -22,6 +22,7 @@ export const PARAMS_DEFAULT = {
   zonaTau: 0.35, zonaK: 16, zonaDow: 1.6, zonaRec: 0.03, zonaMeta: 0.05, // ajuste del reparto por zonas de chofer
   siempreDosPersonas: ['LAS FLORES'], // localidades que salen siempre con 2 personas
   minPalletsRuta: 1,       // un camión con menos pallets que esto se intenta sumar a otro
+  ahorroMinKm: 15,         // dos camiones se juntan si el recorrido único ahorra al menos esto (y 10 %)
   radioRescateKm: 60,      // ...si hay un camión con lugar a menos de esta distancia
   maxCamiones: 0,          // camiones disponibles hoy (0 = sin tope: arma los que hagan falta)
   camionesPorLoc: {},      // { LOCALIDAD: n } camiones fijados a mano para esa localidad (ej. Las Flores: 2)
@@ -325,6 +326,27 @@ export function simular(pedidos, ubic, parametros = {}) {
     }
     if (dest) { dest.items.push(...u.items); dest.pallets += u.pallets; dest.locs.add(u.loc); }
     else camiones.push({ items: u.items.slice(), pallets: u.pallets, locs: new Set([u.loc]) });
+  }
+  // Ahorro de km: dos camiones sin zona fija se juntan si un solo recorrido sirve para ambos y es bastante más corto que
+  // los dos por separado (típico de localidades lejanas con poca carga, como Juan N. Fernández + La Dulce), siempre que
+  // entre en capacidad, en paradas y en la jornada aprendida del historial.
+  const tiem = P.tiempos || TIEMPOS_DEFAULT;
+  const kmCam = (cam) => (cam._km === undefined || cam._n !== cam.items.length ? ((cam._n = cam.items.length), (cam._km = armarRuta(P, cam.items, 0).km)) : cam._km);
+  for (let vuelta = 0; vuelta < 12; vuelta++) {
+    let mejor = null;
+    for (let i = 0; i < camiones.length; i++) for (let j = i + 1; j < camiones.length; j++) {
+      const A = camiones[i], B = camiones[j];
+      if (A.fijo || B.fijo) continue;
+      if (A.pallets + B.pallets > capUtil || A.items.length + B.items.length > P.maxParadas) continue;
+      const juntos = armarRuta(P, A.items.concat(B.items), 0);
+      const ahorro = kmCam(A) + kmCam(B) - juntos.km;
+      if (ahorro < Math.max(P.ahorroMinKm, 0.1 * (kmCam(A) + kmCam(B)))) continue;
+      if (minutosRuta(tiem, { paradas: juntos.paradas.length, km: juntos.km, bultos: juntos.bultos }) > tiem.limite) continue;
+      if (!mejor || ahorro > mejor.ahorro) mejor = { i, j, ahorro };
+    }
+    if (!mejor) break;
+    const A = camiones[mejor.i], B = camiones[mejor.j];
+    A.items.push(...B.items); A.pallets += B.pallets; B.locs.forEach((l) => A.locs.add(l)); camiones.splice(mejor.j, 1);
   }
   // Rescate: camiones casi vacíos se suman al más cercano que tenga lugar (si no hay, quedan marcados "poca carga")
   for (let i = camiones.length - 1; i >= 0; i--) {
@@ -849,7 +871,7 @@ export function probarContraDia(fecha, dia, hist, ubicItems, parametros = {}) {
     });
   });
   const clientes = [...por.values()].filter((x) => x.b > 0).map((x) => ({ ...x, b: Math.round(x.b * 100) / 100 }));
-  const sim = simularConTope({ clientes }, ubic, { ...P, camionesPorLoc: {}, maxCamiones: 0, zonas: construirZonas(histSin), fechaObjetivo: fecha, ausentes: [], cubre: {} });
+  const sim = simularConTope({ clientes }, ubic, { ...P, camionesPorLoc: {}, maxCamiones: 0, zonas: construirZonas(histSin), fechaObjetivo: fecha, ausentes: [], cubre: {}, tiempos: ajustarTiempos(histSin) });
   const perfiles = perfilesChoferes(histSin, ubic, P.deposito, fecha);
   const auto = asignarChoferes(sim.rutas, perfiles, [], {});
   const choferSim = sim.rutas.map((r, i) => r.choferZona || (auto[i] && auto[i].chofer) || '');
@@ -868,6 +890,8 @@ export function probarContraDia(fecha, dia, hist, ubicItems, parametros = {}) {
     const [mejor, n] = [...cuenta.entries()].sort((a, b) => b[1] - a[1])[0];
     return { ri, chofer: r.chofer, clientes: cl.length, juntos: n / cl.length, camionSim: sim.rutas[mejor].n, choferSim: choferSim[mejor] };
   }).filter(Boolean);
+  const tmod = ajustarTiempos(histSin);
+  const errs = propias.filter((ri) => dia.rutas[ri].ini && dia.rutas[ri].fin > dia.rutas[ri].ini).map((ri) => Math.abs(minutosRuta(tmod, { paradas: dia.paradas.filter((p) => p[0] === ri).length, km: dia.rutas[ri].km || 0, bultos: dia.rutas[ri].bultos || 0 }) - (dia.rutas[ri].fin - dia.rutas[ri].ini)));
   const kmReal = propias.reduce((s, ri) => s + (dia.rutas[ri].km || 0), 0);
   return {
     fecha, clientes: clientes.length, comunes: comunes.length,
@@ -877,6 +901,37 @@ export function probarContraDia(fecha, dia, hist, ubicItems, parametros = {}) {
     agrupamiento: indiceRand(comunes.map((c) => rutaReal.get(c)), comunes.map((c) => rutaSim.get(c))),
     choferClientes: comunes.length ? mismoChofer / comunes.length : 0,
     choferBultos: bultosComunes ? bultosMismo / bultosComunes : 0,
+    tiempos: { errMin: errs.length ? errs.reduce((x, y) => x + y, 0) / errs.length : null, rutas: errs.length, ajustado: tmod.ajustado },
     porRuta,
   };
 }
+
+// ── Tiempos de jornada aprendidos del historial ────────────────────────────
+// Modelo: minutos = base + porParada·paradas + porKm·km + porBulto·bultos, ajustado por mínimos cuadrados con las
+// rutas propias reales (más de 2 paradas). Si hay pocas rutas se usan los valores típicos de Beer Tan.
+export const TIEMPOS_DEFAULT = { base: 31, porParada: 7.6, porKm: 0.78, porBulto: 0.05, limite: 600, mae: null, n: 0, ajustado: false };
+export function ajustarTiempos(dias) {
+  const X = [], Y = [];
+  Object.values(dias || {}).forEach((d) => (d.rutas || []).forEach((r, ri) => {
+    const n = d.paradas.filter((p) => p[0] === ri).length;
+    if (rutaAparte(r, n) || !r.ini || !r.fin || r.fin <= r.ini) return;
+    X.push([1, n, r.km || 0, r.bultos || 0]); Y.push(r.fin - r.ini);
+  }));
+  if (X.length < 12) return { ...TIEMPOS_DEFAULT, n: X.length };
+  // ecuaciones normales con un poco de regularización (ridge) para que no queden coeficientes absurdos
+  const k = 4, A = Array.from({ length: k }, () => new Array(k + 1).fill(0));
+  X.forEach((x, i) => { for (let a = 0; a < k; a++) { for (let b = 0; b < k; b++) A[a][b] += x[a] * x[b]; A[a][k] += x[a] * Y[i]; } });
+  for (let a = 1; a < k; a++) A[a][a] += 1e-3 * A[a][a];
+  for (let c = 0; c < k; c++) {
+    let p = c; for (let r = c + 1; r < k; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]];
+    if (Math.abs(A[c][c]) < 1e-12) return { ...TIEMPOS_DEFAULT, n: X.length };
+    for (let r = 0; r < k; r++) if (r !== c) { const f = A[r][c] / A[c][c]; for (let j = c; j <= k; j++) A[r][j] -= f * A[c][j]; }
+  }
+  const co = A.map((row, i) => row[k] / row[i]).map((v, i) => (i === 0 ? v : Math.max(0, v)));
+  const m = { base: co[0], porParada: co[1], porKm: co[2], porBulto: co[3] };
+  const err = X.map((x, i) => Math.abs(m.base + m.porParada * x[1] + m.porKm * x[2] + m.porBulto * x[3] - Y[i]));
+  const ord = Y.slice().sort((a, b) => a - b);
+  return { ...m, limite: Math.max(480, Math.round(ord[Math.floor(ord.length * 0.9)] || 600)), mae: err.reduce((a, b) => a + b, 0) / err.length, n: X.length, ajustado: true };
+}
+export const minutosRuta = (m, { paradas, km, bultos }) => m.base + m.porParada * paradas + m.porKm * km + m.porBulto * bultos;

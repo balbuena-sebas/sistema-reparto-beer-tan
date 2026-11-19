@@ -113,6 +113,7 @@ export function cambiarVista(map, clave, redibujar) {
 
 // datos: { deposito, rutas:[{color,label,puntos:[{lat,lon,seq,titulo,detalle}], geom?:[[lon,lat]...]}], etiquetas:[{lat,lon,texto,color}], soloRuta }
 export function pintar(map, datos, onClickPunto) {
+  if (onClickPunto) map._onPunto = onClickPunto;
   const lineas = [], puntos = [];
   (datos.rutas || []).forEach((r, i) => {
     if (datos.soloRuta != null && datos.soloRuta !== i) return;
@@ -120,27 +121,38 @@ export function pintar(map, datos, onClickPunto) {
     lineas.push({ type: 'Feature', properties: { color: r.color }, geometry: { type: 'LineString', coordinates: coords } });
     r.puntos.forEach((p) => puntos.push({
       type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-      properties: { color: r.color, seq: p.seq, titulo: p.titulo, detalle: p.detalle, ruta: r.label },
+      properties: { color: r.color, seq: p.seq, titulo: p.titulo, detalle: p.detalle, ruta: r.label, cod: p.cod || 0,
+        grande: p.grande ? 1 : 0, marcado: p.cod && datos.marcados && datos.marcados.includes(p.cod) ? 1 : 0 },
     }));
   });
+  // Clientes que quedan fuera del reparto (otro día / localidad que no sale): círculos huecos grises
+  const fuera = (datos.fuera || []).map((p) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+    properties: { titulo: p.titulo, detalle: p.detalle, cod: p.cod || 0, marcado: p.cod && datos.marcados && datos.marcados.includes(p.cod) ? 1 : 0 } }));
   const etiquetas = (datos.etiquetas || []).filter((e) => datos.soloRuta == null || e.ruta === datos.soloRuta).map((e) => ({
     type: 'Feature', geometry: { type: 'Point', coordinates: [e.lon, e.lat] }, properties: { texto: e.texto, color: e.color } }));
   puntos.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [datos.deposito.lon, datos.deposito.lat] },
     properties: { color: '#111', seq: '⌂', titulo: 'Depósito', detalle: 'Punto de salida', ruta: '' } });
 
   const poner = () => {
-    const sl = map.getSource('sim-lineas'), sp = map.getSource('sim-puntos'), se = map.getSource('sim-etq');
-    if (sl && sp && se) { sl.setData({ type: 'FeatureCollection', features: lineas });
-      sp.setData({ type: 'FeatureCollection', features: puntos }); se.setData({ type: 'FeatureCollection', features: etiquetas }); return; }
+    const sl = map.getSource('sim-lineas'), sp = map.getSource('sim-puntos'), se = map.getSource('sim-etq'), sf = map.getSource('sim-fuera');
+    if (sl && sp && se && sf) { sl.setData({ type: 'FeatureCollection', features: lineas });
+      sp.setData({ type: 'FeatureCollection', features: puntos }); se.setData({ type: 'FeatureCollection', features: etiquetas });
+      sf.setData({ type: 'FeatureCollection', features: fuera }); return; }
     map.addSource('sim-lineas', { type: 'geojson', data: { type: 'FeatureCollection', features: lineas } });
     map.addSource('sim-puntos', { type: 'geojson', data: { type: 'FeatureCollection', features: puntos } });
     map.addSource('sim-etq', { type: 'geojson', data: { type: 'FeatureCollection', features: etiquetas } });
+    map.addSource('sim-fuera', { type: 'geojson', data: { type: 'FeatureCollection', features: fuera } });
     map.addLayer({ id: 'sim-lineas', type: 'line', source: 'sim-lineas',
       layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 0.75 } });
+    map.addLayer({ id: 'sim-fuera', type: 'circle', source: 'sim-fuera',
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 3.5, 14, 8], 'circle-color': 'rgba(255,255,255,0.55)',
+        'circle-stroke-color': ['case', ['==', ['get', 'marcado'], 1], '#ff9800', '#78909c'], 'circle-stroke-width': ['case', ['==', ['get', 'marcado'], 1], 3.5, 2] } });
     map.addLayer({ id: 'sim-puntos', type: 'circle', source: 'sim-puntos',
-      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, 3.5, 14, 8], 'circle-color': ['get', 'color'],
-        'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 9, ['case', ['==', ['get', 'grande'], 1], 6, 3.5], 14, ['case', ['==', ['get', 'grande'], 1], 12, 8]],
+        'circle-color': ['get', 'color'],
+        'circle-stroke-color': ['case', ['==', ['get', 'marcado'], 1], '#ff9800', ['==', ['get', 'grande'], 1], '#111', '#fff'],
+        'circle-stroke-width': ['case', ['==', ['get', 'marcado'], 1], 4, ['==', ['get', 'grande'], 1], 2.5, 1.5] } });
     map.addLayer({ id: 'sim-etq', type: 'symbol', source: 'sim-etq',
       layout: { 'text-field': ['get', 'texto'], 'text-size': 13, 'text-font': ['Noto Sans Bold'], 'text-offset': [0, -1.6], 'text-allow-overlap': true },
       paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#fff', 'text-halo-width': 2 } });
@@ -154,10 +166,18 @@ export function pintar(map, datos, onClickPunto) {
       const p = f.properties;
       const html = `<div class="sim-pop"><b>${esc(p.titulo)}</b><br>${esc(p.detalle)}${p.ruta ? `<br><span style="color:${esc(p.color)}">● ${esc(p.ruta)}</span>` : ''}</div>`;
       new maplibregl.Popup({ offset: 10 }).setLngLat(f.geometry.coordinates).setHTML(html).addTo(map);
-      onClickPunto && onClickPunto(p);
+      map._onPunto && map._onPunto(p);
     });
-    map.on('mouseenter', 'sim-puntos', () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'sim-puntos', () => { map.getCanvas().style.cursor = ''; });
+    map.on('click', 'sim-fuera', (e) => {
+      const f = e.features && e.features[0]; if (!f) return;
+      const p = f.properties;
+      new maplibregl.Popup({ offset: 10 }).setLngLat(f.geometry.coordinates).setHTML(`<div class="sim-pop"><b>${esc(p.titulo)}</b><br>${esc(p.detalle)}<br><span style="color:#546e7a">○ Fuera del reparto</span></div>`).addTo(map);
+      map._onPunto && map._onPunto(p);
+    });
+    ['sim-puntos', 'sim-fuera'].forEach((capa) => {
+      map.on('mouseenter', capa, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', capa, () => { map.getCanvas().style.cursor = ''; });
+    });
   };
   if (map._estiloOk) poner(); else map.once('style.load', poner);
   return { lineas, puntos };
