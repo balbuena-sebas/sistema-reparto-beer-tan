@@ -5,6 +5,7 @@ import { exportarReporteXLSX } from "./utils/exportXLSX";
 import { DC } from "./constants";
 import { PERMISOS_DEFAULTS, normalizarUsuario } from "./config/permissions";
 import { mesN, isT } from "./utils/helpers";
+import Tutorial from "./components/Tutorial";
 
 import {
   getRegistros,
@@ -1365,6 +1366,7 @@ export default function App() {
             <button
               key={t.id}
               className={`nav-tab ${tab === t.id ? "nav-tab-active" : ""}`}
+              data-tut={`tab-${t.id}`}
               onClick={() => setTab(t.id)}>
               {t.lb}
               {t.id === "dashboard" && alertas.length > 0 && (
@@ -1695,6 +1697,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <Tutorial user={loggedInUser} tab={tab} />
 
       <footer className="app-footer">
         © {new Date().getFullYear()} Beer Tan SA · v4.2 · Todos los derechos reservados
