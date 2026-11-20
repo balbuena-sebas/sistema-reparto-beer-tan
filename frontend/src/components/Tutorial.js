@@ -33,15 +33,14 @@ export const GENERAL = {
 
 export const SECCION = {
   simulacion: [
-    { titulo: 'Simulación del reparto', texto: 'Simula cómo conviene repartir mañana. Trabaja con los pedidos que cargás y se actualiza en vivo para todos los usuarios.' },
-    { ...B('Subir pedidos'), titulo: '1. Pedidos', texto: 'Subí el Excel de pedidos y elegí la fecha de entrega. Podés sumar varios archivos (uno por día de pedido) y se acumulan.' },
-    { ...B('Planilla de armado'), titulo: '2. Planilla de armado', texto: 'Todos los clientes con bultos, localidad, camión y chofer. Tildalos para sumarlos a un camión, dejarlos fuera (con motivo), o dividir la carga de un cliente grande con ✂.' },
-    { ...B('Editar el reparto'), titulo: '3. Editar a mano', texto: 'Si querés cambiar lo que propuso el motor, tocá «Editar esta propuesta»: mové clientes, juntá o partí camiones y fijá el orden. Todo se recalcula.' },
-    { titulo: '4. Mapa', texto: 'En el mapa podés marcar clientes con círculo, lazo o rectángulo (con Shift sumás) y mandarlos juntos a un camión o dejarlos fuera.' },
-    { titulo: '5. Personal y recargas', texto: 'Todos salen con chofer y ayudante. Si un camión cae en recarga y sobran ayudantes, se le suma un 2º para evitarla. El costo de la recarga usa los montos de Config.' },
-    { ...B('Choferes del día'), titulo: '6. Ausencias y choferes', texto: 'Los choferes y ayudantes que cargaste en Ausencias ese día se descuentan solos. También podés destildar a alguien a mano.' },
-    { ...B('Parámetros'), titulo: '7. Parámetros', texto: 'Camiones disponibles hoy (hoy 7: 8 menos 1 en el taller), límites de recarga y autoelevador en Las Flores.' },
-    { ...B('Probar el motor con este día'), titulo: '8. Probar el motor', texto: 'Con el romaneo real que te da el ruteador (puede ser al día siguiente), «Probar el motor con este día» compara lo que habría armado con lo que se hizo, y aprende.' },
+    { titulo: 'Simulación del reparto', texto: 'Arma el reparto de mañana en 4 pasos: Pedidos → Camiones → Clientes → Costos. Se actualiza en vivo para todos los usuarios con acceso.' },
+    { sel: '[data-tut="sim-resumen"]', titulo: 'Resumen vivo', texto: 'Siempre arriba: clientes, bultos, camiones, personas, km y costo por bulto. Cambia solo cuando movés algo, así no tenés que buscar los totales en otro lado.' },
+    { sel: '[data-tut="sim-chk"]', titulo: 'Cosas para revisar', texto: 'Junta en una lista todo lo que puede estar mal: falta chofer o personal, camión pasado de carga o de horas, clientes a los que hoy no les toca, precios viejos. Tocá un aviso y te lleva al paso donde se arregla.' },
+    { sel: '[data-tut="sim-pasos"]', titulo: 'Los 4 pasos', texto: '1 Pedidos: subí el Excel y elegí qué localidades salen. 2 Camiones: chofer, carga, jornada y recarga de cada uno; juntá o partí camiones. 3 Clientes: pasalos de camión, dejalos fuera con motivo o dividí la carga de uno grande. 4 Costos: combustible, personal, por localidad y dónde conviene cargar. El número rojo indica avisos en ese paso.' },
+    { sel: '[data-tut="sim-mapa"]', titulo: 'Mapa', texto: 'Los botones de arriba cambian el tipo de mapa y marcan clientes con círculo, lazo o rectángulo (con Shift sumás). Los camiones de abajo filtran: tocá uno y se ve solo. Los marcados aparecen con borde naranja y una barra flotante te deja pasarlos a un camión o dejarlos fuera.' },
+    { titulo: 'Personal y recargas', texto: 'Todos salen con chofer y ayudante. Si un camión cae en recarga y sobran ayudantes, se le suma un 2º para evitarla. Las Flores con autoelevador sale con el chofer solo. El costo de la recarga usa los montos de Configuración. Ausencias y choferes están en el paso 2, en «Personal del día»; lo cargado en Ausencias se descuenta solo.' },
+    { titulo: 'Romaneos pasados', texto: 'Con «Romaneos pasados» ves lo que hizo el ruteador cada día. Ahí, «Probar el motor con este día» compara lo que habría armado el sistema con lo real, y aprende.' },
+    { titulo: 'Ayuda en cada lugar', texto: 'Donde ves el símbolo ⓘ tocalo: explica en palabras simples qué significa (recarga, jornada, ocupación, frecuencia, etc.).' },
   ],
   registros: [
     { ...B('Nuevo Registro'), titulo: 'Nuevo registro', texto: 'Con este botón cargás un reparto: chofer, ayudantes, bultos y recarga.' },

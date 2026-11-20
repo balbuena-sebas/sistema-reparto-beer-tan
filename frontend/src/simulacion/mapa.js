@@ -154,7 +154,9 @@ export function pintar(map, datos, onClickPunto) {
         'circle-stroke-color': ['case', ['==', ['get', 'marcado'], 1], '#ff9800', ['==', ['get', 'grande'], 1], '#111', '#fff'],
         'circle-stroke-width': ['case', ['==', ['get', 'marcado'], 1], 4, ['==', ['get', 'grande'], 1], 2.5, 1.5] } });
     map.addLayer({ id: 'sim-etq', type: 'symbol', source: 'sim-etq',
-      layout: { 'text-field': ['get', 'texto'], 'text-size': 13, 'text-font': ['Noto Sans Bold'], 'text-offset': [0, -1.6], 'text-allow-overlap': true },
+      // Las etiquetas ya no se montan unas sobre otras: si no entran, se esconden (al acercar el zoom aparecen). Y se apagan de cerca, donde mandan los números de parada.
+      maxzoom: 13.5,
+      layout: { 'text-field': ['get', 'texto'], 'text-size': 12, 'text-font': ['Noto Sans Bold'], 'text-offset': [0, -1.4], 'text-allow-overlap': false, 'text-padding': 6, 'text-optional': true },
       paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#fff', 'text-halo-width': 2 } });
     map.addLayer({ id: 'sim-seq', type: 'symbol', source: 'sim-puntos', minzoom: 13.5,
       layout: { 'text-field': ['to-string', ['get', 'seq']], 'text-size': 10, 'text-font': ['Noto Sans Bold'], 'text-allow-overlap': true },
