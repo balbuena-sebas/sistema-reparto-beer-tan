@@ -29,6 +29,7 @@ export const PARAMS_DEFAULT = {
   camionesPorLoc: {},      // { LOCALIDAD: n } camiones fijados a mano para esa localidad (ej. Las Flores: 2)
   maxParadas: 70,          // tope de paradas por camión (límite de jornada)
   radioAgrupKm: 15,        // solo se juntan localidades a menos de esta distancia en un mismo camión
+  mezclarLocalidades: true, // false = cada camión atiende una sola localidad (no se juntan zonas ni se rescatan camiones chicos)
   deposito: { lat: -37.3140, lon: -59.1515 }, // calculado por trilateración con los radios del ruteador
 };
 
@@ -344,7 +345,7 @@ export function simular(pedidos, ubic, parametros = {}) {
     let dest = null, bd = Infinity;
     if (u.fijo) { camiones.push({ items: u.items.slice(), pallets: u.pallets, locs: new Set([u.loc]), fijo: true, chofer: u.chofer || null }); continue; }
     for (const cam of camiones) {
-      if (cam.fijo) continue;
+      if (cam.fijo || P.mezclarLocalidades === false) continue;
       if (cam.pallets + u.pallets > capUtil || cam.items.length + u.items.length > P.maxParadas) continue;
       const d = haversine(centro(cam.items), cu);
       if (d <= P.radioAgrupKm && d < bd) { bd = d; dest = cam; }
@@ -357,7 +358,7 @@ export function simular(pedidos, ubic, parametros = {}) {
   // entre en capacidad, en paradas y en la jornada aprendida del historial.
   const tiem = P.tiempos || TIEMPOS_DEFAULT;
   const kmCam = (cam) => (cam._km === undefined || cam._n !== cam.items.length ? ((cam._n = cam.items.length), (cam._km = armarRuta(P, cam.items, 0).km)) : cam._km);
-  for (let vuelta = 0; vuelta < 12; vuelta++) {
+  for (let vuelta = 0; vuelta < 12 && P.mezclarLocalidades !== false; vuelta++) {
     let mejor = null;
     for (let i = 0; i < camiones.length; i++) for (let j = i + 1; j < camiones.length; j++) {
       const A = camiones[i], B = camiones[j];
@@ -376,7 +377,7 @@ export function simular(pedidos, ubic, parametros = {}) {
   // Rescate: camiones casi vacíos se suman al más cercano que tenga lugar (si no hay, quedan marcados "poca carga")
   for (let i = camiones.length - 1; i >= 0; i--) {
     const c = camiones[i];
-    if (camiones.length < 2 || c.pallets >= P.minPalletsRuta || c.fijo) continue;
+    if (camiones.length < 2 || c.pallets >= P.minPalletsRuta || c.fijo || P.mezclarLocalidades === false) continue;
     const cc = centro(c.items);
     let dest = null, bd = Infinity;
     camiones.forEach((o, j) => {
@@ -633,8 +634,16 @@ export function armarRuta(P, g, n, ordenCods) {
   const pallets = g.reduce((s, c) => s + c.pallets, 0);
   const bultos = g.reduce((s, c) => s + c.b, 0);
   const localidades = [...new Set(g.map((c) => c.loc || 'SIN LOCALIDAD'))];
+  // Desglose por zona (localidad): qué lleva el camión en cada una y a cuántos km del depósito queda
+  const zmap = new Map();
+  for (const c of g) { const l = c.loc || 'SIN LOCALIDAD'; const o = zmap.get(l) || { loc: l, clientes: 0, bultos: 0, la: 0, lo: 0 }; o.clientes++; o.bultos += c.b; o.la += c.lat; o.lo += c.lon; zmap.set(l, o); }
+  const zonas = [...zmap.values()].map((o) => ({ loc: o.loc, clientes: o.clientes, bultos: o.bultos, lat: o.la / o.clientes, lon: o.lo / o.clientes }))
+    .map((o) => ({ ...o, kmDeposito: haversine(dep, o) * P.factorRuta })).sort((a, b) => a.kmDeposito - b.kmDeposito);
+  let sepKm = 0;
+  for (let i = 0; i < zonas.length; i++) for (let j = i + 1; j < zonas.length; j++) sepKm = Math.max(sepKm, haversine(zonas[i], zonas[j]) * P.factorRuta);
+  const principal = zonas.length ? zonas.reduce((m, z) => (z.bultos > m.bultos ? z : m)).loc : '';
   return {
-    n, paradas: ord, localidades, km,
+    n, paradas: ord, localidades, zonas, sepKm, principal, km,
     ...costearRuta(P, { km, pallets, bultos, localidades }),
     pallets, bultos, kg: g.reduce((s, c) => s + c.kg, 0),
     ocupacion: pallets / P.palletsPorCamion,

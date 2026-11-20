@@ -30,6 +30,13 @@ const hhmm = (m) => (m == null ? '—' : `${String(Math.floor(m / 60)).padStart(
 const fechaLarga = (s) => (s ? new Date(s + 'T12:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }) : '');
 const hm = (m) => `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, '0')}`;
 const cap = (s) => String(s || '').toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
+// Nombre de la zona de un camión: la localidad principal y, si pasa por otras, cuáles son ("Tandil (+ La Dulce)")
+const zonaTxt = (r) => {
+  const l = r.localidades || [];
+  if (l.length <= 1) return cap(l[0] || 'Sin localidad');
+  const pr = r.principal || l[0];
+  return `${cap(pr)} (+ ${l.filter((x) => x !== pr).map(cap).join(', ')})`;
+};
 
 // Próximo día de reparto: salta domingos, feriados nacionales y días cargados como no trabajados en Config.
 function proximoDiaHabil(desde = new Date(), extra = []) {
@@ -400,7 +407,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const rutasSimMapa = useMemo(() => (simBase ? simBase.rutas.map((r, i) => {
     const puntos = r.paradas.map((p, k) => ({ lat: p.lat, lon: p.lon, seq: k + 1, titulo: p.n, cod: p.c, grande: p.b >= umbralGrande,
       detalle: `Cód. ${p.c} · ${f1(p.b)} bultos · ${f1(p.pallets)} pallets · ${cap(p.loc)}` }));
-    return { color: COLORES[i % COLORES.length], label: `Camión ${r.n} · ${r.localidades.map(cap).join(' + ')}${choferesRutas[i] && choferesRutas[i].chofer ? ` · ${choferesRutas[i].chofer}` : ''}`, puntos,
+    return { color: COLORES[i % COLORES.length], label: `Camión ${r.n} · ${zonaTxt(r)}${choferesRutas[i] && choferesRutas[i].chofer ? ` · ${choferesRutas[i].chofer}` : ''}`, puntos,
       geom: callesOn ? calles[claveRuta(params.deposito, puntos)]?.coords : null };
   }) : []), [simBase, calles, callesOn, params.deposito, choferesRutas, umbralGrande]);
 
@@ -713,7 +720,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   };
   const opcionesDestino = (idExcluir) => (
     <>
-      {sim && sim.rutas.map((x, k) => ({ x, id: pidDe(x, k) })).filter((o) => o.id !== idExcluir).map((o) => <option key={o.id} value={o.id}>Camión #{o.x.n} · {o.x.localidades.map(cap).join(' + ')}</option>)}
+      {sim && sim.rutas.map((x, k) => ({ x, id: pidDe(x, k) })).filter((o) => o.id !== idExcluir).map((o) => <option key={o.id} value={o.id}>Camión #{o.x.n} · {zonaTxt(o.x)}</option>)}
       <option value="nuevo">➕ Camión nuevo</option>
       <option value="pend">📅 Otro día</option>
     </>
@@ -889,7 +896,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           {ruteados.porRuta ? (
             <div style={{ overflowX: 'auto' }}>
               <table className="sim-table">
-                <thead><tr><th>Salió en</th><th>Vehículo</th><th>Clientes</th><th>Bultos pedidos</th>{rechPed && rechPed.length > 0 && <><th>Bultos reales</th><th>Rechazados</th></>}<th>Km ruta</th><th>Horario</th></tr></thead>
+                <thead><tr><th>Salió en</th><th>Vehículo</th><th>Clientes</th><th>Bultos pedidos</th>{rechPed && rechPed.length > 0 && <><th title="Bultos que se facturaron en la entrega (según la tabla de Rechazos)">Bultos entregados*</th><th title="Bultos que el cliente devolvió o no aceptó">Devueltos por clientes</th></>}<th>Km ruta</th><th>Horario</th></tr></thead>
                 <tbody>
                   {ruteados.porRuta.map((o) => { const r = diaRuteado.rutas[o.ri]; return (
                     <tr key={o.ri}>
@@ -927,7 +934,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         <header className="sim-cam-h">
           <span className="sim-chip" style={{ background: COLORES[i % COLORES.length] }} />
           <b>Camión #{r.n}</b>
-          <span className="zona">{r.localidades.map(cap).join(' + ')}</span>
+          <span className="zona">{zonaTxt(r)}</span>
           {r.pocaCarga && <span className="sim-pill aviso" title="Muy poca carga y ningún camión cercano con lugar: conviene postergar o agrupar con otro día">poca carga</span>}
           {r.autoelevador && <span className="sim-pill" title={GLOSARIO.autoelevador}>autoelevador</span>}
           {r.extraAyudante && <span className="sim-pill" title="2º ayudante: con 3 personas este camión no necesita recarga">+1 ayudante</span>}
@@ -943,6 +950,18 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           </label>
           {ch && ch.motivo && !manual[claveAncla(r)] && <span className="sim-sub">{ch.motivo}</span>}
         </div>
+        {r.zonas && r.zonas.length > 1 && (
+          <div className="sim-cam-zonasinfo" role="note">
+            <div className="sim-sub"><b>Un solo viaje por {r.zonas.length} zonas</b> (en este orden de lejanía desde el depósito):</div>
+            <ul>
+              {r.zonas.map((z) => <li key={z.loc}><b>{cap(z.loc)}</b> · {z.clientes} cl. · {f0(z.bultos)} b · a {f0(z.kmDeposito)} km del depósito</li>)}
+            </ul>
+            <div className={`sim-sub ${r.sepKm > 40 ? 'mal' : ''}`}>
+              {r.sepKm > 40 ? `⚠ Las zonas quedan a ${f0(r.sepKm)} km entre sí: es un viaje largo. ` : `Las zonas quedan a ${f0(r.sepKm)} km entre sí. `}
+              Se juntaron porque la carga es chica y un solo recorrido ahorra km. Si preferís un camión por zona, activá «Un camión por localidad» en Parámetros.
+            </div>
+          </div>
+        )}
         <dl className="sim-cam-stats">
           <div><dt>Paradas</dt><dd>{r.paradas.length}</dd></div>
           <div><dt>Bultos</dt><dd>{f0(r.bultos)}</dd></div>
@@ -1097,7 +1116,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         <div className="sim-row">
           {sim.rutas.map((x, k) => { const id = pidDe(x, k); const on = partesDiv[id] !== undefined; return (
             <label key={id} className="sim-sub sim-parte">
-              <input type="checkbox" checked={on} onChange={(e) => setPartesDiv((o) => { const n = { ...o }; if (e.target.checked) n[id] = 0; else delete n[id]; return n; })} /> #{x.n} {x.localidades.map(cap).join('+')}
+              <input type="checkbox" checked={on} onChange={(e) => setPartesDiv((o) => { const n = { ...o }; if (e.target.checked) n[id] = 0; else delete n[id]; return n; })} /> #{x.n} {zonaTxt(x)}
               {on && <> <input type="number" min="0" value={partesDiv[id]} style={{ width: 70 }} aria-label={`Bultos en el camión ${x.n}`} onChange={(e) => setPartesDiv((o) => ({ ...o, [id]: e.target.value }))} /> b</>}
             </label>); })}
         </div>
@@ -1123,7 +1142,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           {fichas.map(([k, t, n]) => <button key={k} type="button" className={`sim-ficha ${fEstado === k ? 'on' : ''}`} aria-pressed={fEstado === k} onClick={() => setFEstado(fEstado === k ? 'todos' : k)}>{t} <b>{n}</b></button>)}
           <select value={/^\d+$/.test(fEstado) ? fEstado : ''} aria-label="Ver un solo camión" onChange={(e) => { setFEstado(e.target.value || 'todos'); if (!e.target.value) setRutaSel(null); }}>
             <option value="">Todos los camiones</option>
-            {sim.rutas.map((r, i) => <option key={pidDe(r, i)} value={String(pidDe(r, i))}>Camión #{r.n} · {r.localidades.map(cap).join(' + ')}</option>)}
+            {sim.rutas.map((r, i) => <option key={pidDe(r, i)} value={String(pidDe(r, i))}>Camión #{r.n} · {zonaTxt(r)}</option>)}
           </select>
         </div>
         <div className="sim-row" style={{ margin: '8px 0' }}>
@@ -1186,7 +1205,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           <div style={{ marginTop: 4 }}>
             {[...sim.pendEdit.clientes.reduce((m, p) => { const l = p.loc || 'SIN LOCALIDAD'; const o = m.get(l) || { loc: l, cods: [], b: 0 }; o.cods.push(p.c); o.b += p.b; return m.set(l, o); }, new Map()).values()].map((o) => (
               <span key={o.loc} style={{ marginRight: 14 }}>{cap(o.loc)} {o.cods.length} cl. · {f0(o.b)} bultos{' '}
-                <select value="" aria-label={`Devolver ${cap(o.loc)} a un camión`} onChange={(e) => moverA(o.cods, e.target.value)}><option value="">devolver a…</option>{sim.rutas.map((x, k) => <option key={pidDe(x, k)} value={pidDe(x, k)}>Camión #{x.n} · {x.localidades.map(cap).join(' + ')}</option>)}<option value="nuevo">➕ Camión nuevo</option></select></span>
+                <select value="" aria-label={`Devolver ${cap(o.loc)} a un camión`} onChange={(e) => moverA(o.cods, e.target.value)}><option value="">devolver a…</option>{sim.rutas.map((x, k) => <option key={pidDe(x, k)} value={pidDe(x, k)}>Camión #{x.n} · {zonaTxt(x)}</option>)}<option value="nuevo">➕ Camión nuevo</option></select></span>
             ))}
           </div>
         </div>
@@ -1252,6 +1271,9 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
               <input type="number" step="any" value={params[k]} onChange={(e) => setParams((p) => ({ ...p, [k]: Number(e.target.value) }))} />
             </label>
           ))}
+          <label className="sim-check" title="Si está activo, nunca se juntan dos localidades en el mismo camión (salen más camiones, más chicos).">
+            <input type="checkbox" checked={params.mezclarLocalidades === false} onChange={(e) => setParams((p) => ({ ...p, mezclarLocalidades: !e.target.checked }))} /> Un camión por localidad (no juntar zonas)
+          </label>
           {factorCal && <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, factorRuta: factorCal }))}>Usar factor del historial ({factorCal})</button>}
         </div>
         <div className="sim-sub" style={{ marginTop: 10 }}>
@@ -1409,8 +1431,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                 <div className="sim-kpi"><b>{f0(resumenDia.km)}</b><span>Km</span></div>
                 {costoDia && <div className="sim-kpi"><b>{money(costoDia.combustible)}</b><span>Combustible ({f0(costoDia.litros)} L)</span></div>}
                 {costoDia && <div className="sim-kpi"><b>{costoDia.recargas}</b><span>Recargas</span></div>}
-                {cruceDia && <div className="sim-kpi"><b>{f0(cruceDia.total.b)}</b><span>Bultos reales (rechazos)</span></div>}
-                {cruceDia && <div className="sim-kpi"><b>{f0(cruceDia.total.r)}</b><span>Rechazados{cruceDia.total.b ? ` (${f1(cruceDia.total.r / cruceDia.total.b * 100)} %)` : ''}</span></div>}
+                {cruceDia && <div className="sim-kpi"><b>{f0(cruceDia.total.b)}</b><span title="Bultos facturados ese día según la tabla de Rechazos (incluye los que después el cliente devolvió)">Bultos facturados</span></div>}
+                {cruceDia && <div className="sim-kpi"><b>{f0(cruceDia.total.r)}</b><span title="Bultos que el cliente no aceptó en la puerta y volvieron al camión">Devueltos por clientes{cruceDia.total.b ? ` (${f1(cruceDia.total.r / cruceDia.total.b * 100)} %)` : ''}</span></div>}
               </div>
               {puedeVerRechazos && rechDia && rechDia.length === 0 && <div className="sim-sub" style={{ marginTop: 8 }}>No hay rechazos cargados para este día (se cargan en 📂 Importar).</div>}
             </section>
@@ -1418,7 +1440,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
               <h3>Rutas del día</h3>
               <div className="sim-sub" style={{ marginBottom: 6 }}>Tocá una ruta para verla sola en el mapa.</div>
               <table className="sim-table">
-                <thead><tr><th>Ruta</th><th>Chofer</th><th>Vehículo</th><th>Paradas</th><th>Bultos plan</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Combustible</th><th>Recarga</th><th>Horario</th>{cruceDia && <><th>Bultos reales</th><th>Rechazados</th></>}</tr></thead>
+                <thead><tr><th>Ruta</th><th>Chofer</th><th>Vehículo</th><th>Paradas</th><th>Bultos plan</th><th>Pallets</th><th>Ocupación</th><th>Km</th><th>Combustible</th><th>Recarga</th><th>Horario</th>{cruceDia && <><th title="Bultos que se facturaron en la entrega (según la tabla de Rechazos)">Bultos entregados*</th><th title="Bultos que el cliente devolvió o no aceptó">Devueltos por clientes</th></>}</tr></thead>
                 <tbody>
                   {diaDatos.rutas.map((r, i) => (
                     <tr key={i} className={`click ${rutaSel === i ? 'rsel' : ''}`} onClick={() => setRutaSel(rutaSel === i ? null : i)}>
@@ -1432,7 +1454,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                   ))}
                 </tbody>
               </table>
-              {cruceDia && <div className="sim-sub" style={{ marginTop: 8 }}>Bultos reales y rechazados: salen de los rechazos que ya cargaste en la app, cruzados por código de cliente con las paradas de cada ruta.</div>}
+              {cruceDia && <div className="sim-sub" style={{ marginTop: 8 }}>* «Bultos entregados» = bultos facturados a los clientes de esa ruta; «Devueltos por clientes» = los que el cliente rechazó en la puerta (cargados en la tabla de Rechazos). Ambos se cruzan por código de cliente con las paradas de cada ruta; «Bultos plan» es lo que decía el romaneo antes de salir.</div>}
             </section>
             <Seccion titulo="🧪 Probar el motor con este día" abierta={false}>
               <div className="sim-sub" style={{ marginBottom: 8 }}>Rearma los pedidos de este día, le pide al motor que los reparta <b>sin mirar este día en el historial</b> y compara con lo que el ruteador hizo de verdad.
