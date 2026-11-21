@@ -446,10 +446,84 @@ export function simular(pedidos, ubic, parametros = {}) {
   };
 }
 
+// ── Costo de un reparto: km + cruces entre rutas + diferencia de trabajo entre camiones ─────────────────
+// Se usa para elegir y mejorar la partición: menos km, rutas que no se cruzan y jornadas (minutos) parejas.
+const cruzan = (a, b, c, d) => {
+  const o = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+};
+function rutaEval(P, g, capPal) {
+  if (!g.length) return { km: 0, seg: [], min: 0, exceso: 0 };
+  const dep = P.deposito, kx = 111.32 * Math.cos(rad(dep.lat)), ky = 110.57;
+  const T = P.tiempos || TIEMPOS_DEFAULT;
+  const ord = ordenarVecinoCercano(dep, g);
+  const km = tourLen(dep, ord) * P.factorRuta;
+  const pts = [dep, ...ord, dep].map((c) => [(c.lon - dep.lon) * kx, (c.lat - dep.lat) * ky]);
+  const seg = []; for (let i = 0; i < pts.length - 1; i++) seg.push([pts[i], pts[i + 1]]);
+  const bultos = g.reduce((s2, c) => s2 + c.b, 0), pal = g.reduce((s2, c) => s2 + c.pallets, 0);
+  return { km, seg, min: T.base + T.porParada * g.length + T.porKm * km + T.porBulto * bultos, exceso: Math.max(0, pal - capPal) };
+}
+export function evaluarReparto(P, grupos, capPal = Infinity) {
+  const rutas = grupos.map((g) => rutaEval(P, g, capPal));
+  return { rutas, ...resumenEval(rutas) };
+}
+function resumenEval(rutas) {
+  let cruces = 0;
+  for (let i = 0; i < rutas.length; i++) for (let j = i + 1; j < rutas.length; j++) for (const [a, b] of rutas[i].seg) for (const [c, d] of rutas[j].seg) if (cruzan(a, b, c, d)) cruces++;
+  const km = rutas.reduce((t, r) => t + r.km, 0);
+  const mins = rutas.filter((r) => r.seg.length).map((r) => r.min);
+  const dif = mins.length ? Math.max(...mins) - Math.min(...mins) : 0;
+  const exceso = rutas.reduce((t, r) => t + r.exceso, 0);
+  return { km, cruces, dif, exceso, costo: km + 4 * cruces + 0.35 * dif + exceso * 1e4 };
+}
+// Mejora un reparto pasando (o intercambiando) clientes entre camiones mientras baje el costo.
+export function refinarReparto(P, grupos, capPal = Infinity, maxIter = 60) {
+  const k = grupos.length; if (k < 2) return grupos;
+  let g = grupos.map((x) => x.slice());
+  let ev = evaluarReparto(P, g, capPal);
+  const t0 = Date.now();
+  const cent = (x) => ({ lat: x.reduce((t, c) => t + c.lat, 0) / x.length, lon: x.reduce((t, c) => t + c.lon, 0) / x.length });
+  for (let it = 0; it < maxIter && Date.now() - t0 < 450; it++) {
+    const ce = g.map((x) => (x.length ? cent(x) : null));
+    let mejor = null;
+    for (let A = 0; A < k; A++) {
+      if (g[A].length < 2) continue;
+      // candidatos: los clientes de A más cerca de otro camión (frontera)
+      const cand = g[A].map((c) => { let d = Infinity; for (let B = 0; B < k; B++) if (B !== A && ce[B]) d = Math.min(d, haversine(c, ce[B]) - haversine(c, ce[A])); return [d, c]; }).sort((x, y) => x[0] - y[0]).slice(0, 8).map((x) => x[1]);
+      for (const c of cand) for (let B = 0; B < k; B++) {
+        if (B === A || !ce[B]) continue;
+        const vecino = g[B].map((q) => [haversine(q, ce[A]), q]).sort((x, y) => x[0] - y[0]).slice(0, 3).map((x) => x[1]);
+        for (const q of [null, ...vecino]) {
+          const gA = g[A].filter((z) => z !== c).concat(q ? [q] : []);
+          const gB = g[B].filter((z) => z !== q).concat([c]);
+          if (!gA.length) continue;
+          const rutas2 = ev.rutas.slice(); rutas2[A] = rutaEval(P, gA, capPal); rutas2[B] = rutaEval(P, gB, capPal);
+          const e2 = { rutas: rutas2, ...resumenEval(rutas2) };
+          if (e2.costo < ev.costo - 1e-6 && (!mejor || e2.costo < mejor.ev.costo)) mejor = { A, B, gA, gB, ev: e2 };
+        }
+      }
+    }
+    if (!mejor) break;
+    g[mejor.A] = mejor.gA; g[mejor.B] = mejor.gB; ev = mejor.ev;
+  }
+  return g;
+}
+
 // ── Reparto compacto: k zonas sin cruces, parejas en clientes y bultos, y con los km más bajos ────────────
 // Agrupa por cercanía (k-means con "sesgo" que equilibra la carga), prueba varias semillas, afina por el borde y
 // respeta el tope de pallets por camión (capPal). Elige la partición con menos km reales de ruta.
+const cacheCompacto = new Map();
 export function repartirCompacto(items, k, P, capPal = Infinity) {
+  // mismo conjunto de clientes, mismos parámetros => mismo reparto (evita recalcular al tocar otras cosas)
+  const clave = `${k}|${capPal.toFixed(3)}|${P.factorRuta}|${P.tiempos ? `${P.tiempos.base}/${P.tiempos.porParada}/${P.tiempos.porKm}` : ''}|${P.deposito.lat}|${P.deposito.lon}|${items.map((c) => `${c.c}:${c.pallets.toFixed(3)}:${c.lat}`).sort().join(',')}`;
+  const hit = cacheCompacto.get(clave);
+  if (hit) return hit.map((g) => g.slice());
+  const res = repartirCompactoCalc(items, k, P, capPal);
+  if (cacheCompacto.size > 40) cacheCompacto.delete(cacheCompacto.keys().next().value);
+  cacheCompacto.set(clave, res.map((g) => g.slice()));
+  return res;
+}
+function repartirCompactoCalc(items, k, P, capPal) {
   const n = items.length;
   if (k <= 1 || n <= 1) return [items.slice()];
   if (n <= k) return items.map((c) => [c]);
@@ -509,25 +583,16 @@ export function repartirCompacto(items, k, P, capPal = Infinity) {
     }
     return g;
   };
-  const evalua = (g) => {
-    const vac = g.some((x) => !x.length);
-    const km = vac ? Infinity : g.reduce((s, x) => s + armarRuta(P, x, 0).km, 0);
-    const excede = g.reduce((s, x) => s + Math.max(0, sumPal(x) - capPal), 0);
-    const pal = g.map((x) => sumPal(x) / palTot), cn = g.map((x) => x.length / n);
-    const dev = Math.max(...pal.map((p, j) => Math.abs(p - obj) + Math.abs(cn[j] - obj)));
-    return { km, excede, dev };
-  };
   let mejor = null;
   const probar = (a) => {
     let g = aGrupos(a); if (g.some((x) => !x.length)) return;
     g = topar(afinarEquilibrio(g, { maxKm: 15, meta: 0.008 }));
-    const e = evalua(g);
-    const val = e.km * (1 + 25 * Math.max(0, e.dev - 0.03)) + e.excede * 1e5;
-    if (!mejor || val < mejor.val) mejor = { val, g, ...e };
+    const val = evaluarReparto(P, g, capPal).costo;
+    if (!mejor || val < mejor.val) mejor = { val, g };
   };
   for (let r = 0; r < 8; r++) probar(corrida(semillasPP()));
   if (!mejor) return afinarEquilibrio(repartirEquilibrado(items, k, dep));
-  return mejor.g;
+  return refinarReparto(P, mejor.g, capPal);
 }
 
 // Afina un reparto en k grupos para que los bultos y los clientes queden parejos: pasa de a uno el cliente que más
