@@ -774,10 +774,10 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const irAPaso = (n) => { setPaso(n); if (typeof window !== 'undefined') { const el = document.querySelector('.sim-pasos'); if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } };
 
   const PASOS = [
-    { n: 1, ic: '📦', t: 'Pedidos', d: 'Qué sale mañana' },
-    { n: 2, ic: '🚚', t: 'Camiones', d: 'Quién va y con cuánta carga' },
-    { n: 3, ic: '👥', t: 'Clientes', d: 'Mover, dejar fuera, dividir' },
-    { n: 4, ic: '💰', t: 'Costos', d: 'Cuánto sale el día' },
+    { n: 1, ic: '📦', t: 'Pedidos', d: 'Recepción: qué se entrega y en qué localidades' },
+    { n: 2, ic: '🚚', t: 'Flota y rutas', d: 'Despacho: qué camión sale, con qué chofer y cuánta carga' },
+    { n: 3, ic: '👥', t: 'Paradas', d: 'Cada entrega: reasignar, dejar fuera o dividir' },
+    { n: 4, ic: '💰', t: 'Costos', d: 'Cierre: cuánto cuesta la jornada' },
   ];
   const navPaso = (n) => (
     <div className="sim-paso-nav">
@@ -1571,8 +1571,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         <div className="sim-head">
           <div className="sim-top">
             <div>
-              <h2 className="sim-title">🧭 Simulación de reparto</h2>
-              <div className="sim-sub">{modo === 'simulacion' ? 'Armá el reparto de mañana en 4 pasos. El resumen y los avisos se actualizan solos.' : 'Lo que hizo el ruteador cada día, con su mapa.'}</div>
+              <h2 className="sim-title">🧭 Planificación de reparto (simulación)</h2>
+              <div className="sim-sub">{modo === 'simulacion' ? 'Planificá el reparto de mañana en 4 pasos: Pedidos → Flota y rutas → Paradas → Costos. El resumen y los avisos se actualizan solos.' : 'Lo que hizo el ruteador cada día, con su mapa.'}</div>
             </div>
             <div className="sim-row">
               <span className={`sim-live ${enVivo ? 'on' : 'off'}`}>{enVivo ? '● En vivo' : '○ Reconectando…'}</span>

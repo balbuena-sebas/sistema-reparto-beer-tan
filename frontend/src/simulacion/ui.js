@@ -4,10 +4,10 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 // Una sola definición de cada concepto: la usan todos los ⓘ de la pantalla.
 export const GLOSARIO = {
-  paso1: 'Cargá los pedidos de mañana y decidí qué localidades salen. Con eso el sistema arma una propuesta de camiones.',
-  paso2: 'Revisá cada camión: quién lo maneja, cuánta carga lleva y cuánto tarda. Acá también juntás, partís o reordenás camiones.',
-  paso3: 'Cliente por cliente: pasalo a otro camión, dejalo fuera para otro día o dividí su carga entre varios camiones.',
-  paso4: 'Cuánto cuesta el día (combustible y personal), por localidad, y en qué estación conviene cargar.',
+  paso1: 'Recepción: cargá los pedidos de mañana y decidí qué localidades se entregan. Con eso el sistema propone la flota y las rutas.',
+  paso2: 'Despacho: revisá cada ruta (camión): quién lo maneja, cuánta carga lleva y cuánto tarda. Acá también juntás, partís o reordenás camiones.',
+  paso3: 'Parada por parada (cada cliente es una entrega): pasala a otro camión, dejalo fuera para otro día o dividí su carga entre varios camiones.',
+  paso4: 'Cierre: cuánto cuesta la jornada (combustible y personal), por localidad, y en qué estación conviene cargar.',
   recarga: 'Cuando la carga no entra en un solo viaje, el camión vuelve al depósito y carga otra vez. Sale una sola vez por camión. El límite de bultos sin recarga sale de Configuración (con 2 personas y con 3 personas).',
   ocupacion: 'Qué parte de la capacidad del camión se usa (pallets cargados ÷ pallets que entran). Verde: bien aprovechado. Amarillo: va casi vacío.',
   jornada: 'Horas estimadas del día del camión: salida y carga + conducción + paradas. Se aprende de los romaneos reales. La marca roja es el límite habitual: al 90 % de las jornadas reales les alcanzó.',
