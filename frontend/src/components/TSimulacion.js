@@ -11,7 +11,7 @@ import {
   perfilesChoferes, asignarChoferes, zonaDelDia, simularConTope,
   planDesde, planMover, planJuntar, planPartir, planOrdenar, planOrdenAuto, aplicarPlan, construirZonas,
   probarContraDia, clientesEnRutaPropia, ajustarTiempos, minutosRuta,
-  MOTIVOS, planMotivo, planDividir, planUnir, bitDia, diasDeMascara,
+  MOTIVOS, planMotivo, planDividir, planUnir, bitDia, diasDeMascara, afinidadLocalidades, veces, rutaAparte,
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
@@ -356,6 +356,28 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   }, [hist, ubic, params.deposito, fechaPedidos, cfg]);
   // Paradas de los romaneos recientes: de acá sale la zona que cada chofer recorre de verdad
   const zonas = useMemo(() => construirZonas(hist), [hist]);
+  // Qué localidades salieron juntas en los romaneos reales (el motor solo junta las que ya lo hicieron)
+  const afinidad = useMemo(() => afinidadLocalidades(hist, ubic), [hist, ubic]);
+  // Lo habitual para el día de la semana del reparto: cuántos camiones propios y qué localidades
+  const habitualDia = useMemo(() => {
+    if (!fechaPedidos) return null;
+    const dow = new Date(`${fechaPedidos}T12:00:00`).getDay();
+    const dias = Object.entries(hist || {}).filter(([f]) => new Date(`${f}T12:00:00`).getDay() === dow).map(([, d]) => d);
+    const propios = []; const locCuenta = {};
+    dias.forEach((d) => {
+      let n = 0, b = 0; const locsDia = new Set();
+      d.rutas.forEach((r, ri) => {
+        const pts = d.paradas.filter((x) => x[0] === ri);
+        if (!pts.length || rutaAparte(r, pts.length)) return;
+        n++; b += r.bultos || 0;
+        pts.forEach((x) => { const u = ubic.get(x[2]); if (u && u.loc) locsDia.add(String(u.loc).toUpperCase()); });
+      });
+      if (n) { propios.push({ n, b }); locsDia.forEach((l) => { locCuenta[l] = (locCuenta[l] || 0) + 1; }); }
+    });
+    if (!propios.length) return null;
+    const prom = (k) => propios.reduce((t, x) => t + x[k], 0) / propios.length;
+    return { dias: propios.length, camiones: prom('n'), bultos: prom('b'), locs: Object.entries(locCuenta).filter(([, v]) => v / propios.length >= 0.4).map(([l]) => l) };
+  }, [hist, ubic, fechaPedidos]);
   // Ausencias cargadas en la pestaña Ausencias que cubren el día de entrega (nombre normalizado → motivo)
   const ausAuto = useMemo(() => {
     const m = new Map();
@@ -385,8 +407,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const tiempos = useMemo(() => ajustarTiempos(hist), [hist]);       // minutos por parada / km / bulto aprendidos de los romaneos
   const simAuto = useMemo(() => {
     if (!pedidosSalen.salen.length) return null;
-    return simularConTope({ clientes: pedidosSalen.salen }, ubic, { ...paramsEf, camionesPorLoc: camionesLoc, zonas, fechaObjetivo: fechaPedidos, ausentes: ausEf, cubre, tiempos });
-  }, [pedidosSalen, ubic, paramsEf, camionesLoc, zonas, fechaPedidos, ausEf, cubre, tiempos]);
+    return simularConTope({ clientes: pedidosSalen.salen }, ubic, { ...paramsEf, camionesPorLoc: camionesLoc, zonas, afinidad, fechaObjetivo: fechaPedidos, ausentes: ausEf, cubre, tiempos });
+  }, [pedidosSalen, ubic, paramsEf, camionesLoc, zonas, afinidad, fechaPedidos, ausEf, cubre, tiempos]);
   // Con reparto editado a mano manda el plan; si no, la propuesta del motor.
   const simBase = useMemo(() => (simAuto && plan ? aplicarPlan(simAuto, plan, paramsEf) : simAuto), [simAuto, plan, paramsEf]);
 
@@ -576,6 +598,12 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     setOcupado(false);
   };
 
+  const borrarPedidos = async () => {
+    const previo = pedidos?.data; if (!previo) return;
+    const anterior = { archivo: previo.archivo, cargadoEn: pedidos.updatedAt, clientes: previo.clientes.map((c) => [c.c, c.b, c.n]) };
+    await apiFetch('/api/ruteo/pedidos', { method: 'PUT', headers: hdr, body: JSON.stringify({ archivo: '', fechaEntrega: previo.fechaEntrega, clientes: [], anterior, base: null, capas: {} }) });
+    aviso('Pedidos borrados. Ya podés subir los nuevos.');
+  };
   const guardarPedidos = async (ped, archivoNombre, fechaEntrega, sumar, fechaPedido, quitar = false) => {
     const previo = pedidos?.data;
     const mismo = !!previo && previo.fechaEntrega === fechaEntrega;
@@ -808,6 +836,10 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) subirPedidos(f, fechaNueva, fechaPed, true); }} />
       <div className="sim-row" style={{ marginTop: 8 }}>
         <button className="sim-btn pri" disabled={ocupado || !fechaPed} onClick={() => refPed.current.click()}>📦 Subir pedidos del día (Excel)</button>
+        {pedidos?.data && pedidos.data.clientes.length > 0 && (
+          <button className="sim-btn" disabled={ocupado} title="Borra todos los pedidos cargados (de todas las fechas). Queda guardada la carga anterior para el cuadro de cambios."
+            onClick={() => { if (window.confirm(`¿Borrar TODOS los pedidos cargados (${pedidos.data.clientes.length} clientes)? Los demás usuarios también los dejan de ver.`)) { setOcupado(true); borrarPedidos().catch((e) => aviso(e.message, 'err')).finally(() => setOcupado(false)); } }}>🗑 Borrar todos los pedidos</button>
+        )}
         <button className="sim-btn" disabled={ocupado || !fechaPed || !pedidos?.data} onClick={() => refPed2.current.click()}
           title="Otro archivo de la misma fecha de pedido (ej. Tandil y zona + Las Flores y zona): se agrega sin borrar el anterior">➕ Sumar otro archivo (misma fecha)</button>
       </div>
@@ -817,7 +849,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           {Object.entries(capasDe(pedidos.data, fechaNueva)).sort().map(([k, v]) => (
             <div key={k} className="sim-capa">{k ? `Hechos el ${fechaLarga(k)}` : 'Carga anterior'}: {v.clientes.length} cl. · {f0(v.clientes.reduce((t, c) => t + c.b, 0))} bultos{' '}
               <button className="sim-btn" disabled={ocupado} title="Quitar los pedidos de esta fecha" aria-label="Quitar estos pedidos"
-                onClick={() => { if (window.confirm(`¿Quitar los pedidos hechos el ${k ? fechaLarga(k) : 'de la carga anterior'}?`)) { setOcupado(true); guardarPedidos({ clientes: [] }, '', fechaNueva, false, k, true).catch((e) => aviso(e.message, 'err')).finally(() => setOcupado(false)); } }}>🗑</button></div>
+                onClick={() => { if (window.confirm(`¿Quitar los pedidos hechos el ${k ? fechaLarga(k) : 'de la carga anterior'}?`)) { setOcupado(true); guardarPedidos({ clientes: [] }, '', fechaNueva, false, k, true).catch((e) => aviso(e.message, 'err')).finally(() => setOcupado(false)); } }}>🗑 Quitar</button></div>
           ))}
           <b>Total: {pedidos.data.clientes.length} clientes · {f0(pedidos.data.clientes.reduce((t, c) => t + c.b, 0))} bultos</b>
         </div>
@@ -835,6 +867,15 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     <section className="sim-card">
       <h3>📍 Localidades que salen{fechaPedidos ? ` el ${fechaLarga(fechaPedidos)}` : ''}</h3>
       <div className="sim-sub" style={{ marginBottom: 8 }}>Destildá las que ese día no se reparten (por ejemplo Cachari si se va el miércoles): se sacan de la simulación y quedan para otro día. A la derecha podés fijar cuántos camiones salen (vacío = lo calcula solo).</div>
+      <div className="sim-row" style={{ marginBottom: 8 }}>
+        <button className="sim-btn" disabled={!excluidas.length} onClick={() => guardarAsig(ausentes, cubre, manual, [])}>✔ Que salgan todas</button>
+        <button className="sim-btn" disabled={excluidas.length === locsPedidos.length} onClick={() => guardarAsig(ausentes, cubre, manual, locsPedidos.map((o) => o.loc))}>✖ Ninguna</button>
+        {habitualDia && habitualDia.locs.length > 0 && (
+          <button className="sim-btn" title={`Según los últimos ${habitualDia.dias} días iguales del historial, estas localidades casi siempre salen ese día: ${habitualDia.locs.map(cap).join(', ')}`}
+            onClick={() => guardarAsig(ausentes, cubre, manual, locsPedidos.filter((o) => o.loc !== 'SIN LOCALIDAD' && !habitualDia.locs.includes(o.loc)).map((o) => o.loc))}>🧠 Solo las que suelen salir este día</button>
+        )}
+        {Object.keys(camionesLoc).length > 0 && <button className="sim-btn" onClick={() => guardarAsig(ausentes, cubre, manual, excluidas, {})}>↩ Camiones automáticos en todas</button>}
+      </div>
       <div className="sim-locs">
         {locsPedidos.map((o) => {
           const sale = !excluidas.includes(o.loc);
@@ -958,7 +999,12 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
             </ul>
             <div className={`sim-sub ${r.sepKm > 40 ? 'mal' : ''}`}>
               {r.sepKm > 40 ? `⚠ Las zonas quedan a ${f0(r.sepKm)} km entre sí: es un viaje largo. ` : `Las zonas quedan a ${f0(r.sepKm)} km entre sí. `}
-              Se juntaron porque la carga es chica y un solo recorrido ahorra km. Si preferís un camión por zona, activá «Un camión por localidad» en Parámetros.
+              {(() => {
+                const pares = []; for (let a = 0; a < r.zonas.length; a++) for (let b = a + 1; b < r.zonas.length; b++) { const v = veces(afinidad, r.zonas[a].loc, r.zonas[b].loc); if (v) pares.push({ a: r.zonas[a].loc, b: r.zonas[b].loc, ...v }); }
+                const nunca = pares.filter((x) => x.veces === 0);
+                return nunca.length ? ` En el historial ${nunca.map((x) => `${cap(x.a)} y ${cap(x.b)}`).join(', ')} nunca salieron juntas: se juntaron por falta de camiones o por carga.` : pares.length ? ` En el historial salieron juntas: ${pares.map((x) => `${cap(x.a)} + ${cap(x.b)} ${x.veces} de ${Math.min(x.diasA, x.diasB)} días`).join(' · ')}.` : ' Sin historial para comparar.';
+              })()}
+              {' '}Podés cambiar cómo se juntan en «Juntar localidades» (arriba).
             </div>
           </div>
         )}
@@ -1046,6 +1092,20 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, maxCamiones: Math.max(0, perfiles.filter((x) => !x.mercado && !ausEf.includes(x.nombre) && x.ultimo >= haceDias(fechaPedidos, 10)).length) }))}>Usar choferes presentes</button>
           <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, maxCamiones: 0 }))}>Sin tope</button>
         </div>
+        <div className="sim-row" style={{ marginTop: 8 }}>
+          <label className="sim-sub"><b>Juntar localidades</b>{' '}
+            <select value={params.mezclarLocalidades === false ? 'nunca' : (params.modoMezcla || 'historial')} aria-label="Cómo juntar localidades en un camión"
+              onChange={(e) => setParams((p) => ({ ...p, mezclarLocalidades: e.target.value !== 'nunca', modoMezcla: e.target.value === 'nunca' ? 'historial' : e.target.value }))}>
+              <option value="historial">Solo las que ya salieron juntas (recomendado)</option>
+              <option value="libre">Libre: por cercanía y ahorro de km</option>
+              <option value="nunca">Nunca: un camión por localidad</option>
+            </select>
+          </label>
+        </div>
+        {habitualDia && (
+          <div className="sim-sub" style={{ marginTop: 6 }}>📈 <b>Lo habitual</b>: en los últimos {habitualDia.dias} {new Date(`${fechaPedidos}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long' })} salieron en promedio {f1(habitualDia.camiones)} camiones propios con {f0(habitualDia.bultos / (habitualDia.camiones || 1))} bultos cada uno
+            {habitualDia.locs.length ? <> · localidades que casi siempre salen ese día: {habitualDia.locs.map(cap).join(', ')}</> : null}.</div>
+        )}
         <div className="sim-sub" style={{ marginTop: 6 }}>Hacen falta {sim.tope ? sim.tope.necesarios : sim.rutas.length} con la carga normal · el sistema armó {sim.rutas.length}. Tocá «Ver en el mapa» en un camión para verlo solo.</div>
       </section>
       <div className="sim-cams">{sim.rutas.map((r, i) => tarjetaCamion(r, i))}</div>
@@ -1271,9 +1331,6 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
               <input type="number" step="any" value={params[k]} onChange={(e) => setParams((p) => ({ ...p, [k]: Number(e.target.value) }))} />
             </label>
           ))}
-          <label className="sim-check" title="Si está activo, nunca se juntan dos localidades en el mismo camión (salen más camiones, más chicos).">
-            <input type="checkbox" checked={params.mezclarLocalidades === false} onChange={(e) => setParams((p) => ({ ...p, mezclarLocalidades: !e.target.checked }))} /> Un camión por localidad (no juntar zonas)
-          </label>
           {factorCal && <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, factorRuta: factorCal }))}>Usar factor del historial ({factorCal})</button>}
         </div>
         <div className="sim-sub" style={{ marginTop: 10 }}>

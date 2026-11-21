@@ -215,5 +215,3 @@
 .sim-cam-zonasinfo { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: rgba(255,152,0,.08); border: 1px dashed rgba(255,152,0,.5); }
 .sim-cam-zonasinfo ul { margin: 4px 0 6px; padding-left: 18px; font-size: 13px; }
 .sim-cam-zonasinfo .mal { color: #d32f2f; }
-.sim-check { display: flex; align-items: center; gap: 8px; grid-column: 1 / -1; }
-.sim-check input { width: auto; }

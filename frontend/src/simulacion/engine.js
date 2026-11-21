@@ -30,6 +30,8 @@ export const PARAMS_DEFAULT = {
   maxParadas: 70,          // tope de paradas por camión (límite de jornada)
   radioAgrupKm: 15,        // solo se juntan localidades a menos de esta distancia en un mismo camión
   mezclarLocalidades: true, // false = cada camión atiende una sola localidad (no se juntan zonas ni se rescatan camiones chicos)
+  modoMezcla: 'historial', // 'historial' = solo se juntan localidades que ya salieron juntas en romaneos reales · 'libre' = por distancia y ahorro de km
+  afinidad: null,          // resultado de afinidadLocalidades(historial)
   deposito: { lat: -37.3140, lon: -59.1515 }, // calculado por trilateración con los radios del ruteador
 };
 
@@ -287,6 +289,47 @@ export function resumenPorLocalidad(rutas) {
   return [...m.values()].sort((a, b) => b.bultos - a.bultos);
 }
 
+// ── Qué localidades salen juntas en la realidad ───────────────────────────────
+// Recorre los romaneos reales (solo rutas propias, no las "aparte") y cuenta, por localidad, en cuántos días tuvo reparto
+// y, por pareja, en cuántos días compartieron camión. El motor usa esto para no inventar mezclas que nunca se hicieron.
+export function afinidadLocalidades(dias, ubic) {
+  const juntas = {}, dd = {}; let n = 0;
+  Object.values(dias || {}).forEach((d) => {
+    const grupos = [];
+    (d.rutas || []).forEach((r, ri) => {
+      const pts = d.paradas.filter((p) => p[0] === ri);
+      if (!pts.length || rutaAparte(r, pts.length)) return;
+      grupos.push([...new Set(pts.map((p) => { const u = ubic.get(p[2]); return u && u.loc ? String(u.loc).toUpperCase() : ''; }).filter(Boolean))]);
+    });
+    if (!grupos.length) return;
+    n++;
+    new Set(grupos.flat()).forEach((l) => { dd[l] = (dd[l] || 0) + 1; });
+    const pares = new Set();
+    grupos.forEach((g) => { for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) pares.add([g[i], g[j]].sort().join('|')); });
+    pares.forEach((k) => { juntas[k] = (juntas[k] || 0) + 1; });
+  });
+  return { juntas, dias: dd, n };
+}
+// Cómo salieron juntas dos localidades: { veces, diasA, diasB } (null si no hay historial)
+export function veces(af, a, b) {
+  if (!af || !af.n) return null;
+  const A = String(a).toUpperCase(), B = String(b).toUpperCase();
+  return { veces: af.juntas[[A, B].sort().join('|')] || 0, diasA: af.dias[A] || 0, diasB: af.dias[B] || 0 };
+}
+// ¿Pueden ir en el mismo camión? Con modo 'historial' solo si alguna vez salieron juntas (o si falta historial de alguna).
+export function puedenJuntarse(P, locsA, locsB) {
+  const modo = P.mezclarLocalidades === false ? 'nunca' : (P.modoMezcla || 'historial');
+  if (modo === 'nunca') return false;
+  const af = P.afinidad;
+  if (modo === 'libre' || !af || af.n < 5) return true;
+  for (const a of locsA) for (const b of locsB) {
+    if (String(a).toUpperCase() === String(b).toUpperCase()) continue;
+    const v = veces(af, a, b);
+    if (v.diasA >= 3 && v.diasB >= 3 && v.veces === 0) return false;
+  }
+  return true;
+}
+
 // ── Simulación ─────────────────────────────────────────────────────────────
 export function simular(pedidos, ubic, parametros = {}) {
   const P = { ...PARAMS_DEFAULT, ...parametros };
@@ -345,7 +388,7 @@ export function simular(pedidos, ubic, parametros = {}) {
     let dest = null, bd = Infinity;
     if (u.fijo) { camiones.push({ items: u.items.slice(), pallets: u.pallets, locs: new Set([u.loc]), fijo: true, chofer: u.chofer || null }); continue; }
     for (const cam of camiones) {
-      if (cam.fijo || P.mezclarLocalidades === false) continue;
+      if (cam.fijo || !puedenJuntarse(P, cam.locs, [u.loc])) continue;
       if (cam.pallets + u.pallets > capUtil || cam.items.length + u.items.length > P.maxParadas) continue;
       const d = haversine(centro(cam.items), cu);
       if (d <= P.radioAgrupKm && d < bd) { bd = d; dest = cam; }
@@ -358,11 +401,11 @@ export function simular(pedidos, ubic, parametros = {}) {
   // entre en capacidad, en paradas y en la jornada aprendida del historial.
   const tiem = P.tiempos || TIEMPOS_DEFAULT;
   const kmCam = (cam) => (cam._km === undefined || cam._n !== cam.items.length ? ((cam._n = cam.items.length), (cam._km = armarRuta(P, cam.items, 0).km)) : cam._km);
-  for (let vuelta = 0; vuelta < 12 && P.mezclarLocalidades !== false; vuelta++) {
+  for (let vuelta = 0; vuelta < 12; vuelta++) {
     let mejor = null;
     for (let i = 0; i < camiones.length; i++) for (let j = i + 1; j < camiones.length; j++) {
       const A = camiones[i], B = camiones[j];
-      if (A.fijo || B.fijo) continue;
+      if (A.fijo || B.fijo || !puedenJuntarse(P, A.locs, B.locs)) continue;
       if (A.pallets + B.pallets > capUtil || A.items.length + B.items.length > P.maxParadas) continue;
       const juntos = armarRuta(P, A.items.concat(B.items), 0);
       const ahorro = kmCam(A) + kmCam(B) - juntos.km;
@@ -377,11 +420,11 @@ export function simular(pedidos, ubic, parametros = {}) {
   // Rescate: camiones casi vacíos se suman al más cercano que tenga lugar (si no hay, quedan marcados "poca carga")
   for (let i = camiones.length - 1; i >= 0; i--) {
     const c = camiones[i];
-    if (camiones.length < 2 || c.pallets >= P.minPalletsRuta || c.fijo || P.mezclarLocalidades === false) continue;
+    if (camiones.length < 2 || c.pallets >= P.minPalletsRuta || c.fijo) continue;
     const cc = centro(c.items);
     let dest = null, bd = Infinity;
     camiones.forEach((o, j) => {
-      if (j === i || o.fijo || o.pallets + c.pallets > capUtil || o.items.length + c.items.length > P.maxParadas) return;
+      if (j === i || o.fijo || !puedenJuntarse(P, o.locs, c.locs) || o.pallets + c.pallets > capUtil || o.items.length + c.items.length > P.maxParadas) return;
       const d = haversine(centro(o.items), cc);
       if (d <= P.radioRescateKm && d < bd) { bd = d; dest = o; }
     });
@@ -782,8 +825,8 @@ export function simularConTope(pedidos, ubic, parametros = {}) {
   if (!(max > 0) || sim.rutas.length <= max) return sim;
   const pasos = [
     { llenado: Math.max(P.llenado, 0.95), radioAgrupKm: Math.max(P.radioAgrupKm, 30), txt: 'cargando cada camión al 95 % y juntando zonas de hasta 30 km' },
-    { llenado: 1, radioAgrupKm: Math.max(P.radioAgrupKm, 45), radioRescateKm: Math.max(P.radioRescateKm, 90), txt: 'cargando los camiones al 100 % y juntando zonas de hasta 45 km' },
-    { llenado: 1, radioAgrupKm: 90, radioRescateKm: 150, maxParadas: Math.max(P.maxParadas, 90), txt: 'al límite: 100 % de carga, zonas lejanas juntas y más paradas por camión' },
+    { llenado: 1, modoMezcla: P.mezclarLocalidades === false ? 'nunca' : 'libre', radioAgrupKm: Math.max(P.radioAgrupKm, 45), radioRescateKm: Math.max(P.radioRescateKm, 90), txt: 'cargando los camiones al 100 % y juntando zonas de hasta 45 km (aunque en el historial no hayan salido juntas)' },
+    { llenado: 1, modoMezcla: P.mezclarLocalidades === false ? 'nunca' : 'libre', radioAgrupKm: 90, radioRescateKm: 150, maxParadas: Math.max(P.maxParadas, 90), txt: 'al límite: 100 % de carga, zonas lejanas juntas y más paradas por camión' },
   ];
   let mejor = sim;
   for (const p of pasos) {
@@ -994,7 +1037,7 @@ export function probarContraDia(fecha, dia, hist, ubicItems, parametros = {}) {
     });
   });
   const clientes = [...por.values()].filter((x) => x.b > 0).map((x) => ({ ...x, b: Math.round(x.b * 100) / 100 }));
-  const sim = simularConTope({ clientes }, ubic, { ...P, camionesPorLoc: {}, maxCamiones: 0, zonas: construirZonas(histSin), fechaObjetivo: fecha, ausentes: [], cubre: {}, tiempos: ajustarTiempos(histSin) });
+  const sim = simularConTope({ clientes }, ubic, { ...P, camionesPorLoc: {}, maxCamiones: 0, zonas: construirZonas(histSin), afinidad: afinidadLocalidades(histSin, ubic), fechaObjetivo: fecha, ausentes: [], cubre: {}, tiempos: ajustarTiempos(histSin) });
   const perfiles = perfilesChoferes(histSin, ubic, P.deposito, fecha);
   const auto = asignarChoferes(sim.rutas, perfiles, [], {});
   const choferSim = sim.rutas.map((r, i) => r.choferZona || (auto[i] && auto[i].chofer) || '');
