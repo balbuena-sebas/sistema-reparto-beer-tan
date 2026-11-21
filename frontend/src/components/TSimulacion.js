@@ -1333,7 +1333,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         <div className="sim-params">
           {[['bultosPorPallet', 'Bultos por pallet'], ['palletsPorCamion', 'Pallets por camión'], ['llenado', 'Llenado objetivo (0–1)'],
             ['factorRuta', 'Factor de ruta'], ['consumoCamion', 'Consumo camión (L/100 km)'], ['consumoUtil', 'Consumo utilitario (L/100 km)'],
-            ['ayudantesPorCamion', 'Ayudantes por camión'], ['limiteRecarga2', 'Sin recarga hasta (2 pers.)'], ['limiteRecarga3', 'Sin recarga hasta (3 pers.)'], ['maxCamiones', 'Camiones disponibles (0 = sin tope)'], ['maxParadas', 'Máx. paradas por camión'], ['radioAgrupKm', 'Juntar zonas hasta (km)']].map(([k, et]) => (
+            ['ayudantesPorCamion', 'Ayudantes por camión'], ['limiteRecarga2', 'Sin recarga hasta (2 pers.)'], ['limiteRecarga3', 'Sin recarga hasta (3 pers.)'], ['maxCamiones', 'Camiones disponibles (0 = sin tope)'], ['maxParadas', 'Máx. paradas por camión'], ['maxBultosCamion', 'Máx. bultos por camión (0 = sin tope)'], ['radioAgrupKm', 'Juntar zonas hasta (km)']].map(([k, et]) => (
             <label key={k}>{et}
               <input type="number" step="any" value={params[k]} onChange={(e) => setParams((p) => ({ ...p, [k]: Number(e.target.value) }))} />
             </label>

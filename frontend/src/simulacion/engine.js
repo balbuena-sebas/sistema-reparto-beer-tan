@@ -29,6 +29,8 @@ export const PARAMS_DEFAULT = {
   camionesPorLoc: {},      // { LOCALIDAD: n } camiones fijados a mano para esa localidad (ej. Las Flores: 2)
   maxParadas: 70,          // tope de paradas por camión (límite de jornada)
   radioAgrupKm: 15,        // solo se juntan localidades a menos de esta distancia en un mismo camión
+  maxBultosCamion: 449,    // tope duro de bultos por camión (sin recarga): nunca se arma un camión con más
+  particion: 'compacta',   // cómo se parte una localidad grande: 'compacta' (zonas sin cruces, parejas) o 'historial' (zonas de cada chofer)
   mezclarLocalidades: true, // false = cada camión atiende una sola localidad (no se juntan zonas ni se rescatan camiones chicos)
   modoMezcla: 'historial', // 'historial' = solo se juntan localidades que ya salieron juntas en romaneos reales · 'libre' = por distancia y ahorro de km
   afinidad: null,          // resultado de afinidadLocalidades(historial)
@@ -342,7 +344,7 @@ export function simular(pedidos, ubic, parametros = {}) {
   }
   const totalBultos = pedidos.clientes.reduce((s, c) => s + c.b, 0);
   const totalPallets = totalBultos / P.bultosPorPallet;
-  const capUtil = P.palletsPorCamion * P.llenado;
+  const capUtil = Math.min(P.palletsPorCamion * P.llenado, (P.maxBultosCamion > 0 ? P.maxBultosCamion : Infinity) / P.bultosPorPallet);
   const nCamiones = Math.max(1, Math.ceil(totalPallets / capUtil));
 
   // Agrupa por localidad y empaqueta en camiones: solo junta localidades cercanas
@@ -357,25 +359,25 @@ export function simular(pedidos, ubic, parametros = {}) {
       // Cantidad de camiones elegida a mano: se reparte la localidad en zonas contiguas (sectores alrededor del depósito)
       // con la misma cantidad de bultos y de clientes en cada camión; esos camiones no se mezclan con otras localidades.
       const k = Math.min(fijo, items.length);
-      const z = repartirPorZonas(items, k, P, { usados: usadosZona });
+      const z = P.particion === 'historial' ? repartirPorZonas(items, k, P, { usados: usadosZona }) : null;
       if (z) {
         z.grupos.forEach((g, j) => { usadosZona.add(z.choferes[j]); unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true, chofer: z.choferes[j] }); });
         continue;
       }
-      const cub = afinarEquilibrio(repartirEquilibrado(items, k, dep));
+      const cub = P.particion === 'historial' ? afinarEquilibrio(repartirEquilibrado(items, k, dep)) : repartirCompacto(items, k, P, capUtil);
       cub.filter((g) => g.length).forEach((g) => unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true }));
       continue;
     }
     if (pal <= capUtil && items.length <= P.maxParadas) { unidades.push({ loc, items, pallets: pal }); continue; }
     const k = Math.max(Math.ceil(pal / capUtil), Math.ceil(items.length / P.maxParadas));
-    const zAuto = k > 1 ? repartirPorZonas(items, k, P, { usados: usadosZona, capMax: capUtil * 1.03 }) : null;
+    const zAuto = k > 1 && P.particion === 'historial' ? repartirPorZonas(items, k, P, { usados: usadosZona, capMax: capUtil * 1.03 }) : null;
     if (zAuto) {
       zAuto.grupos.forEach((g, j) => { usadosZona.add(zAuto.choferes[j]); unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true, chofer: zAuto.choferes[j] }); });
       continue;
     }
     // Sin historial de zonas: se parte en k sectores con los bultos y los clientes lo más parejos posible
-    afinarEquilibrio(repartirEquilibrado(items, k, dep)).filter((g) => g.length)
-      .forEach((g) => unidades.push({ loc, items: g, pallets: g.reduce((s2, c) => s2 + c.pallets, 0) }));
+    (P.particion === 'historial' ? afinarEquilibrio(repartirEquilibrado(items, k, dep)) : repartirCompacto(items, k, P, capUtil)).filter((g) => g.length)
+      .forEach((g) => unidades.push({ loc, items: g, pallets: g.reduce((s2, c) => s2 + c.pallets, 0), fijo: P.particion !== 'historial' }));
   }
   const centro = (items) => ({
     lat: items.reduce((s, c) => s + c.lat, 0) / items.length,
@@ -442,6 +444,90 @@ export function simular(pedidos, ubic, parametros = {}) {
       personas: sum('personas'), recargas: sum('recargas'),
     },
   };
+}
+
+// ── Reparto compacto: k zonas sin cruces, parejas en clientes y bultos, y con los km más bajos ────────────
+// Agrupa por cercanía (k-means con "sesgo" que equilibra la carga), prueba varias semillas, afina por el borde y
+// respeta el tope de pallets por camión (capPal). Elige la partición con menos km reales de ruta.
+export function repartirCompacto(items, k, P, capPal = Infinity) {
+  const n = items.length;
+  if (k <= 1 || n <= 1) return [items.slice()];
+  if (n <= k) return items.map((c) => [c]);
+  const dep = P.deposito, kx = 111.32 * Math.cos(rad(dep.lat)), ky = 110.57;
+  const xy = items.map((c) => [(c.lon - dep.lon) * kx, (c.lat - dep.lat) * ky]);
+  const palTot = items.reduce((s, c) => s + c.pallets, 0) || 1;
+  const w = items.map((c) => 0.5 * c.pallets / palTot + 0.5 / n);
+  const obj = 1 / k;
+  let semilla = 12345;
+  const rnd = () => { semilla = (semilla * 1664525 + 1013904223) % 4294967296; return semilla / 4294967296; };
+  const d2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2;
+  const semillasPP = () => {            // k-means++
+    const c = [xy[Math.floor(rnd() * n)].slice()];
+    while (c.length < k) {
+      const dd = xy.map((q) => Math.min(...c.map((z) => d2(q, z))));
+      const tot = dd.reduce((x, y) => x + y, 0) || 1; let r = rnd() * tot, i = 0;
+      while (i < n - 1 && (r -= dd[i]) > 0) i++;
+      c.push(xy[i].slice());
+    }
+    return c;
+  };
+  const corrida = (cen0) => {
+    let cen = cen0.map((c) => c.slice()); const bias = new Array(k).fill(0); let a = new Array(n).fill(0);
+    for (let it = 0; it < 90; it++) {
+      const cenAct = cen;
+      const D = xy.map((q) => cenAct.map((z) => d2(q, z)));
+      const as = D.map((r) => { let b = 0, bv = Infinity; for (let j = 0; j < k; j++) { const v = r[j] + bias[j]; if (v < bv) { bv = v; b = j; } } return b; });
+      const L = new Array(k).fill(0); as.forEach((j, i) => { L[j] += w[i]; });
+      const esc = (D.reduce((t, r) => t + Math.min(...r), 0) / n) || 1;
+      let dev = 0; const paso = 1.2 / (1 + it * 0.08);
+      for (let j = 0; j < k; j++) { bias[j] += paso * esc * (L[j] - obj) * k; dev = Math.max(dev, Math.abs(L[j] - obj)); }
+      const nc = Array.from({ length: k }, () => [0, 0, 0]);
+      as.forEach((j, i) => { nc[j][0] += xy[i][0]; nc[j][1] += xy[i][1]; nc[j][2]++; });
+      let mov = 0;
+      cen = cenAct.map((c, j) => { if (!nc[j][2]) return c; const x = nc[j][0] / nc[j][2], y = nc[j][1] / nc[j][2]; mov += Math.abs(x - c[0]) + Math.abs(y - c[1]); return [x, y]; });
+      a = as;
+      if (mov < 1e-4 && dev < 0.02) break;
+    }
+    return a;
+  };
+  const aGrupos = (a) => { const g = Array.from({ length: k }, () => []); a.forEach((j, i) => g[j].push(items[i])); return g; };
+  const sumPal = (g) => g.reduce((s, c) => s + c.pallets, 0);
+  // sin pasarse del tope: pasa el cliente que menos aleja de su zona al vecino más cercano que tenga lugar
+  const topar = (g) => {
+    for (let it = 0; it < 300; it++) {
+      const j = g.findIndex((x) => sumPal(x) > capPal + 1e-9); if (j < 0) break;
+      const cj = [g[j].reduce((s, c) => s + c.lon, 0) / g[j].length, g[j].reduce((s, c) => s + c.lat, 0) / g[j].length];
+      let mejor = null;
+      for (const c of g[j]) for (let B = 0; B < k; B++) {
+        if (B === j || !g[B].length || sumPal(g[B]) + c.pallets > capPal + 1e-9) continue;
+        const cb = { lat: g[B].reduce((s, q) => s + q.lat, 0) / g[B].length, lon: g[B].reduce((s, q) => s + q.lon, 0) / g[B].length };
+        const extra = haversine(c, cb) - haversine(c, { lat: cj[1], lon: cj[0] });
+        if (!mejor || extra < mejor.extra) mejor = { extra, c, B };
+      }
+      if (!mejor) break;
+      g[j] = g[j].filter((x) => x !== mejor.c); g[mejor.B].push(mejor.c);
+    }
+    return g;
+  };
+  const evalua = (g) => {
+    const vac = g.some((x) => !x.length);
+    const km = vac ? Infinity : g.reduce((s, x) => s + armarRuta(P, x, 0).km, 0);
+    const excede = g.reduce((s, x) => s + Math.max(0, sumPal(x) - capPal), 0);
+    const pal = g.map((x) => sumPal(x) / palTot), cn = g.map((x) => x.length / n);
+    const dev = Math.max(...pal.map((p, j) => Math.abs(p - obj) + Math.abs(cn[j] - obj)));
+    return { km, excede, dev };
+  };
+  let mejor = null;
+  const probar = (a) => {
+    let g = aGrupos(a); if (g.some((x) => !x.length)) return;
+    g = topar(afinarEquilibrio(g, { maxKm: 15, meta: 0.008 }));
+    const e = evalua(g);
+    const val = e.km * (1 + 25 * Math.max(0, e.dev - 0.03)) + e.excede * 1e5;
+    if (!mejor || val < mejor.val) mejor = { val, g, ...e };
+  };
+  for (let r = 0; r < 8; r++) probar(corrida(semillasPP()));
+  if (!mejor) return afinarEquilibrio(repartirEquilibrado(items, k, dep));
+  return mejor.g;
 }
 
 // Afina un reparto en k grupos para que los bultos y los clientes queden parejos: pasa de a uno el cliente que más
