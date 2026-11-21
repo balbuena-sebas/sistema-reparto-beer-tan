@@ -277,11 +277,18 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   };
   useEffect(() => {
     let vivo = true;
-    const fechas = lista.map((x) => x.fecha).sort().slice(-30);
+    const fechas = lista.map((x) => x.fecha).sort().slice(-30).reverse();   // primero los más recientes
     (async () => {
-      const h = {};
-      for (const f of fechas) { try { const d = await traerDia(f); if (d) h[f] = d; } catch { /* sigue */ } if (!vivo) return; }
-      if (vivo) setHist(h);
+      const h = {}; let i = 0;
+      // 5 descargas a la vez; el historial se va sumando a medida que llega (el motor aprende con lo que ya está)
+      const trabajador = async () => {
+        while (vivo && i < fechas.length) {
+          const f = fechas[i++];
+          try { const d = await traerDia(f); if (d && vivo) { h[f] = d; if (Object.keys(h).length % 6 === 0) setHist({ ...h }); } } catch { /* sigue */ }
+        }
+      };
+      await Promise.all([1, 2, 3, 4, 5].map(trabajador));
+      if (vivo) setHist({ ...h });
     })();
     return () => { vivo = false; };
   }, [lista, traerDia]);
