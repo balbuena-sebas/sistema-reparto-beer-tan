@@ -215,3 +215,8 @@
 .sim-cam-zonasinfo { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: rgba(255,152,0,.08); border: 1px dashed rgba(255,152,0,.5); }
 .sim-cam-zonasinfo ul { margin: 4px 0 6px; padding-left: 18px; font-size: 13px; }
 .sim-cam-zonasinfo .mal { color: #d32f2f; }
+
+/* Avisos en negativo: lo que está mal, en rojo y con el número */
+.sim-neg { margin: 6px 0; padding: 8px 10px; border-radius: 8px; border-left: 4px solid #c62828; background: rgba(198,40,40,.12); color: #b71c1c; font-size: 13px; font-weight: 600; }
+@media (prefers-color-scheme: dark) { .sim-neg { color: #ff8a80; background: rgba(255,82,82,.14); } }
+.sim-chk-it.error { background: rgba(198,40,40,.08); }

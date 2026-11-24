@@ -483,7 +483,7 @@ export function refinarReparto(P, grupos, capPal = Infinity, maxIter = 60) {
   let ev = evaluarReparto(P, g, capPal);
   const t0 = Date.now();
   const cent = (x) => ({ lat: x.reduce((t, c) => t + c.lat, 0) / x.length, lon: x.reduce((t, c) => t + c.lon, 0) / x.length });
-  for (let it = 0; it < maxIter && Date.now() - t0 < 450; it++) {
+  for (let it = 0; it < maxIter && Date.now() - t0 < (P.refinarMs ?? 450); it++) {
     const ce = g.map((x) => (x.length ? cent(x) : null));
     let mejor = null;
     for (let A = 0; A < k; A++) {
@@ -974,25 +974,54 @@ export function simularConTope(pedidos, ubic, parametros = {}) {
   const max = Math.floor(P.maxCamiones || 0);
   sim.tope = { max, necesarios: sim.rutas.length, ajuste: null, faltan: 0, pendientes: [] };
   if (!(max > 0) || sim.rutas.length <= max) return sim;
-  const pasos = [
-    { llenado: Math.max(P.llenado, 0.95), radioAgrupKm: Math.max(P.radioAgrupKm, 30), txt: 'cargando cada camión al 95 % y juntando zonas de hasta 30 km' },
-    { llenado: 1, modoMezcla: P.mezclarLocalidades === false ? 'nunca' : 'libre', radioAgrupKm: Math.max(P.radioAgrupKm, 45), radioRescateKm: Math.max(P.radioRescateKm, 90), txt: 'cargando los camiones al 100 % y juntando zonas de hasta 45 km (aunque en el historial no hayan salido juntas)' },
-    { llenado: 1, modoMezcla: P.mezclarLocalidades === false ? 'nunca' : 'libre', radioAgrupKm: 90, radioRescateKm: 150, maxParadas: Math.max(P.maxParadas, 90), txt: 'al límite: 100 % de carga, zonas lejanas juntas y más paradas por camión' },
-  ];
+  // Hay menos camiones que los necesarios con el tope de bultos: NO se agregan camiones. Se carga más a los que hay
+  // (con 3 personas o con una recarga) y solo si ni así entra se juntan zonas lejanas.
+  const total = sim.totales.bultos;
+  const fisico = Math.floor(P.palletsPorCamion * P.bultosPorPallet);
+  const base = P.maxBultosCamion > 0 ? P.maxBultosCamion : fisico;
+  const caps = [...new Set([Math.ceil((total / max) * 1.04), Math.ceil((total / max) * 1.12), P.limiteRecarga3, Math.ceil((total / max) * 1.25), fisico]
+    .map((c) => Math.min(fisico, Math.max(base + 1, c))))].sort((a, b) => a - b);
+  const nunca = P.mezclarLocalidades === false;
+  const intentos = [];
+  caps.forEach((cap) => { intentos.push({ cap, modo: nunca ? 'nunca' : 'historial' }); if (!nunca) intentos.push({ cap, modo: 'libre' }); });
+  if (!nunca) intentos.push({ cap: fisico, modo: 'libre', lejos: true });
   let mejor = sim;
-  for (const p of pasos) {
-    const { txt, ...cambios } = p;
+  for (const it of intentos) {
+    const cambios = { maxBultosCamion: it.cap, llenado: Math.max(P.llenado, it.cap / (P.palletsPorCamion * P.bultosPorPallet)), modoMezcla: it.modo, refinarMs: 150 };
+    if (it.modo === 'libre') Object.assign(cambios, { radioAgrupKm: Math.max(P.radioAgrupKm, 45), radioRescateKm: Math.max(P.radioRescateKm, 90) });
+    if (it.lejos) Object.assign(cambios, { radioAgrupKm: 90, radioRescateKm: 150, maxParadas: Math.max(P.maxParadas, 90) });
     const s = simular(pedidos, ubic, { ...P, ...cambios });
-    s.tope = { max, necesarios: sim.tope.necesarios, ajuste: txt, faltan: Math.max(0, s.rutas.length - max), pendientes: [] };
-    if (s.rutas.length < mejor.rutas.length) mejor = s;
+    const txt = `cada camión hasta ${f0b(it.cap)} bultos${it.cap > P.limiteRecarga2 ? ' (con 3 personas o una recarga)' : ''}${it.modo === 'libre' ? ' y juntando zonas cercanas aunque en el historial no hayan salido juntas' : ''}${it.lejos ? ', zonas lejanas juntas y más paradas' : ''}`;
+    s.tope = { max, necesarios: sim.tope.necesarios, ajuste: txt, faltan: Math.max(0, s.rutas.length - max), pendientes: [], capUsada: it.cap };
+    if (s.rutas.length < mejor.rutas.length || mejor === sim) mejor = s;
     if (s.rutas.length <= max) return s;
   }
-  // No entra: se dejan los `max` camiones más cargados y el resto queda como pendiente para otro día / otro viaje.
+  // No entra ni al límite físico del camión: los camiones que sobran quedan marcados como pendientes (otro día / otro viaje).
   const orden = mejor.rutas.map((r, i) => i).sort((a, b) => mejor.rutas[b].pallets - mejor.rutas[a].pallets);
   const quedan = new Set(orden.slice(0, max));
   const sacadas = mejor.rutas.filter((_, i) => !quedan.has(i));
   mejor.tope.pendientes = sacadas.map((r) => ({ localidades: r.localidades, paradas: r.paradas.length, bultos: r.bultos, pallets: r.pallets }));
   return mejor;
+}
+const f0b = (n) => new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }).format(n || 0);
+
+// Clave estable de una ruta (para guardar cosas elegidas a mano, como las personas del camión)
+export const claveRuta = (r) => (r.planId ? `p${r.planId}` : String(Math.min(...r.paradas.map((p) => p.c))));
+// Personas elegidas a mano por camión: over = { ['n' + claveRuta]: '2' | '3' }. Recalcula límite de recarga y recargas.
+export function aplicarPersonas(P, sim, over) {
+  if (!sim || !over || !Object.keys(over).some((k) => k[0] === 'n')) return sim;
+  let cambio = false;
+  const rutas = sim.rutas.map((r) => {
+    const v = Number(over[`n${claveRuta(r)}`]);
+    if (!(v >= 2) || r.autoelevador) return r;
+    cambio = true;
+    const limite = v >= 3 ? P.limiteRecarga3 : P.limiteRecarga2;
+    const recargas = r.bultos > limite ? 1 : 0;
+    return { ...r, personas: v, limiteRecarga: limite, recargas, alertaRecarga: recargas > 0 && r.bultos > P.maxConRecarga, extraAyudante: v >= 3, personasManual: true };
+  });
+  if (!cambio) return sim;
+  const sum = (k) => rutas.reduce((t, r) => t + r[k], 0);
+  return { ...sim, rutas, totales: { ...sim.totales, personas: sum('personas'), recargas: sum('recargas') } };
 }
 
 // ── Cambios entre dos cargas de pedidos ────────────────────────────────────

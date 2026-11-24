@@ -1,7 +1,7 @@
 // components/TSimulacion.js — Calendario de romaneo + simulación de reparto en vivo.
 // Carga perezosa (lazy) desde App.js: MapLibre solo se descarga al abrir esta pestaña.
 // El romaneo y la maestra de clientes se suben desde la pestaña Importar (CargaRuteo).
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { apiFetch, suscribirRuteo } from '../api/client';
 import { CapaSeleccion } from '../simulacion/seleccion';
@@ -11,7 +11,7 @@ import {
   perfilesChoferes, asignarChoferes, zonaDelDia, simularConTope,
   planDesde, planMover, planJuntar, planPartir, planOrdenar, planOrdenAuto, aplicarPlan, construirZonas,
   probarContraDia, clientesEnRutaPropia, ajustarTiempos, minutosRuta,
-  MOTIVOS, planMotivo, planDividir, planUnir, bitDia, diasDeMascara, afinidadLocalidades, veces, rutaAparte,
+  MOTIVOS, planMotivo, planDividir, planUnir, bitDia, diasDeMascara, afinidadLocalidades, veces, rutaAparte, aplicarPersonas,
 } from '../simulacion/engine';
 import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
@@ -412,12 +412,15 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   }, [cfg, ausAuto, ausentes]);
   const paramsEf = useMemo(() => ({ ...params, ayudantesDisp: ayudantesPresentes }), [params, ayudantesPresentes]);
   const tiempos = useMemo(() => ajustarTiempos(hist), [hist]);       // minutos por parada / km / bulto aprendidos de los romaneos
+  // El cálculo pesado se hace después de pintar lo que tocaste (así los campos no se traban) y se avisa mientras recalcula
+  const paramsCalc = useDeferredValue(paramsEf), camionesCalc = useDeferredValue(camionesLoc), salenCalc = useDeferredValue(pedidosSalen);
+  const calculando = paramsCalc !== paramsEf || camionesCalc !== camionesLoc || salenCalc !== pedidosSalen;
   const simAuto = useMemo(() => {
-    if (!pedidosSalen.salen.length) return null;
-    return simularConTope({ clientes: pedidosSalen.salen }, ubic, { ...paramsEf, camionesPorLoc: camionesLoc, zonas, afinidad, fechaObjetivo: fechaPedidos, ausentes: ausEf, cubre, tiempos });
-  }, [pedidosSalen, ubic, paramsEf, camionesLoc, zonas, afinidad, fechaPedidos, ausEf, cubre, tiempos]);
+    if (!salenCalc.salen.length) return null;
+    return simularConTope({ clientes: salenCalc.salen }, ubic, { ...paramsCalc, camionesPorLoc: camionesCalc, zonas, afinidad, fechaObjetivo: fechaPedidos, ausentes: ausEf, cubre, tiempos });
+  }, [salenCalc, ubic, paramsCalc, camionesCalc, zonas, afinidad, fechaPedidos, ausEf, cubre, tiempos]);
   // Con reparto editado a mano manda el plan; si no, la propuesta del motor.
-  const simBase = useMemo(() => (simAuto && plan ? aplicarPlan(simAuto, plan, paramsEf) : simAuto), [simAuto, plan, paramsEf]);
+  const simBase = useMemo(() => aplicarPersonas(paramsEf, (simAuto && plan ? aplicarPlan(simAuto, plan, paramsEf) : simAuto), manual), [simAuto, plan, paramsEf, manual]);
 
   const claveAncla = (r) => (r.planId ? `p${r.planId}` : String(Math.min(...r.paradas.map((p) => p.c))));
   // Chofer por ruta: lo elegido a mano manda; el resto se asigna por zona habitual (sin repetir choferes).
@@ -997,7 +1000,20 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
             </select>
           </label>
           {ch && ch.motivo && !manual[claveAncla(r)] && <span className="sim-sub">{ch.motivo}</span>}
+          {!r.autoelevador && (
+            <label>Personas
+              <select value={manual[`n${claveAncla(r)}`] || ''} title="Cuántas personas salen en este camión. Con 3 no hace falta recarga hasta los bultos de Configuración."
+                onChange={(e) => { const m = { ...manual }; if (e.target.value) m[`n${claveAncla(r)}`] = e.target.value; else delete m[`n${claveAncla(r)}`]; guardarAsig(ausentes, cubre, m); }}>
+                <option value="">auto ({r.personasManual ? 'a mano' : r.personas})</option>
+                <option value="2">2 (chofer + 1)</option>
+                <option value="3">3 (chofer + 2)</option>
+              </select>
+            </label>
+          )}
         </div>
+        {r.recargas > 0 && !r.autoelevador && (
+          <div className="sim-neg" role="alert">⛔ Lleva {f0(r.bultos)} bultos: pasa los {f0(r.limiteRecarga)} que entran sin recarga con {r.personas} personas. {r.personas < 3 && r.bultos <= params.limiteRecarga3 ? 'Ponele 3 personas o ' : ''}Hace 1 recarga (costo y tiempo extra).</div>
+        )}
         {r.zonas && r.zonas.length > 1 && (
           <div className="sim-cam-zonasinfo" role="note">
             <div className="sim-sub"><b>Un solo viaje por {r.zonas.length} zonas</b> (en este orden de lejanía desde el depósito):</div>
@@ -1098,6 +1114,19 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           <input type="number" min="0" aria-label="Camiones disponibles" style={{ width: 64 }} value={params.maxCamiones || 0} onChange={(e) => setParams((p) => ({ ...p, maxCamiones: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))} />
           <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, maxCamiones: Math.max(0, perfiles.filter((x) => !x.mercado && !ausEf.includes(x.nombre) && x.ultimo >= haceDias(fechaPedidos, 10)).length) }))}>Usar choferes presentes</button>
           <button className="sim-btn" onClick={() => setParams((p) => ({ ...p, maxCamiones: 0 }))}>Sin tope</button>
+          <button className="sim-btn" aria-label="Un camión menos" onClick={() => setParams((p) => ({ ...p, maxCamiones: Math.max(1, (p.maxCamiones || sim.rutas.length) - 1) }))}>− 1</button>
+          <button className="sim-btn" aria-label="Un camión más" onClick={() => setParams((p) => ({ ...p, maxCamiones: (p.maxCamiones || sim.rutas.length) + 1 }))}>+ 1</button>
+          {calculando && <span className="sim-pill aviso" role="status">⏳ recalculando…</span>}
+        </div>
+        <div className="sim-row" style={{ marginTop: 6 }}>
+          <label className="sim-sub"><b>Máx. bultos por camión</b>{' '}
+            <input type="number" min="0" style={{ width: 80 }} value={params.maxBultosCamion || 0} title="0 = sin tope. Si no alcanzan los camiones disponibles, el sistema carga más a los que hay en vez de agregar camiones."
+              onChange={(e) => setParams((p) => ({ ...p, maxBultosCamion: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))} /></label>
+          {sim.rutas.some((r) => r.recargas > 0 && !r.autoelevador && r.bultos <= params.limiteRecarga3 && r.personas < 3) && (
+            <button className="sim-btn" title="Les pone un 2º ayudante a los camiones que de otro modo harían recarga"
+              onClick={() => { const m = { ...manual }; sim.rutas.forEach((r) => { if (r.recargas > 0 && !r.autoelevador && r.bultos <= params.limiteRecarga3 && r.personas < 3) m[`n${claveAncla(r)}`] = '3'; }); guardarAsig(ausentes, cubre, m); }}>👥 Poner 3 personas donde hay recarga</button>
+          )}
+          {sim.rutas.some((r) => r.personasManual) && <button className="sim-btn" onClick={() => { const m = { ...manual }; Object.keys(m).forEach((k) => { if (k[0] === 'n') delete m[k]; }); guardarAsig(ausentes, cubre, m); }}>↩ Personas automáticas</button>}
         </div>
         <div className="sim-row" style={{ marginTop: 8 }}>
           <label className="sim-sub"><b>Juntar localidades</b>{' '}
@@ -1113,7 +1142,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           <div className="sim-sub" style={{ marginTop: 6 }}>📈 <b>Lo habitual</b>: en los últimos {habitualDia.dias} {new Date(`${fechaPedidos}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long' })} salieron en promedio {f1(habitualDia.camiones)} camiones propios con {f0(habitualDia.bultos / (habitualDia.camiones || 1))} bultos cada uno
             {habitualDia.locs.length ? <> · localidades que casi siempre salen ese día: {habitualDia.locs.map(cap).join(', ')}</> : null}.</div>
         )}
-        <div className="sim-sub" style={{ marginTop: 6 }}>Hacen falta {sim.tope ? sim.tope.necesarios : sim.rutas.length} con la carga normal · el sistema armó {sim.rutas.length}. Tocá «Ver en el mapa» en un camión para verlo solo.</div>
+        <div className="sim-sub" style={{ marginTop: 6 }}>Hacen falta {sim.tope ? sim.tope.necesarios : sim.rutas.length} con la carga normal ({f0(params.maxBultosCamion || 0)} bultos máx.) · el sistema armó {sim.rutas.length}.{sim.tope && sim.tope.ajuste ? <> <b>Para no agregar camiones: {sim.tope.ajuste}.</b></> : null} Tocá «Ver en el mapa» en un camión para verlo solo.</div>
       </section>
       <div className="sim-cams">{sim.rutas.map((r, i) => tarjetaCamion(r, i))}</div>
       <div className="sim-sub">▮ gris: salida y carga · ▮ azul: conducción · ▮ verde: paradas · ┃ rojo: límite habitual de jornada. {GLOSARIO.km}</div>
