@@ -130,7 +130,12 @@ router.get("/", async (req, res) => {
           if (!mesesR2.length) {
             logs.push('ℹ No hay archivos archivados en R2.');
           } else {
-            const mesesParaCargar = mesesR2.filter((m) => !dbMeses.has(m));
+            // Con rango de fechas solo se cargan los meses archivados que lo tocan
+            // (antes se bajaban TODOS los meses de R2 aunque se pidiera un solo día).
+            const mDesde = desde ? String(desde).slice(0, 7) : null;
+            const mHasta = hasta ? String(hasta).slice(0, 7) : null;
+            const mesesParaCargar = mesesR2.filter((m) => !dbMeses.has(m)
+              && (!mDesde || m >= mDesde) && (!mHasta || m <= mHasta));
             if (mesesParaCargar.length > 0) {
               const archivedResults = await Promise.all(mesesParaCargar.map(async (archivedMes) => {
                 const archived = await storage.download(`rechazos/detalle_${archivedMes}.json`);
@@ -149,7 +154,13 @@ router.get("/", async (req, res) => {
                 }))).filter(Boolean);
               }));
 
-              archivedResults.forEach(rows => data.push(...rows));
+              archivedResults.forEach(rows => {
+                for (const x of rows) {
+                  if (desde && x.fecha && x.fecha < desde) continue;
+                  if (hasta && x.fecha && x.fecha > hasta) continue;
+                  data.push(x);
+                }
+              });
               logs.push(`📦 Cargado desde R2 (meses archivados: ${mesesParaCargar.join(', ')})`);
             } else {
               logs.push('ℹ No hay meses adicionales en R2 que no estén ya en la DB.');

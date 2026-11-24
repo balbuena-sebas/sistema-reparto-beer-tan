@@ -535,12 +535,14 @@ export default function App() {
     }
   }, [mes]);
 
-  // ── Carga inicial y Configuración del Polling (cada 30s) ──────────────────
+  // ── Carga inicial y Configuración del Polling (cada 5 min) ──────────────────
   useEffect(() => {
     refrescarDatos(false);
+    // Cada 5 min y solo con la pestaña visible: antes bajaba registros, rechazos,
+    // ausencias y config completos cada 30 s por cada pantalla abierta (gasta datos y memoria del servidor).
     const interval = setInterval(() => {
-      refrescarDatos(true);
-    }, 30000);
+      if (!document.hidden) refrescarDatos(true);
+    }, 300000);
     return () => clearInterval(interval);
   }, [refrescarDatos]);
 

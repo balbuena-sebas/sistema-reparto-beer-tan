@@ -41,7 +41,7 @@ export function TDbStats({ loggedInUser }) {
       .catch((e) => { console.error('Error fetching dbstats', e); if (mounted && !stopped) setErr(e.message || String(e)); });
 
     fetchOnce();
-    const iv = setInterval(() => { fetchOnce(); }, 15000);
+    const iv = setInterval(() => { if (!document.hidden) fetchOnce(); }, 60000);
     return () => { mounted = false; stopped = true; clearInterval(iv); };
   }, []);
 
