@@ -138,6 +138,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const [dividiendo, setDividiendo] = useState(null);             // cliente cuya carga se está dividiendo entre camiones
   const [partesDiv, setPartesDiv] = useState({});                 // { idCamión: bultos } de la división en curso
   const [paso, setPaso] = useState(1);                           // paso visible: 1 Pedidos · 2 Camiones · 3 Clientes · 4 Costos
+  const [detCam, setDetCam] = useState({});                       // camiones con todos los datos abiertos (el resto se ve en una línea)
   const [chkAbierto, setChkAbierto] = useState(false);            // lista de "cosas para revisar"
   const [herr, setHerr] = useState('');                           // herramienta de selección sobre el mapa: '' | circulo | lazo | rect
   const [prueba, setPrueba] = useState(null);                     // resultado de probar el motor contra un día real
@@ -977,6 +978,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     const base = tiempos.base, cond = tiempos.porKm * r.km, serv = tiempos.porParada * r.paradas.length + tiempos.porBulto * r.bultos, tot = base + cond + serv;
     const largo = tot > tiempos.limite, pj = (m) => `${(m / escJornada) * 100}%`;
     const abiertoC = abierto === id;
+    const detC = !!detCam[id] || rutaSel === i;
     const porLoc = new Map();
     r.paradas.forEach((p) => { const l = p.loc || 'SIN LOCALIDAD'; const o = porLoc.get(l) || { loc: l, cods: [], b: 0 }; o.cods.push(p.c); o.b += p.b; porLoc.set(l, o); });
     const pers = costoPers ? costoPers.porRuta[i] : null;
@@ -990,6 +992,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           {r.autoelevador && <span className="sim-pill" title={GLOSARIO.autoelevador}>autoelevador</span>}
           {r.extraAyudante && <span className="sim-pill" title="2º ayudante: con 3 personas este camión no necesita recarga">+1 ayudante</span>}
           {r.paradas.some((p) => p.parte) && <span className="sim-pill" title="Lleva la parte de un cliente dividido entre camiones">✂ carga dividida</span>}
+          <button type="button" className="sim-cam-tog" aria-expanded={detC} onClick={() => setDetCam((d) => ({ ...d, [id]: !detC }))}>{detC ? '▾ Menos datos' : '▸ Más datos'}</button>
         </header>
         <div className="sim-cam-chofer">
           <label>Chofer
@@ -1014,7 +1017,16 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         {r.recargas > 0 && !r.autoelevador && (
           <div className="sim-neg" role="alert">⛔ Lleva {f0(r.bultos)} bultos: pasa los {f0(r.limiteRecarga)} que entran sin recarga con {r.personas} personas. {r.personas < 3 && r.bultos <= params.limiteRecarga3 ? 'Ponele 3 personas o ' : ''}Hace 1 recarga (costo y tiempo extra).</div>
         )}
-        {r.zonas && r.zonas.length > 1 && (
+        {!detC && (
+          <div className={`sim-cam-resumen ${(r.recargas > 0 && !r.autoelevador) || largo || r.ocupacion > 1 ? 'mal' : ''}`}>
+            <span><b>{r.paradas.length}</b> paradas</span>
+            <span><b>{f0(r.bultos)}</b> bultos</span>
+            <span><b>{f0(r.km)}</b> km</span>
+            <span><b>{r.personas}</b> personas</span>
+            <span>jornada <b className={largo ? 'mal' : ''}>{hm(tot)}{largo ? ' ⚠' : ''}</b></span>
+          </div>
+        )}
+        {detC && r.zonas && r.zonas.length > 1 && (
           <div className="sim-cam-zonasinfo" role="note">
             <div className="sim-sub"><b>Un solo viaje por {r.zonas.length} zonas</b> (en este orden de lejanía desde el depósito):</div>
             <ul>
@@ -1031,14 +1043,14 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
             </div>
           </div>
         )}
-        <dl className="sim-cam-stats">
+        {detC && <dl className="sim-cam-stats">
           <div><dt>Paradas</dt><dd>{r.paradas.length}</dd></div>
           <div><dt>Bultos</dt><dd>{f0(r.bultos)}</dd></div>
           <div><dt>Pallets</dt><dd>{f1(r.pallets)}</dd></div>
           <div><dt>Km{r.kmCalle ? ' 🛣️' : ''}</dt><dd>{f0(r.km)}</dd></div>
           <div><dt>Personas</dt><dd>{r.personas}</dd></div>
-        </dl>
-        <div className="sim-cam-barras">
+        </dl>}
+        {detC && <div className="sim-cam-barras">
           <div className="fila" title={GLOSARIO.ocupacion}>
             <span className="et">Ocupación</span>
             <div className="sim-bar"><i className={r.ocupacion > 0.8 ? 'alto' : r.ocupacion < 0.4 ? 'bajo' : ''} style={{ width: `${Math.min(100, r.ocupacion * 100)}%` }} /></div>
@@ -1054,13 +1066,13 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
             </div>
             <b className={largo ? 'mal' : ''}>{hm(tot)}{largo ? ' ⚠' : ''}</b>
           </div>
-        </div>
-        <div className="sim-cam-costo">
+        </div>}
+        {detC && <div className="sim-cam-costo">
           <span>Combustible <b>{money(r.combustible)}</b> ({f1(r.litros)} L{r.utilitario ? ', util.' : ''})</span>
           {pers != null && <span>Personal <b>{money(pers)}</b></span>}
           <span className="tot">Total <b>{money(r.combustible + (pers || 0))}</b></span>
           <span className="rec">{r.recargas ? (r.alertaRecarga ? <span className="sim-pill aviso" title={`Más de ${params.maxConRecarga} bultos con recarga: revisar`}>🔁 1 recarga ⚠ revisar</span> : <span className="sim-pill">🔁 1 recarga</span>) : <span className="sim-sub">sin recarga (hasta {r.limiteRecarga} bultos)</span>}</span>
-        </div>
+        </div>}
         <footer className="sim-cam-f">
           <button type="button" className="sim-btn" aria-pressed={rutaSel === i} onClick={() => enfocar(i)}>📍 {rutaSel === i ? 'Ver todos' : 'Ver en el mapa'}</button>
           <button type="button" className="sim-btn" onClick={() => { setRutaSel(i); setFEstado(String(id)); irAPaso(3); }}>👥 Sus clientes</button>
@@ -1144,6 +1156,11 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         )}
         <div className="sim-sub" style={{ marginTop: 6 }}>Hacen falta {sim.tope ? sim.tope.necesarios : sim.rutas.length} con la carga normal ({f0(params.maxBultosCamion || 0)} bultos máx.) · el sistema armó {sim.rutas.length}.{sim.tope && sim.tope.ajuste ? <> <b>Para no agregar camiones: {sim.tope.ajuste}.</b></> : null} Tocá «Ver en el mapa» en un camión para verlo solo.</div>
       </section>
+      <div className="sim-cams-tools">
+        <span className="sim-sub">Cada camión se ve en una línea; tocá «Más datos» o «Ver en el mapa» para abrirlo.</span>
+        <button type="button" className="sim-btn sim-mini" onClick={() => { const d = {}; sim.rutas.forEach((r, i) => { d[pidDe(r, i)] = true; }); setDetCam(d); }}>Abrir todos</button>
+        <button type="button" className="sim-btn sim-mini" onClick={() => setDetCam({})}>Cerrar todos</button>
+      </div>
       <div className="sim-cams">{sim.rutas.map((r, i) => tarjetaCamion(r, i))}</div>
       <div className="sim-sub">▮ gris: salida y carga · ▮ azul: conducción · ▮ verde: paradas · ┃ rojo: límite habitual de jornada. {GLOSARIO.km}</div>
 
