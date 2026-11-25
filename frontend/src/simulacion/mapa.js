@@ -112,8 +112,22 @@ export function cambiarVista(map, clave, redibujar) {
 }
 
 // datos: { deposito, rutas:[{color,label,puntos:[{lat,lon,seq,titulo,detalle}], geom?:[[lon,lat]...]}], etiquetas:[{lat,lon,texto,color}], soloRuta }
+// Botones del cartelito de un cliente: pasarlo a otro camión con un solo clic (o marcarlo para mover varios)
+function botonesMover(map, p) {
+  const d = map._destinos || [];
+  if (!p.cod || !d.length || !map._onMover) return '';
+  return `<div class="sim-pop-mover"><span>Pasar a:</span>${d.map((x) => `<button type="button" data-dest="${esc(x.v)}" ${x.color && x.color === p.color ? 'disabled' : ''} title="${esc(x.t)}" style="--c:${esc(x.color || '#78909c')}">${esc(x.t)}</button>`).join('')}<button type="button" data-dest="marcar" class="marcar" title="Marcarlo para mover varios juntos">☑ Marcar</button></div>`;
+}
+function conectarBotones(map, pop, p) {
+  const el = pop.getElement && pop.getElement();
+  if (!el || !map._onMover) return;
+  el.querySelectorAll('button[data-dest]').forEach((b) => b.addEventListener('click', () => { map._onMover(Number(p.cod), b.dataset.dest); pop.remove(); }));
+}
+export function conectarMover(map, fn) { if (map) map._onMover = fn; }
+
 export function pintar(map, datos, onClickPunto) {
   if (onClickPunto) map._onPunto = onClickPunto;
+  map._destinos = datos.destinos || [];
   const lineas = [], puntos = [];
   (datos.rutas || []).forEach((r, i) => {
     if (datos.soloRuta != null && datos.soloRuta !== i) return;
@@ -166,15 +180,18 @@ export function pintar(map, datos, onClickPunto) {
     map.on('click', 'sim-puntos', (e) => {
       const f = e.features && e.features[0]; if (!f) return;
       const p = f.properties;
-      const html = `<div class="sim-pop"><b>${esc(p.titulo)}</b><br>${esc(p.detalle)}${p.ruta ? `<br><span style="color:${esc(p.color)}">● ${esc(p.ruta)}</span>` : ''}</div>`;
-      new maplibregl.Popup({ offset: 10 }).setLngLat(f.geometry.coordinates).setHTML(html).addTo(map);
-      map._onPunto && map._onPunto(p);
+      const html = `<div class="sim-pop"><b>${esc(p.titulo)}</b><br>${esc(p.detalle)}${p.ruta ? `<br><span style="color:${esc(p.color)}">● ${esc(p.ruta)}</span>` : ''}${botonesMover(map, p)}</div>`;
+      const pop = new maplibregl.Popup({ offset: 10, maxWidth: '320px' }).setLngLat(f.geometry.coordinates).setHTML(html).addTo(map);
+      conectarBotones(map, pop, p);
+      map._onPunto && map._onPunto(p, !!(e.originalEvent && (e.originalEvent.shiftKey || e.originalEvent.ctrlKey)));
     });
     map.on('click', 'sim-fuera', (e) => {
       const f = e.features && e.features[0]; if (!f) return;
       const p = f.properties;
-      new maplibregl.Popup({ offset: 10 }).setLngLat(f.geometry.coordinates).setHTML(`<div class="sim-pop"><b>${esc(p.titulo)}</b><br>${esc(p.detalle)}<br><span style="color:#546e7a">○ Fuera del reparto</span></div>`).addTo(map);
-      map._onPunto && map._onPunto(p);
+      const pop = new maplibregl.Popup({ offset: 10, maxWidth: '320px' }).setLngLat(f.geometry.coordinates)
+        .setHTML(`<div class="sim-pop"><b>${esc(p.titulo)}</b><br>${esc(p.detalle)}<br><span style="color:#546e7a">○ Fuera del reparto</span>${botonesMover(map, p)}</div>`).addTo(map);
+      conectarBotones(map, pop, p);
+      map._onPunto && map._onPunto(p, !!(e.originalEvent && (e.originalEvent.shiftKey || e.originalEvent.ctrlKey)));
     });
     ['sim-puntos', 'sim-fuera'].forEach((capa) => {
       map.on('mouseenter', capa, (e) => {

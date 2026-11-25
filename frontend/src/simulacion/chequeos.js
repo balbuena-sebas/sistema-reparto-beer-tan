@@ -29,6 +29,8 @@ export function calcularChequeos(d) {
   if (sim.totales.personas > personalPresente) out.push({ id: 'personal', nivel: 'error', paso: 2, titulo: `Falta personal: hacen falta ${sim.totales.personas} y hay ${personalPresente}`, detalle: 'Se cuentan los choferes y ayudantes de Configuración menos las ausencias del día.' });
   const llenos = sim.rutas.map((r, i) => (r.ocupacion > 1 ? i : -1)).filter((i) => i >= 0);
   if (llenos.length) out.push({ id: 'cap', nivel: 'error', paso: 2, titulo: `⛔ ${llenos.length} camión(es) pasan la capacidad física (más de ${f0(sim.params.palletsPorCamion * sim.params.bultosPorPallet)} bultos)`, detalle: 'Pasá clientes a otro camión o sumá uno.', foco: { camion: llenos[0] } });
+  const pesados = sim.params.capacidadKg > 0 ? sim.rutas.map((r, i) => (r.kg > sim.params.capacidadKg ? i : -1)).filter((i) => i >= 0) : [];
+  if (pesados.length) out.push({ id: 'peso', nivel: 'error', paso: 2, titulo: `⛔ ${pesados.length} camión(es) pasan el peso máximo (más de ${f0(sim.params.capacidadKg)} kg)`, detalle: `Llevan ${pesados.map((i) => `${f0(sim.rutas[i].kg)} kg`).join(', ')}. Pasá clientes a otro camión.`, foco: { camion: pesados[0] } });
   const largas = sim.rutas.map((r, i) => (minutosRuta(tiempos, { paradas: r.paradas.length, km: r.km, bultos: r.bultos }) > tiempos.limite ? i : -1)).filter((i) => i >= 0);
   if (largas.length) out.push({ id: 'jornada', nivel: 'aviso', paso: 2, titulo: `${largas.length} jornada(s) más largas que lo habitual`, detalle: 'Partí el camión en 2 o pasá clientes a otro.', foco: { camion: largas[0] } });
   const conRec = sim.rutas.map((r, i) => (r.recargas > 0 && !r.autoelevador ? i : -1)).filter((i) => i >= 0);

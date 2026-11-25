@@ -3,7 +3,9 @@
 
 export const PARAMS_DEFAULT = {
   bultosPorPallet: 94.5,   // calibrado con el ruteador (450,91 bultos = 4,77 pallets)
-  kgPorBulto: 12.14,       // peso ruta / bultos ruta (5476 kg / 450,91)
+  kgPorBulto: 11.37,       // peso medio por bulto: tabla «Peso de Artículo» × bultos vendidos en noviembre 2026 (antes 12,14 de un solo romaneo)
+  capacidadKg: 16500,      // peso bruto máximo por camión (indicado por Beer Tan: no superar 16,5 t; la planilla de despacho dice 14.000 kg utilizables)
+  kmLejos: 70,             // localidad a más de estos km del depósito = lejana: se usan menos camiones y más cargados (cada viaje largo cuesta mucho)
   palletsPorCamion: 12,    // capacidad del camión 12CP-12PP
   llenado: 0.9,            // ocupación objetivo
   factorRuta: 1.4,         // km reales = km en línea recta * factor (calibrado con 17 días de historial)
@@ -346,6 +348,10 @@ export function simular(pedidos, ubic, parametros = {}) {
   const totalPallets = totalBultos / P.bultosPorPallet;
   const capUtil = Math.min(P.palletsPorCamion * P.llenado, (P.maxBultosCamion > 0 ? P.maxBultosCamion : Infinity) / P.bultosPorPallet);
   const nCamiones = Math.max(1, Math.ceil(totalPallets / capUtil));
+  // Localidad lejana (ej. Benito Juárez, a 160 km): un camión más son otros 300 km de gasoil, chofer y ayudante.
+  // Por eso antes de sumar un camión se la carga hasta lo que entra con 3 personas y sin recarga (limiteRecarga3).
+  const kmDep = (items) => haversine(dep, { lat: items.reduce((t, c) => t + c.lat, 0) / items.length, lon: items.reduce((t, c) => t + c.lon, 0) / items.length }) * P.factorRuta;
+  const capLejos = Math.max(capUtil, (P.limiteRecarga3 || 0) / P.bultosPorPallet);
 
   // Agrupa por localidad y empaqueta en camiones: solo junta localidades cercanas
   // (radioAgrupKm) y respeta la capacidad. Si una localidad no entra en un camión, la parte por barrido angular.
@@ -368,15 +374,16 @@ export function simular(pedidos, ubic, parametros = {}) {
       cub.filter((g) => g.length).forEach((g) => unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true }));
       continue;
     }
-    if (pal <= capUtil && items.length <= P.maxParadas) { unidades.push({ loc, items, pallets: pal }); continue; }
-    const k = Math.max(Math.ceil(pal / capUtil), Math.ceil(items.length / P.maxParadas));
-    const zAuto = k > 1 && P.particion === 'historial' ? repartirPorZonas(items, k, P, { usados: usadosZona, capMax: capUtil * 1.03 }) : null;
+    const capLoc = P.kmLejos > 0 && kmDep(items) >= P.kmLejos ? capLejos : capUtil;
+    if (pal <= capLoc && items.length <= P.maxParadas) { unidades.push({ loc, items, pallets: pal }); continue; }
+    const k = Math.max(Math.ceil(pal / capLoc), Math.ceil(items.length / P.maxParadas));
+    const zAuto = k > 1 && P.particion === 'historial' ? repartirPorZonas(items, k, P, { usados: usadosZona, capMax: capLoc * 1.03 }) : null;
     if (zAuto) {
       zAuto.grupos.forEach((g, j) => { usadosZona.add(zAuto.choferes[j]); unidades.push({ loc, items: g, pallets: g.reduce((s, c) => s + c.pallets, 0), fijo: true, chofer: zAuto.choferes[j] }); });
       continue;
     }
     // Sin historial de zonas: se parte en k sectores con los bultos y los clientes lo más parejos posible
-    (P.particion === 'historial' ? afinarEquilibrio(repartirEquilibrado(items, k, dep)) : repartirCompacto(items, k, P, capUtil)).filter((g) => g.length)
+    (P.particion === 'historial' ? afinarEquilibrio(repartirEquilibrado(items, k, dep)) : repartirCompacto(items, k, P, capLoc)).filter((g) => g.length)
       .forEach((g) => unidades.push({ loc, items: g, pallets: g.reduce((s2, c) => s2 + c.pallets, 0), fijo: P.particion !== 'historial' }));
   }
   const centro = (items) => ({

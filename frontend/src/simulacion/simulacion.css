@@ -292,3 +292,19 @@
   .sim-sem.aviso { background: rgba(240,180,0,.16); color: #ffd36b; border-color: rgba(240,180,0,.5); }
   .sim-sem.mal { background: rgba(255,82,82,.16); color: #ff8a80; border-color: rgba(255,82,82,.5); }
 }
+
+/* Pasar un cliente de camión con un clic: botones de colores en la planilla y en el cartelito del mapa */
+.sim-movchips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 130px; }
+.sim-mv { min-width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--c, #78909c); background: #fff; color: #0a1020; font-weight: 800; font-size: 14px; cursor: pointer; padding: 0 4px; transition: transform .12s, background .15s, box-shadow .15s; }
+.sim-mv:hover:not(.on) { background: var(--c, #78909c); color: #fff; transform: scale(1.12); box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.sim-mv.on { background: var(--c, #78909c); color: #fff; cursor: default; box-shadow: 0 0 0 3px rgba(0,0,0,.15); }
+.sim-mv.ot { --c: #78909c; border-radius: 17px; }
+.sim-pop-mover { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #d5dce8; }
+.sim-pop-mover span { font-weight: 700; margin-right: 2px; }
+.sim-pop-mover button { min-width: 34px; height: 32px; border-radius: 16px; border: 3px solid var(--c, #78909c); background: #fff; color: #0a1020; font-weight: 800; font-size: 13px; cursor: pointer; padding: 0 8px; }
+.sim-pop-mover button:hover:not(:disabled) { background: var(--c, #78909c); color: #fff; }
+.sim-pop-mover button:disabled { background: var(--c, #78909c); color: #fff; opacity: .55; cursor: default; }
+.sim-pop-mover button.marcar { --c: #ff9800; }
+.sim-cam-stats { grid-template-columns: repeat(6, 1fr); }
+.sim-cam-stats dd.mal { color: #c62828; }
+@media (max-width: 520px) { .sim-cam-stats { grid-template-columns: repeat(3, 1fr); } }

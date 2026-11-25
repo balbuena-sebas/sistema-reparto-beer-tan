@@ -13,7 +13,7 @@ import {
   probarContraDia, clientesEnRutaPropia, ajustarTiempos, minutosRuta,
   MOTIVOS, planMotivo, planDividir, planUnir, bitDia, diasDeMascara, afinidadLocalidades, veces, rutaAparte, aplicarPersonas,
 } from '../simulacion/engine';
-import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones, resaltarCamion, conectarHover } from '../simulacion/mapa';
+import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones, resaltarCamion, conectarHover, conectarMover } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
 import { motivoNoLaborable, calcDiasTrabajados } from './diasTrabajados';
 import { Ayuda, Seccion, GLOSARIO } from '../simulacion/ui';
@@ -452,7 +452,10 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
       const c = callesOn ? calles[claveRuta(params.deposito, rutasSimMapa[i].puntos)] : null;
       if (!c) return { ...r, kmCalle: false };
       conCalle++;
-      return { ...r, km: c.km, ...costearRuta(params, { km: c.km, pallets: r.pallets, bultos: r.bultos, localidades: r.localidades }), kmCalle: true, min: c.min };
+      const costo = costearRuta(params, { km: c.km, pallets: r.pallets, bultos: r.bultos, localidades: r.localidades });
+      // Las personas elegidas a mano (y su recarga) no se pisan al recalcular el costo con km por calles
+      const manualPers = r.personasManual ? { personas: r.personas, limiteRecarga: r.limiteRecarga, recargas: r.recargas, alertaRecarga: r.alertaRecarga, extraAyudante: r.extraAyudante, personasManual: true } : {};
+      return { ...r, km: c.km, ...costo, ...manualPers, kmCalle: true, min: c.min };
     });
     const sum = (k) => rutas.reduce((s, r) => s + r[k], 0);
     return { ...simBase, rutas, conCalle, totales: { ...simBase.totales, km: sum('km'), litros: sum('litros'), combustible: sum('combustible'), personas: sum('personas'), recargas: sum('recargas') } };
@@ -546,8 +549,15 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   }, [modo, simBase, pedidosSalen, ubic]);  // eslint-disable-line react-hooks/exhaustive-deps
   const onPuntoRef = useRef(null);
   const rutasMapaRef = useRef([]); rutasMapaRef.current = rutasMapa;
-  onPuntoRef.current = (p) => {
-    const c = Number(p && p.cod); if (c) setSelCli((a) => (a.includes(c) ? a.filter((x) => x !== c) : [...a, c]));
+  const onMoverRef = useRef(null);
+  onMoverRef.current = (cod, v) => {
+    if (!cod) return;
+    if (v === 'marcar') setSelCli((a) => (a.includes(cod) ? a.filter((x) => x !== cod) : [...a, cod]));
+    else moverA([cod], String(v));
+  };
+  onPuntoRef.current = (p, marcar) => {
+    // Un clic abre el cartelito del cliente (con los botones para pasarlo de camión); con Mayús/Ctrl se marca para mover varios
+    const c = Number(p && p.cod); if (c && marcar) setSelCli((a) => (a.includes(c) ? a.filter((x) => x !== c) : [...a, c]));
     // Tocar un punto también abre su camión en la lista
     const i = p && p.color ? rutasMapaRef.current.findIndex((r) => r.color === p.color) : -1;
     if (i >= 0 && sim && sim.rutas[i]) {
@@ -569,14 +579,16 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   }, []);
   const redibujar = useCallback(() => {
     const map = mapRef.current; if (!map || !datosMapa.current) return;
-    pintar(map, datosMapa.current, (p) => { if (onPuntoRef.current) onPuntoRef.current(p); });
+    pintar(map, datosMapa.current, (p, m) => { if (onPuntoRef.current) onPuntoRef.current(p, m); });
     conectarHover(map, hoverMapa);
+    conectarMover(map, (c, v) => { if (onMoverRef.current) onMoverRef.current(c, v); });
   }, [hoverMapa]);
   useEffect(() => {
     const map = mapRef.current; if (!map) return;
-    datosMapa.current = { deposito: params.deposito, rutas: rutasMapa, etiquetas, soloRuta: rutaSel, fuera: fueraMapa, marcados: modo === 'simulacion' ? selCli : [] };
+    const destinos = modo === 'simulacion' && sim ? [...sim.rutas.map((r, i) => ({ v: pidDe(r, i), t: `#${r.n}`, color: (rutasMapa[i] || {}).color })), { v: 'pend', t: '🚫 Fuera' }] : [];
+    datosMapa.current = { deposito: params.deposito, rutas: rutasMapa, etiquetas, soloRuta: rutaSel, fuera: fueraMapa, marcados: modo === 'simulacion' ? selCli : [], destinos };
     redibujar();
-  }, [rutasMapa, etiquetas, rutaSel, params.deposito, redibujar, fueraMapa, selCli, modo]);
+  }, [rutasMapa, etiquetas, rutaSel, params.deposito, redibujar, fueraMapa, selCli, modo, sim]);  // eslint-disable-line react-hooks/exhaustive-deps
   const firma = rutasMapa.map((r) => r.puntos.length).join(',') + '|' + rutaSel + '|' + modo;
   useEffect(() => {
     const map = mapRef.current; if (!map || !rutasMapa.length) return;
@@ -1034,6 +1046,8 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     const sube = (n) => { if (n === 'mal' || nivel === 'ok') nivel = n; };
     if (largo) { motivos.push(`jornada de ${hm(tot)}`); sube('mal'); }
     if (r.ocupacion > 1) { motivos.push('no entra todo'); sube('mal'); }
+    const pasaKg = params.capacidadKg > 0 && r.kg > params.capacidadKg;
+    if (pasaKg) { motivos.push(`pasa ${f0(params.capacidadKg)} kg`); sube('mal'); }
     if (r.recargas > 0 && !r.autoelevador) { motivos.push(r.alertaRecarga ? 'recarga: revisar' : 'con recarga'); sube(r.alertaRecarga ? 'mal' : 'aviso'); }
     if (r.pocaCarga) { motivos.push('poca carga'); sube('aviso'); }
     if (r.zonas && r.zonas.length > 1 && r.sepKm > 40) { motivos.push(`zonas a ${f0(r.sepKm)} km`); sube('aviso'); }
@@ -1081,6 +1095,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
             <span><b>{r.paradas.length}</b> paradas</span>
             <span><b>{f0(r.bultos)}</b> bultos</span>
             <span><b>{f0(r.km)}</b> km</span>
+            <span><b className={pasaKg ? 'mal' : ''}>{f1(r.kg / 1000)}</b> t</span>
             <span><b>{r.personas}</b> personas</span>
             <span>jornada <b className={largo ? 'mal' : ''}>{hm(tot)}{largo ? ' ⚠' : ''}</b></span>
           </div>
@@ -1107,6 +1122,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           <div><dt>Bultos</dt><dd>{f0(r.bultos)}</dd></div>
           <div><dt>Pallets</dt><dd>{f1(r.pallets)}</dd></div>
           <div><dt>Km{r.kmCalle ? ' 🛣️' : ''}</dt><dd>{f0(r.km)}</dd></div>
+          <div title={`Estimado: ${f1(params.kgPorBulto)} kg por bulto (tabla de pesos × lo vendido)`}><dt>Peso</dt><dd className={pasaKg ? 'mal' : ''}>{f0(r.kg)} kg</dd></div>
           <div><dt>Personas</dt><dd>{r.personas}</dd></div>
         </dl>}
         {detC && <div className="sim-cam-barras">
@@ -1115,6 +1131,13 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
             <div className="sim-bar"><i className={r.ocupacion > 0.8 ? 'alto' : r.ocupacion < 0.4 ? 'bajo' : ''} style={{ width: `${Math.min(100, r.ocupacion * 100)}%` }} /></div>
             <b className={r.ocupacion > 1 ? 'mal' : ''}>{f0(r.ocupacion * 100)} %</b>
           </div>
+          {params.capacidadKg > 0 && (
+            <div className="fila" title={`Peso estimado con ${f1(params.kgPorBulto)} kg por bulto. Peso máximo por camión: ${f0(params.capacidadKg)} kg`}>
+              <span className="et">Peso</span>
+              <div className="sim-bar"><i className={r.kg / params.capacidadKg > 0.8 ? 'alto' : r.kg / params.capacidadKg < 0.35 ? 'bajo' : ''} style={{ width: `${Math.min(100, (r.kg / params.capacidadKg) * 100)}%` }} /></div>
+              <b className={pasaKg ? 'mal' : ''}>{f0((r.kg / params.capacidadKg) * 100)} %</b>
+            </div>
+          )}
           <div className="fila" title={`Salida y carga ${f0(base)} min · conducción ${f0(cond)} min · paradas ${f0(serv)} min · límite habitual ${hm(tiempos.limite)}`}>
             <span className="et">Jornada</span>
             <div className="sim-jor">
@@ -1334,7 +1357,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         <div className="sim-sub" style={{ marginBottom: 6 }}>💡 Arrastrá una fila (o las marcadas) hasta un camión de la lista de arriba del mapa o de la tarjeta del camión para pasarlo.</div>
         <div className="sim-tabla">
           <table className="sim-table">
-            <thead><tr><th></th>{thP('n', 'Cliente')}{thP('loc', 'Localidad')}{thP('b', 'Bultos')}{thP('cam', 'Camión')}<th>Frec. <Ayuda clave="frecuencia" /></th><th>Motivo <Ayuda clave="motivo" /></th></tr></thead>
+            <thead><tr><th></th>{thP('n', 'Cliente')}{thP('loc', 'Localidad')}{thP('b', 'Bultos')}<th>Kg</th>{thP('cam', 'Camión')}<th>Frec. <Ayuda clave="frecuencia" /></th><th>Motivo <Ayuda clave="motivo" /></th></tr></thead>
             <tbody>
               {visibles.map((f, vi) => {
                 const edit = dentro(f) || f.cam === 'pend';
@@ -1352,12 +1375,18 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                       {dentro(f) && (grandeB(f.b) || f.parte) && <button type="button" className="sim-btn sim-mini" title="Dividir la carga de este cliente entre varios camiones" aria-label={`Dividir la carga de ${f.n}`} onClick={() => abrirDividir(f.c)}>✂</button>}
                       {grandeB(f.b) && aprend.grandes[f.c] && (() => { const h = aprend.grandes[f.c]; return <span className="sim-sub" title="Según romaneos reales y tus decisiones"> historial: salió {h.s || 0} · aparte/fuera {h.f || 0}{(h.ds || h.df) ? ` · vos: sale ${h.ds || 0} / fuera ${h.df || 0}` : ''}</span>; })()}
                     </td>
-                    <td>{cap(f.loc)}</td><td>{f1(f.b)}</td>
+                    <td>{cap(f.loc)}</td><td>{f1(f.b)}</td><td>{f0(f.b * params.kgPorBulto)}</td>
                     <td>{edit ? (
-                      <select value={f.cam === 'pend' ? 'pend' : String(f.cam)} aria-label={`Camión de ${f.n}`} onChange={(e) => moverA([f.c], e.target.value)}>
-                        {sim.rutas.map((x, k) => <option key={pidDe(x, k)} value={String(pidDe(x, k))}>#{x.n}{choferesRutas[k] && choferesRutas[k].chofer ? ` · ${choferesRutas[k].chofer.split(' ')[0]}` : ''}</option>)}
-                        <option value="nuevo">➕ Nuevo</option><option value="pend">🚫 Fuera</option>
-                      </select>
+                      <div className="sim-movchips" role="group" aria-label={`Camión de ${f.n}`}>
+                        {sim.rutas.map((x, k) => {
+                          const idk = String(pidDe(x, k)), actual = String(f.cam) === idk;
+                          return <button key={idk} type="button" aria-pressed={actual} className={`sim-mv ${actual ? 'on' : ''}`} style={{ '--c': COLORES[k % COLORES.length] }}
+                            title={actual ? `Ya está en el camión #${x.n}` : `Pasar al camión #${x.n}${choferesRutas[k] && choferesRutas[k].chofer ? ` (${choferesRutas[k].chofer})` : ''}`}
+                            onClick={() => { if (!actual) moverA([f.c], idk); }}>{x.n}</button>;
+                        })}
+                        <button type="button" className="sim-mv ot" title="Pasarlo a un camión nuevo" onClick={() => moverA([f.c], 'nuevo')}>➕</button>
+                        <button type="button" className={`sim-mv ot ${f.cam === 'pend' ? 'on' : ''}`} aria-pressed={f.cam === 'pend'} title="Dejarlo fuera del reparto" onClick={() => { if (f.cam !== 'pend') moverA([f.c], 'pend'); }}>🚫</button>
+                      </div>
                     ) : f.cam === 'loc' ? 'Localidad fuera' : 'Sin ubicación'}</td>
                     <td>{frec[f.c] ? <span className="sim-sub" style={noTocaCod(f.c) ? { color: '#b45309', fontWeight: 600 } : undefined} title={noTocaCod(f.c) ? 'Hoy no es día de entrega de este cliente' : 'Días de entrega'}>{noTocaCod(f.c) ? '📅 ' : ''}{diasDeMascara(frec[f.c])}</span> : ''}</td>
                     <td>{f.cam === 'pend' ? (
@@ -1366,7 +1395,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                   </tr>
                 );
               })}
-              {visibles.length === 0 && <tr><td colSpan="7" className="sim-sub">Ningún cliente con ese filtro.</td></tr>}
+              {visibles.length === 0 && <tr><td colSpan="8" className="sim-sub">Ningún cliente con ese filtro.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1439,7 +1468,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         <div className="sim-params">
           {[['bultosPorPallet', 'Bultos por pallet'], ['palletsPorCamion', 'Pallets por camión'], ['llenado', 'Llenado objetivo (0–1)'],
             ['factorRuta', 'Factor de ruta'], ['consumoCamion', 'Consumo camión (L/100 km)'], ['consumoUtil', 'Consumo utilitario (L/100 km)'],
-            ['ayudantesPorCamion', 'Ayudantes por camión'], ['limiteRecarga2', 'Sin recarga hasta (2 pers.)'], ['limiteRecarga3', 'Sin recarga hasta (3 pers.)'], ['maxCamiones', 'Camiones disponibles (0 = sin tope)'], ['maxParadas', 'Máx. paradas por camión'], ['maxBultosCamion', 'Máx. bultos por camión (0 = sin tope)'], ['radioAgrupKm', 'Juntar zonas hasta (km)']].map(([k, et]) => (
+            ['ayudantesPorCamion', 'Ayudantes por camión'], ['limiteRecarga2', 'Sin recarga hasta (2 pers.)'], ['limiteRecarga3', 'Sin recarga hasta (3 pers.)'], ['maxCamiones', 'Camiones disponibles (0 = sin tope)'], ['maxParadas', 'Máx. paradas por camión'], ['maxBultosCamion', 'Máx. bultos por camión (0 = sin tope)'], ['radioAgrupKm', 'Juntar zonas hasta (km)'], ['kgPorBulto', 'Peso medio por bulto (kg)'], ['capacidadKg', 'Peso bruto máximo por camión (kg, 0 = sin tope)'], ['kmLejos', 'Localidad lejana desde (km): menos camiones, más cargados']].map(([k, et]) => (
             <label key={k}>{et}
               <input type="number" step="any" value={params[k]} onChange={(e) => setParams((p) => ({ ...p, [k]: Number(e.target.value) }))} />
             </label>
@@ -1548,6 +1577,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
         <div className="sim-res-datos">
           <div><b>{f0(sim.totales.clientes)}</b><span>Clientes</span></div>
           <div><b>{f0(sim.totales.bultos)}</b><span>Bultos</span></div>
+          <div title={`Estimado con ${f1(params.kgPorBulto)} kg por bulto`}><b>{f1(sim.rutas.reduce((t, r) => t + r.kg, 0) / 1000)}<small> t</small></b><span>Peso</span></div>
           <div><b>{sim.totales.camiones}{sim.tope && sim.tope.max > 0 ? <small>/{sim.tope.max}</small> : null}</b><span>Camiones</span></div>
           <div><b>{sim.totales.personas}</b><span>Personas</span></div>
           <div><b>{f0(sim.totales.km)}</b><span>Km</span></div>
@@ -1685,6 +1715,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           <div className="sim-fijo-in">
             <span><b>{f0(sim.totales.clientes)}</b> clientes</span>
             <span><b>{f0(sim.totales.bultos)}</b> bultos</span>
+            <span><b>{f1(sim.rutas.reduce((t, r) => t + r.kg, 0) / 1000)}</b> t</span>
             <span><b>{sim.totales.camiones}{sim.tope && sim.tope.max > 0 ? `/${sim.tope.max}` : ''}</b> camiones</span>
             <span><b>{sim.totales.personas}</b> personas</span>
             <span><b>{f0(sim.totales.km)}</b> km</span>
