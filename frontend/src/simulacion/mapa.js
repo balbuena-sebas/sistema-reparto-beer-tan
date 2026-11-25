@@ -177,8 +177,14 @@ export function pintar(map, datos, onClickPunto) {
       map._onPunto && map._onPunto(p);
     });
     ['sim-puntos', 'sim-fuera'].forEach((capa) => {
-      map.on('mouseenter', capa, () => { map.getCanvas().style.cursor = 'pointer'; });
-      map.on('mouseleave', capa, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', capa, (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        if (capa === 'sim-puntos' && map._onHover) map._onHover(e.features && e.features[0] ? e.features[0].properties : null);
+      });
+      map.on('mouseleave', capa, () => {
+        map.getCanvas().style.cursor = '';
+        if (capa === 'sim-puntos' && map._onHover) map._onHover(null);
+      });
     });
   };
   if (map._estiloOk) poner(); else map.once('style.load', poner);
@@ -256,3 +262,23 @@ export function encuadrar(map, datos) {
   });
   if (n) map.fitBounds(b, { padding: 60, duration: 800, maxZoom: 15 });
 }
+
+// ── Resaltar un camión sin volver a dibujar: solo cambia la opacidad (barato, se puede hacer al pasar el mouse) ──
+export function resaltarCamion(map, color) {
+  if (!map || !map.getLayer || !map.getLayer('sim-puntos') || !map.getLayer('sim-lineas')) return;
+  if (color == null) {
+    map.setPaintProperty('sim-lineas', 'line-opacity', 0.75);
+    map.setPaintProperty('sim-lineas', 'line-width', 2.5);
+    map.setPaintProperty('sim-puntos', 'circle-opacity', 1);
+    map.setPaintProperty('sim-puntos', 'circle-stroke-opacity', 1);
+    return;
+  }
+  const propio = ['any', ['==', ['get', 'color'], color], ['==', ['get', 'seq'], '⌂']];
+  map.setPaintProperty('sim-lineas', 'line-opacity', ['case', ['==', ['get', 'color'], color], 1, 0.1]);
+  map.setPaintProperty('sim-lineas', 'line-width', ['case', ['==', ['get', 'color'], color], 5, 1.5]);
+  map.setPaintProperty('sim-puntos', 'circle-opacity', ['case', propio, 1, 0.15]);
+  map.setPaintProperty('sim-puntos', 'circle-stroke-opacity', ['case', propio, 1, 0.15]);
+}
+
+// El mapa avisa qué camión tiene el mouse encima (para resaltar su tarjeta)
+export function conectarHover(map, fn) { if (map) map._onHover = fn; }

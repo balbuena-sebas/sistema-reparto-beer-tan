@@ -11,7 +11,7 @@
 .sim-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); grid-template-areas: "head map" "cont map"; gap: var(--sim-gap); align-items: start; }
 .sim-head { grid-area: head; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
 .sim-cont { grid-area: cont; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-width: 0; align-content: start; }
-.sim-mapcol { grid-area: map; position: sticky; top: 8px; align-self: start; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
+.sim-mapcol { grid-area: map; position: sticky; top: calc(var(--nav-h, 60px) + 54px); align-self: start; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
 @media (max-width: 1100px) {
   .sim-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "head" "map" "cont"; }
   .sim-mapcol { position: static; }
@@ -38,7 +38,7 @@
 .sim-kpi b { display: block; font-size: 20px; white-space: nowrap; font-family: var(--font-mono, monospace); }
 .sim-kpi span { font-size: 13px; color: var(--text3, #4a5878); text-transform: uppercase; letter-spacing: .05em; }
 .sim-map-wrap { position: relative; border-radius: var(--radius, 12px); overflow: hidden; border: 1px solid var(--border, #cdd4e4); }
-.sim-map { height: clamp(360px, calc(100vh - 330px), 760px); width: 100%; }
+.sim-map { height: clamp(340px, calc(100vh - var(--nav-h, 60px) - 300px), 760px); width: 100%; }
 @media (max-width: 1100px) { .sim-map { height: 340px; } }
 /* Las herramientas del mapa van ARRIBA del mapa (antes estaban encima y se pisaban entre sí). */
 .sim-maptools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -255,3 +255,40 @@
 .sim-cams-tools .sim-sub { flex: 1; min-width: 200px; }
 .sim-cam.foco { box-shadow: 0 0 0 3px var(--accent, #b87c00); }
 @media (prefers-reduced-motion: reduce) { .sim-cont > *, .sim-cams > * { animation: none; } .sim * { transition: none !important; } }
+
+/* ── Semáforo, arrastre, barra fija ─────────────────────────────────────── */
+.sim-sem { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 3px 10px; font-size: 13px; font-weight: 800; border: 1px solid transparent; }
+.sim-sem.ok { background: #e7f6ec; color: #166534; border-color: #b7e1c4; }
+.sim-sem.aviso { background: #fff4d6; color: #8a5a00; border-color: #f0d58a; }
+.sim-sem.mal { background: #fdecec; color: #b71c1c; border-color: #f2b8b8; }
+.sim-cam { position: relative; }
+.sim-cam::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 4px; border-radius: 12px 12px 0 0; background: #66bb6a; }
+.sim-cam[data-estado="aviso"]::before { background: #f0b400; }
+.sim-cam[data-estado="mal"]::before { background: #c62828; }
+.sim-cam.hover, .sim-ley.hover { box-shadow: 0 0 0 3px #ff9800, 0 4px 16px rgba(0,0,0,.2); transform: translateY(-1px); }
+.sim-cam.sobre, .sim-ley.sobre { box-shadow: 0 0 0 3px #1565c0, 0 4px 16px rgba(21,101,192,.35); background: #eaf3ff; }
+.sim-arrastrable { cursor: grab; } .sim-arrastrable:active { cursor: grabbing; }
+.sim-orden li.sim-arrastrable, .sim-cam-zonas .sim-arrastrable { border: 1px dashed var(--border2, #b0bcce); border-radius: 8px; padding: 2px 8px; background: var(--bg3, #f5f7fc); }
+.sim-ley.extra { display: none; border-style: dashed; cursor: default; }
+.arrastrando .sim-ley.extra { display: inline-flex; animation: simEntra .15s ease both; }
+.arrastrando .sim-ley:not(.extra):not(.todos) { border-style: dashed; border-color: #1565c0; }
+.arrastrando .sim-cam { outline: 2px dashed rgba(21,101,192,.45); outline-offset: -2px; }
+.sim-table tr.sim-arrastrable td:first-child { cursor: grab; }
+.sim-fijo { position: sticky; top: var(--nav-h, 60px); z-index: 30; height: 0; margin-bottom: calc(-1 * var(--sim-gap)); }
+.sim-fijo-in { position: absolute; left: 0; right: 0; top: 6px; display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; padding: 8px 14px; background: var(--bg2, #fff); border: 2px solid var(--accent2, #005fa3); border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 15px; transition: transform .22s ease, opacity .22s ease; }
+.sim-fijo-in b { font-family: var(--font-mono, monospace); font-size: 17px; }
+.sim-fijo-in .sim-mini { margin-left: auto; }
+.sim-fijo.oculto .sim-fijo-in { transform: translateY(-140%); opacity: 0; pointer-events: none; }
+
+/* Más peso visual: títulos, tarjetas y resumen se leen como bloques firmes */
+.sim-card { border-width: 1.5px; box-shadow: 0 2px 10px rgba(0,0,0,.07); }
+.sim-card h3 { font-weight: 800; padding-bottom: 6px; border-bottom: 2px solid var(--bg3, #eef1f7); }
+.sim-resumen { border-width: 2px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+.sim-cam { border-width: 1.5px; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+.sim-pasos button.on { box-shadow: 0 4px 12px rgba(0,95,163,.35); }
+@media (max-width: 1100px) { .sim-mapcol { top: auto; } .sim-fijo-in { font-size: 14px; } }
+@media (prefers-color-scheme: dark) {
+  .sim-sem.ok { background: rgba(46,158,91,.18); color: #7be0a4; border-color: rgba(46,158,91,.5); }
+  .sim-sem.aviso { background: rgba(240,180,0,.16); color: #ffd36b; border-color: rgba(240,180,0,.5); }
+  .sim-sem.mal { background: rgba(255,82,82,.16); color: #ff8a80; border-color: rgba(255,82,82,.5); }
+}

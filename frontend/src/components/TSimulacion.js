@@ -13,7 +13,7 @@ import {
   probarContraDia, clientesEnRutaPropia, ajustarTiempos, minutosRuta,
   MOTIVOS, planMotivo, planDividir, planUnir, bitDia, diasDeMascara, afinidadLocalidades, veces, rutaAparte, aplicarPersonas,
 } from '../simulacion/engine';
-import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones } from '../simulacion/mapa';
+import { COLORES, VISTAS, crearMapa, cambiarVista, pintar, encuadrar, largoMaximo, posicionesAnim, pintarCamiones, resaltarCamion, conectarHover } from '../simulacion/mapa';
 import { rutaPorCalles, claveRuta } from '../simulacion/calles';
 import { motivoNoLaborable, calcDiasTrabajados } from './diasTrabajados';
 import { Ayuda, Seccion, GLOSARIO } from '../simulacion/ui';
@@ -138,6 +138,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const [dividiendo, setDividiendo] = useState(null);             // cliente cuya carga se está dividiendo entre camiones
   const [partesDiv, setPartesDiv] = useState({});                 // { idCamión: bultos } de la división en curso
   const [paso, setPaso] = useState(1);                           // paso visible: 1 Pedidos · 2 Camiones · 3 Clientes · 4 Costos
+  const [resVisible, setResVisible] = useState(true);               // el resumen de arriba se ve en pantalla (si no, aparece la barra fija)
   const [detCam, setDetCam] = useState({});                       // camiones con todos los datos abiertos (el resto se ve en una línea)
   const [chkAbierto, setChkAbierto] = useState(false);            // lista de "cosas para revisar"
   const [herr, setHerr] = useState('');                           // herramienta de selección sobre el mapa: '' | circulo | lazo | rect
@@ -544,11 +545,33 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     return out;
   }, [modo, simBase, pedidosSalen, ubic]);  // eslint-disable-line react-hooks/exhaustive-deps
   const onPuntoRef = useRef(null);
-  onPuntoRef.current = (p) => { const c = Number(p && p.cod); if (c) setSelCli((a) => (a.includes(c) ? a.filter((x) => x !== c) : [...a, c])); };
+  const rutasMapaRef = useRef([]); rutasMapaRef.current = rutasMapa;
+  onPuntoRef.current = (p) => {
+    const c = Number(p && p.cod); if (c) setSelCli((a) => (a.includes(c) ? a.filter((x) => x !== c) : [...a, c]));
+    // Tocar un punto también abre su camión en la lista
+    const i = p && p.color ? rutasMapaRef.current.findIndex((r) => r.color === p.color) : -1;
+    if (i >= 0 && sim && sim.rutas[i]) {
+      const id = pidDe(sim.rutas[i], i);
+      setDetCam((d) => ({ ...d, [id]: true }));
+      setTimeout(() => { const el = document.querySelector(`.sim-cam[data-cam="${i}"]`); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, 60);
+    }
+  };
+  // Resaltado cruzado sin volver a dibujar: camión → mapa (opacidad) y punto del mapa → tarjeta (clase)
+  const hoverCam = useCallback((i) => {
+    const r = i == null ? null : rutasMapaRef.current[i];
+    resaltarCamion(mapRef.current, r ? r.color : null);
+  }, []);
+  const hoverMapa = useCallback((p) => {
+    document.querySelectorAll('.sim .hover').forEach((e) => e.classList.remove('hover'));
+    if (!p || !p.color) return;
+    const i = rutasMapaRef.current.findIndex((r) => r.color === p.color);
+    if (i >= 0) document.querySelectorAll(`.sim [data-cam="${i}"]`).forEach((e) => e.classList.add('hover'));
+  }, []);
   const redibujar = useCallback(() => {
     const map = mapRef.current; if (!map || !datosMapa.current) return;
     pintar(map, datosMapa.current, (p) => { if (onPuntoRef.current) onPuntoRef.current(p); });
-  }, []);
+    conectarHover(map, hoverMapa);
+  }, [hoverMapa]);
   useEffect(() => {
     const map = mapRef.current; if (!map) return;
     datosMapa.current = { deposito: params.deposito, rutas: rutasMapa, etiquetas, soloRuta: rutaSel, fuera: fueraMapa, marcados: modo === 'simulacion' ? selCli : [] };
@@ -770,11 +793,38 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     setRutaSel(nuevo);
     if (modo === 'simulacion' && sim) setFEstado(nuevo === null ? (/^\d+$/.test(fEstado) ? 'todos' : fEstado) : String(pidDe(sim.rutas[nuevo], nuevo)));
   };
+  // Arrastrar y soltar: una fila de cliente (o una zona) hasta un camión de la lista o del mapa
+  const arrRef = useRef(null);
+  const quitarMarcas = () => document.querySelectorAll('.sim .sobre').forEach((e) => e.classList.remove('sobre'));
+  const iniciarArrastre = (e, cods) => {
+    const lista = cods.length === 1 && selCli.includes(cods[0]) ? selCli : cods;
+    arrRef.current = lista;
+    try { e.dataTransfer.setData('text/plain', JSON.stringify(lista)); e.dataTransfer.effectAllowed = 'move'; } catch { /* el arrastre igual funciona con la referencia */ }
+    const raiz = document.querySelector('.sim'); if (raiz) raiz.classList.add('arrastrando');
+  };
+  const finArrastre = () => { arrRef.current = null; const raiz = document.querySelector('.sim'); if (raiz) raiz.classList.remove('arrastrando'); quitarMarcas(); };
+  const destino = (v) => ({
+    onDragOver: (e) => { if (arrRef.current) { e.preventDefault(); e.currentTarget.classList.add('sobre'); } },
+    onDragLeave: (e) => e.currentTarget.classList.remove('sobre'),
+    onDrop: (e) => { e.preventDefault(); const l = arrRef.current; finArrastre(); if (l && l.length) moverA(l, String(v)); },
+  });
   const irA = (it) => {
     setPaso(it.paso);
     if (it.foco && it.foco.camion != null && sim && rutaSel !== it.foco.camion) enfocar(it.foco.camion);
     if (it.foco && it.foco.filtro) setFEstado(it.foco.filtro);
   };
+  useEffect(() => {
+    const fijar = () => { const n = document.querySelector('.app-nav'), raiz = document.querySelector('.sim'); if (n && raiz) raiz.style.setProperty('--nav-h', `${n.offsetHeight}px`); };
+    fijar(); window.addEventListener('resize', fijar);
+    return () => window.removeEventListener('resize', fijar);
+  }, []);
+  const hayResumen = modo === 'simulacion' && !!sim;
+  useEffect(() => {
+    if (!hayResumen || typeof IntersectionObserver === 'undefined') { setResVisible(true); return undefined; }
+    const el = document.querySelector('.sim-resumen'); if (!el) return undefined;
+    const ob = new IntersectionObserver(([e]) => setResVisible(e.isIntersecting), { rootMargin: '-70px 0px 0px 0px' });
+    ob.observe(el); return () => ob.disconnect();
+  }, [hayResumen]);
   const irAPaso = (n) => { setPaso(n); if (typeof window !== 'undefined') { const el = document.querySelector('.sim-pasos'); if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } };
 
   const PASOS = [
@@ -979,14 +1029,24 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     const largo = tot > tiempos.limite, pj = (m) => `${(m / escJornada) * 100}%`;
     const abiertoC = abierto === id;
     const detC = !!detCam[id] || rutaSel === i;
+    // Semáforo del camión: verde = sin problemas, amarillo = conviene mirarlo, rojo = hay que corregirlo
+    const motivos = []; let nivel = 'ok';
+    const sube = (n) => { if (n === 'mal' || nivel === 'ok') nivel = n; };
+    if (largo) { motivos.push(`jornada de ${hm(tot)}`); sube('mal'); }
+    if (r.ocupacion > 1) { motivos.push('no entra todo'); sube('mal'); }
+    if (r.recargas > 0 && !r.autoelevador) { motivos.push(r.alertaRecarga ? 'recarga: revisar' : 'con recarga'); sube(r.alertaRecarga ? 'mal' : 'aviso'); }
+    if (r.pocaCarga) { motivos.push('poca carga'); sube('aviso'); }
+    if (r.zonas && r.zonas.length > 1 && r.sepKm > 40) { motivos.push(`zonas a ${f0(r.sepKm)} km`); sube('aviso'); }
     const porLoc = new Map();
     r.paradas.forEach((p) => { const l = p.loc || 'SIN LOCALIDAD'; const o = porLoc.get(l) || { loc: l, cods: [], b: 0 }; o.cods.push(p.c); o.b += p.b; porLoc.set(l, o); });
     const pers = costoPers ? costoPers.porRuta[i] : null;
     return (
-      <article key={id} className={`sim-cam ${rutaSel === i ? 'foco' : ''}`} style={{ borderLeftColor: COLORES[i % COLORES.length] }}>
+      <article key={id} data-cam={i} data-estado={nivel} className={`sim-cam ${rutaSel === i ? 'foco' : ''}`} style={{ borderLeftColor: COLORES[i % COLORES.length] }}
+        onMouseEnter={() => hoverCam(i)} onMouseLeave={() => hoverCam(null)} {...destino(id)}>
         <header className="sim-cam-h">
           <span className="sim-chip" style={{ background: COLORES[i % COLORES.length] }} />
           <b>Camión #{r.n}</b>
+          <span className={`sim-sem ${nivel}`} title={motivos.length ? motivos.join(' · ') : 'Sin problemas'}>{nivel === 'mal' ? '🔴' : nivel === 'aviso' ? '🟡' : '🟢'} {motivos.length ? motivos[0] + (motivos.length > 1 ? ` +${motivos.length - 1}` : '') : 'Todo bien'}</span>
           <span className="zona">{zonaTxt(r)}</span>
           {r.pocaCarga && <span className="sim-pill aviso" title="Muy poca carga y ningún camión cercano con lugar: conviene postergar o agrupar con otro día">poca carga</span>}
           {r.autoelevador && <span className="sim-pill" title={GLOSARIO.autoelevador}>autoelevador</span>}
@@ -1014,11 +1074,11 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
             </label>
           )}
         </div>
-        {r.recargas > 0 && !r.autoelevador && (
+        {detC && r.recargas > 0 && !r.autoelevador && (
           <div className="sim-neg" role="alert">⛔ Lleva {f0(r.bultos)} bultos: pasa los {f0(r.limiteRecarga)} que entran sin recarga con {r.personas} personas. {r.personas < 3 && r.bultos <= params.limiteRecarga3 ? 'Ponele 3 personas o ' : ''}Hace 1 recarga (costo y tiempo extra).</div>
         )}
         {!detC && (
-          <div className={`sim-cam-resumen ${(r.recargas > 0 && !r.autoelevador) || largo || r.ocupacion > 1 ? 'mal' : ''}`}>
+          <div className={`sim-cam-resumen ${nivel === 'mal' ? 'mal' : ''}`}>
             <span><b>{r.paradas.length}</b> paradas</span>
             <span><b>{f0(r.bultos)}</b> bultos</span>
             <span><b>{f0(r.km)}</b> km</span>
@@ -1083,7 +1143,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
             <div className="sim-sub">Zonas de este camión (pasá una zona entera a otro camión):</div>
             <div className="sim-cam-zonas">
               {[...porLoc.values()].map((o) => (
-                <span key={o.loc}><b>{cap(o.loc)}</b> <span className="sim-sub">{o.cods.length} cl. · {f0(o.b)} b</span>{' '}
+                <span key={o.loc} className="sim-arrastrable" draggable onDragStart={(e) => iniciarArrastre(e, o.cods)} onDragEnd={finArrastre} title="Arrastrala hasta otro camión"><b>⠿ {cap(o.loc)}</b> <span className="sim-sub">{o.cods.length} cl. · {f0(o.b)} b</span>{' '}
                   <select value="" aria-label={`Mover ${cap(o.loc)} a otro camión`} onChange={(e) => moverA(o.cods, e.target.value)}><option value="">mover a…</option>{opcionesDestino(id)}</select></span>
               ))}
             </div>
@@ -1272,6 +1332,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           <span className="sim-sub">Grande desde <input type="number" min="1" value={umbralGrande} style={{ width: 70 }} aria-label="Bultos desde los que un cliente es grande" onChange={(e) => setUmbralGrande(Math.max(1, Math.floor(Number(e.target.value)) || 1))} onBlur={() => { if (umbralGrande !== aprend.umbral) registrarAprend({ umbral: umbralGrande }); }} /> bultos <Ayuda clave="grande" /></span>
         </div>
         {panelDividir}
+        <div className="sim-sub" style={{ marginBottom: 6 }}>💡 Arrastrá una fila (o las marcadas) hasta un camión de la lista de arriba del mapa o de la tarjeta del camión para pasarlo.</div>
         <div className="sim-tabla">
           <table className="sim-table">
             <thead><tr><th></th>{thP('n', 'Cliente')}{thP('loc', 'Localidad')}{thP('b', 'Bultos')}{thP('cam', 'Camión')}<th>Frec. <Ayuda clave="frecuencia" /></th><th>Motivo <Ayuda clave="motivo" /></th></tr></thead>
@@ -1281,7 +1342,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
                 const fuera = f.cam === 'pend' || f.cam === 'loc';
                 const color = dentro(f) ? COLORES[f.ruta % COLORES.length] : '#b0bec5';
                 return (
-                  <tr key={`${f.c}-${f.cam}-${vi}`} className={`${fuera ? 'fuera' : ''} ${grandeB(f.b) ? 'grande' : ''} ${selSet.has(f.c) ? 'marcado' : ''}`}>
+                  <tr key={`${f.c}-${f.cam}-${vi}`} draggable={edit} onDragStart={edit ? (e) => iniciarArrastre(e, [f.c]) : undefined} onDragEnd={finArrastre} className={`${edit ? 'sim-arrastrable' : ''} ${fuera ? 'fuera' : ''} ${grandeB(f.b) ? 'grande' : ''} ${selSet.has(f.c) ? 'marcado' : ''}`}>
                     <td><input type="checkbox" disabled={!edit} aria-label={`Marcar ${f.n}`} checked={selSet.has(f.c)} onChange={() => setSelCli((a) => (a.includes(f.c) ? a.filter((x) => x !== f.c) : [...a, f.c]))} /></td>
                     <td className="cli">
                       <span className="sim-chip" style={{ background: color }} />
@@ -1421,11 +1482,18 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
   const leyenda = rutasMapa.length > 0 && (
     <div className="sim-leyenda" role="group" aria-label="Camiones en el mapa">
       {rutasMapa.map((r, i) => (
-        <button key={i} type="button" className={`sim-ley ${rutaSel === i ? 'on' : ''}`} aria-pressed={rutaSel === i} title={r.label} onClick={() => enfocar(i)}>
+        <button key={i} type="button" data-cam={i} className={`sim-ley ${rutaSel === i ? 'on' : ''}`} aria-pressed={rutaSel === i} title={r.label} onClick={() => enfocar(i)}
+          onMouseEnter={() => hoverCam(i)} onMouseLeave={() => hoverCam(null)} {...(modo === 'simulacion' && sim && sim.rutas[i] ? destino(pidDe(sim.rutas[i], i)) : {})}>
           <span className="sim-chip" style={{ background: r.color }} />{String(r.label).split(' · ').slice(0, 2).join(' · ')}
         </button>
       ))}
       {rutaSel != null && <button type="button" className="sim-ley todos" onClick={() => enfocar(rutaSel)}>Ver todos</button>}
+      {modo === 'simulacion' && sim && (
+        <>
+          <span className="sim-ley extra" {...destino('nuevo')}>➕ Camión nuevo</span>
+          <span className="sim-ley extra" {...destino('pend')}>🚫 Dejar fuera</span>
+        </>
+      )}
     </div>
   );
   const colMapa = (
@@ -1613,6 +1681,19 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
 
   return (
     <div className={`sim ${selCli.length > 0 && modo === 'simulacion' ? 'con-barra' : ''}`}>
+      {hayResumen && (
+        <div className={`sim-fijo ${resVisible ? 'oculto' : ''}`} role="status" aria-label="Resumen del reparto">
+          <div className="sim-fijo-in">
+            <span><b>{f0(sim.totales.clientes)}</b> clientes</span>
+            <span><b>{f0(sim.totales.bultos)}</b> bultos</span>
+            <span><b>{sim.totales.camiones}{sim.tope && sim.tope.max > 0 ? `/${sim.tope.max}` : ''}</b> camiones</span>
+            <span><b>{sim.totales.personas}</b> personas</span>
+            <span><b>{f0(sim.totales.km)}</b> km</span>
+            <span className={`sim-sem ${nErr ? 'mal' : nAv ? 'aviso' : 'ok'}`}>{nErr ? `⛔ ${nErr} para corregir` : nAv ? `⚠ ${nAv} avisos` : '✔ todo en orden'}</span>
+            <button type="button" className="sim-btn sim-mini" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>↑ Ir al resumen</button>
+          </div>
+        </div>
+      )}
       <div className="sim-grid">
         <div className="sim-head">
           <div className="sim-top">
