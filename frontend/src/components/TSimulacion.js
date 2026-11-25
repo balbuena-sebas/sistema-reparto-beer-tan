@@ -1048,7 +1048,6 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
           <b>Camión #{r.n}</b>
           <span className={`sim-sem ${nivel}`} title={motivos.length ? motivos.join(' · ') : 'Sin problemas'}>{nivel === 'mal' ? '🔴' : nivel === 'aviso' ? '🟡' : '🟢'} {motivos.length ? motivos[0] + (motivos.length > 1 ? ` +${motivos.length - 1}` : '') : 'Todo bien'}</span>
           <span className="zona">{zonaTxt(r)}</span>
-          {r.pocaCarga && <span className="sim-pill aviso" title="Muy poca carga y ningún camión cercano con lugar: conviene postergar o agrupar con otro día">poca carga</span>}
           {r.autoelevador && <span className="sim-pill" title={GLOSARIO.autoelevador}>autoelevador</span>}
           {r.extraAyudante && <span className="sim-pill" title="2º ayudante: con 3 personas este camión no necesita recarga">+1 ayudante</span>}
           {r.paradas.some((p) => p.parte) && <span className="sim-pill" title="Lleva la parte de un cliente dividido entre camiones">✂ carga dividida</span>}
