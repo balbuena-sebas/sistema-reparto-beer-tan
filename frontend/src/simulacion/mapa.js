@@ -299,3 +299,37 @@ export function resaltarCamion(map, color) {
 
 // El mapa avisa qué camión tiene el mouse encima (para resaltar su tarjeta)
 export function conectarHover(map, fn) { if (map) map._onHover = fn; }
+
+
+// ── Entregas reales del mes (pestaña Ejecutivo): un círculo por cliente, tamaño = kg, color = localidad ──
+// puntos: [{ lat, lon, kg, color, titulo, detalle }]
+export function pintarEntregas(map, puntos) {
+  const data = { type: 'FeatureCollection', features: puntos.map((p) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+    properties: { color: p.color, kg: p.kg, titulo: p.titulo, detalle: p.detalle } })) };
+  const poner = () => {
+    const src = map.getSource('ent');
+    if (src) { src.setData(data); return; }
+    map.addSource('ent', { type: 'geojson', data });
+    map.addLayer({ id: 'ent-c', type: 'circle', source: 'ent',
+      paint: { 'circle-color': ['get', 'color'], 'circle-opacity': 0.78, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1,
+        'circle-radius': ['interpolate', ['linear'], ['get', 'kg'], 0, 3.5, 300, 6, 1500, 11, 5000, 18] } });
+    if (!map._entClick) {
+      map._entClick = true;
+      map.on('click', 'ent-c', (e) => {
+        const f = e.features && e.features[0]; if (!f) return;
+        new maplibregl.Popup({ offset: 8, maxWidth: '260px' }).setLngLat(f.geometry.coordinates)
+          .setHTML(`<b>${esc(f.properties.titulo)}</b><br>${esc(f.properties.detalle)}`).addTo(map);
+      });
+      map.on('mouseenter', 'ent-c', () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', 'ent-c', () => { map.getCanvas().style.cursor = ''; });
+    }
+  };
+  if (map._estiloOk) poner(); else map.once('style.load', poner);
+}
+export function encuadrarPuntos(map, puntos, deposito) {
+  if (!puntos.length) return;
+  const b = new maplibregl.LngLatBounds();
+  if (deposito) b.extend([deposito.lon, deposito.lat]);
+  puntos.forEach((p) => b.extend([p.lon, p.lat]));
+  map.fitBounds(b, { padding: 40, duration: 700, maxZoom: 14 });
+}

@@ -89,3 +89,7 @@
 }
 @media (max-width: 380px) { .ej-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (prefers-reduced-motion: reduce) { .ej *, .ej-tile, .ej-card, .ej-op, .ej-bar, .ej-barra i { animation: none !important; transition: none !important; } }
+
+.ej-mapa { display: grid; gap: 8px; }
+.ej-mapa-lienzo { width: 100%; height: clamp(320px, 56vh, 560px); border-radius: 12px; overflow: hidden; border: 1px solid var(--ej-borde); background: #eef2f6; }
+.ej-punto { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 2px; vertical-align: -1px; }

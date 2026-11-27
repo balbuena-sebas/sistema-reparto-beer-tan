@@ -1,6 +1,6 @@
 // components/TEjecutivo.js — Vista ejecutiva: el mes completo (o acumulado del mes en curso), su evolución y las localidades.
 // Lee un resumen mensual muy liviano (/api/ejecutivo) que el backend arma desde Registros, Foxtrot y Rechazos.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../api/client';
 import { fp, isT } from '../utils/helpers';
 import { PARAMS_DEFAULT as P } from '../simulacion/engine';
@@ -26,19 +26,20 @@ function juntar(filas) {
 }
 // Indicadores derivados de una fila de resumen
 function ind(a) {
-  if (!a || (!a.rep && !a.fr && !a.rch)) return null;
+  if (!a || (!a.rep && !a.fr && !a.rch && !a.ro)) return null;
   const hayReg = a.rep > 0;
   const bulCam = hayReg ? div(a.bul, a.rep) : null;
+  const ro = !hayReg && !a.fr && a.ro ? a.ro : null; // sin Registros ni Foxtrot: se usa el romaneo del ruteador
   return {
-    hayReg, camiones: a.rep || a.fr || 0, pdv: a.fcl || 0, deFoxtrot: !hayReg && !!a.fr,
+    hayReg, deRomaneo: !!ro, camiones: a.rep || a.fr || (ro ? ro.rt : 0), pdv: a.fcl || (ro ? ro.pa : 0), deFoxtrot: !hayReg && !!a.fr,
     bulCam, bolCam: hayReg ? div(a.bol, a.rep) : null, camDia: hayReg ? div(a.rep, a.dias) : null,
-    ocup: bulCam != null ? (bulCam / CAP_BULTOS) * 100 : null,
+    ocup: bulCam != null ? (bulCam / CAP_BULTOS) * 100 : ro && ro.cp ? (ro.pl / ro.cp) * 100 : null,
     ocupKg: bulCam != null && P.capacidadKg ? ((bulCam * P.kgPorBulto) / P.capacidadKg) * 100 : null,
     cosBul: hayReg ? div(a.cos, a.bul) : null, cosCam: hayReg ? div(a.cos, a.rep) : null, cosPdv: hayReg ? div(a.cos, a.bol) : null,
     jornada: a.fx ? a.hc / a.fx : a.fr && a.fh ? a.fh / a.fr : null,
-    horas: a.fx ? a.hc + a.ha : a.fh || null, soloChofer: !a.fx && !!a.fh,
+    horas: a.fx ? a.hc + a.ha : a.fh || (ro && ro.h) || null, soloChofer: !a.fx && !!a.fh,
     rechPct: a.rch && a.bul ? (a.rch.bul / a.bul) * 100 : null,
-    pesoT: (a.bul * P.kgPorBulto) / 1000,
+    pesoT: ro ? ro.kg / 1000 : (a.bul * P.kgPorBulto) / 1000,
   };
 }
 
@@ -52,6 +53,7 @@ const METRICAS = [
   { id: 'jornada', lb: 'Jornada (h)', fmt: f1, v: (i) => i.jornada },
 ];
 
+const MapaEntregas = lazy(() => import('./ejec/MapaEntregas'));
 const nivelOcup = (o) => (o == null ? 'nd' : o >= 75 ? 'ok' : o >= 50 ? 'aviso' : 'mal');
 
 export function TEjecutivo({ loggedInUser }) {
@@ -65,6 +67,7 @@ export function TEjecutivo({ loggedInUser }) {
   const [met, setMet] = useState('bulCam');
   const [orden, setOrden] = useState({ k: 'bul', d: -1 });
   const [abierta, setAbierta] = useState(null);
+  const [verMapa, setVerMapa] = useState(false);
   const esAdmin = String((loggedInUser && loggedInUser.role) || '').toLowerCase() === 'admin';
 
   const cargar = useCallback(async (forzar = false) => {
@@ -139,6 +142,7 @@ export function TEjecutivo({ loggedInUser }) {
   const fuentes = [
     { nombre: 'Registros', ok: !!(a && a.rep), detalle: a && a.rep ? `${a.rep} repartos` : 'Sin registros de reparto en este mes' },
     { nombre: 'Foxtrot', ok: !!(a && (a.fx || a.fr)), detalle: a && a.fr ? `${a.fr} rutas de Foxtrot` : 'Sin datos de Foxtrot en este mes' },
+    { nombre: 'Romaneo', ok: !!(a && a.ro), detalle: a && a.ro ? `${a.ro.dias} días · ${a.ro.rt} rutas planificadas` : 'Sin romaneos de este mes' },
     { nombre: 'Rechazos', ok: !!(a && a.rch), detalle: a && a.rch ? `${a.rch.n} líneas con rechazo` : 'Sin datos de Rechazos en este mes' },
     { nombre: 'Facturación', ok: !!(a && a.fac), detalle: 'Facturación por camión (se carga desde Importar)' },
   ];
@@ -170,7 +174,7 @@ export function TEjecutivo({ loggedInUser }) {
         <>
           <Fuentes items={fuentes} />
           <div className="ej-grid">
-            <Tile idx={0} icono="🚛" etiqueta="Camiones" detalle={i.hayReg ? `${f1(i.camDia)} por día · ${a.dias} días · ${a.bol} destinos` : 'Rutas de Foxtrot (sin Registros este mes)'}><Contar valor={i.camiones || null} /><small>{i.deFoxtrot ? 'rutas' : 'repartos'}</small></Tile>
+            <Tile idx={0} icono="🚛" etiqueta="Camiones" detalle={i.hayReg ? `${f1(i.camDia)} por día · ${a.dias} días · ${a.bol} destinos` : i.deRomaneo ? 'Rutas del romaneo (sin Registros ni Foxtrot este mes)' : 'Rutas de Foxtrot (sin Registros este mes)'}><Contar valor={i.camiones || null} /><small>{i.deFoxtrot || i.deRomaneo ? 'rutas' : 'repartos'}</small></Tile>
             <Tile idx={1} icono="📦" etiqueta="Bultos" detalle={i.hayReg ? `${f0(i.bulCam)} por camión · ${f1(i.pesoT)} t` : 'Faltan los Registros de este mes'}
               variacion={cerrado && i.hayReg ? <Variacion actual={i.bulCam} previo={ant.bulCam} /> : null}><Contar valor={i.hayReg ? a.bul : null} /></Tile>
             <Tile idx={2} icono="🧾" etiqueta="PDV atendidos" detalle={i.pdv ? `${f1(i.pdv / (a.fr || 1))} por ruta · según Foxtrot` : 'Los PDV salen de Foxtrot (sin datos este mes)'}
@@ -192,6 +196,13 @@ export function TEjecutivo({ loggedInUser }) {
             <Tile idx={7} icono="🧮" etiqueta="Costo / facturación" detalle={a.fac ? `Facturación ${fp(a.fac)}` : 'Falta cargar la facturación por camión'}>
               {a.fac ? <Contar valor={(a.cos / a.fac) * 100} fmt={(x) => `${f1(x)}%`} /> : <span className="ej-nd">sin datos</span>}
             </Tile>
+          </div>
+
+          <div className="ej-card">
+            <h3>🗺️ Mapa de entregas</h3>
+            <p className="sub">Clientes entregados en {mesLargo(mes)} según el romaneo del ruteador.</p>
+            {verMapa ? <Suspense fallback={<div className="ej-cargando">Cargando mapa…</div>}><MapaEntregas mes={mes} zona={zona} /></Suspense>
+              : <button className="ej-chip on" style={{ cursor: 'pointer', padding: '9px 16px', fontSize: 14 }} onClick={() => setVerMapa(true)}>Ver mapa</button>}
           </div>
 
           <div className="ej-card">

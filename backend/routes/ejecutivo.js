@@ -20,6 +20,7 @@ async function asegurarTabla() {
   tablaLista = true;
 }
 
+const VERSION = 2;   // subir cuando cambie el cálculo: los meses guardados con una versión vieja se recalculan
 const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const MES_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const sumaMes = (mes, n) => { const [y, m] = mes.split('-').map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`; };
@@ -27,6 +28,26 @@ const mesHoy = () => new Date().toISOString().slice(0, 7);
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
 const vacio = () => ({ rep: 0, dias: 0, bul: 0, bol: 0, cos: 0, rec: 0, per: 0, hc: 0, ha: 0, km: 0, fx: 0, _f: new Set() });
+
+// ── Romaneo del ruteador (ruteo_dias): camiones, entregas, bultos, pallets, km y horas reales por día ──
+async function cargarUbicaciones() {
+  try {
+    const r = await query(`SELECT datos_gz FROM sim_estado WHERE clave = 'ubicaciones'`);
+    if (!r.rows.length) return new Map();
+    const filas = await descomprimirSafe(r.rows[0].datos_gz, []);
+    const m = new Map();
+    (filas || []).forEach((f) => { if (Array.isArray(f)) m.set(Number(f[0]), { nombre: f[3], loc: String(f[4] || '').trim() }); });
+    return m;
+  } catch { return new Map(); }
+}
+async function diasRomaneo(ini, fin) {
+  try {
+    const r = await query(`SELECT TO_CHAR(fecha,'YYYY-MM-DD') AS f, datos_gz FROM ruteo_dias WHERE fecha >= $1::date AND fecha < $2::date ORDER BY fecha`, [ini, fin]);
+    const out = [];
+    for (const x of r.rows) { const d = await descomprimirSafe(x.datos_gz, null); if (d && Array.isArray(d.rutas)) out.push({ f: x.f, d }); }
+    return out;
+  } catch { return []; }   // la tabla puede no existir todavía
+}
 
 // Calcula el resumen de un mes a partir de los datos diarios, usando las fuentes que existan
 // (Registros, Foxtrot, Rechazos). Devuelve null solo si no hay ninguna.
@@ -76,13 +97,38 @@ async function calcularMes(mes) {
     }
   }
   const cierra = (a) => ({ rep: a.rep, dias: a._f.size, bul: Math.round(a.bul), bol: a.bol, cos: Math.round(a.cos), rec: a.rec, per: a.per,
-    hc: Math.round(a.hc / 36) / 100, ha: Math.round(a.ha / 36) / 100, km: Math.round(a.km), fx: a.fx });   // horas con 2 decimales
+    hc: Math.round(a.hc / 36) / 100, ha: Math.round(a.ha / 36) / 100, km: Math.round(a.km), fx: a.fx, v: VERSION });   // horas con 2 decimales
 
+  // Romaneo: fuente real de camiones, entregas (PDV), bultos, pallets, km y horas de ruta
+  const dias = await diasRomaneo(ini, fin);
+  let ro = null; const roLoc = new Map();
+  if (dias.length) {
+    const ubic = await cargarUbicaciones();
+    ro = { dias: dias.length, rt: 0, pa: 0, bu: 0, km: 0, h: 0, kg: 0, pl: 0, cp: 0 };
+    for (const { f, d } of dias) {
+      d.rutas.forEach((r) => {
+        ro.rt += 1; ro.bu += Number(r.bultos) || 0; ro.km += Number(r.km) || 0; ro.pl += Number(r.pallets) || 0; ro.cp += Number(r.cap) || 0; ro.kg += Number(r.kg) || 0;
+        if (Number.isFinite(r.ini) && Number.isFinite(r.fin) && r.fin > r.ini) ro.h += (r.fin - r.ini) / 60;
+      });
+      (d.paradas || []).forEach((p) => {
+        ro.pa += 1;
+        const u = ubic.get(Number(p[2])); const loc = (u && u.loc) || 'Sin localidad';
+        const o = roLoc.get(loc) || { pa: 0, kg: 0, _f: new Set() };
+        o.pa += 1; o.kg += Number(p[6]) || 0; o._f.add(f); roLoc.set(loc, o);
+      });
+    }
+    ['bu', 'km', 'h', 'kg', 'pl', 'cp'].forEach((k) => { ro[k] = Math.round(ro[k] * 10) / 10; });
+  }
   const tot = cierra(total);
+  if (ro) tot.ro = ro;
   // Foxtrot del mes completo (aunque no haya registros): rutas, clientes, horas de jornada y km
   if (fr) { tot.fr = fr; tot.fcl = fcl; tot.fh = Math.round(fseg / 36) / 100; tot.fkm = Math.round(fm / 1000); }
   const out = new Map([['*', tot]]);
   porLoc.forEach((a, loc) => out.set(loc, cierra(a)));
+  roLoc.forEach((o, loc) => {
+    if (!out.has(loc)) out.set(loc, cierra(vacio()));
+    out.get(loc).ro = { pa: o.pa, kg: Math.round(o.kg), dias: o._f.size };
+  });
 
   // Rechazos del mes (solo se guarda en el total); si el detalle ya no está, se usa el KPI liviano
   const rch = (await query(
@@ -97,7 +143,7 @@ async function calcularMes(mes) {
       if (o.imp || o.bul || o.n) tot.rch = { imp: Math.round(o.imp), bul: Math.round(o.bul), n: o.n };
     }
   }
-  if (!regs.length && !fr && !tot.rch) return null;
+  if (!regs.length && !fr && !tot.rch && !ro) return null;
   return out;
 }
 
@@ -108,6 +154,7 @@ async function guardarMes(mes, nuevo) {
     const p = previo.get(clave);
     if (p) {
       if (!d.fx && p.fx) { d.hc = p.hc; d.ha = p.ha; d.km = p.km; d.fx = p.fx; }
+      if (!d.ro && p.ro) d.ro = p.ro;
       if (clave === '*' && !d.rch && p.rch) d.rch = p.rch;
       if (clave === '*' && !d.fr && p.fr) { d.fr = p.fr; d.fcl = p.fcl; d.fh = p.fh; d.fkm = p.fkm; }
       if (p.fac && !d.fac) d.fac = p.fac;                 // facturación cargada aparte: nunca se pisa
@@ -129,7 +176,7 @@ router.get('/', async (req, res) => {
     if (sumaMes(desde, 59) < hasta) desde = sumaMes(hasta, -59);       // tope: 5 años
     const forzar = req.query.refrescar === '1';
 
-    const guardados = new Set((await query(`SELECT DISTINCT mes FROM ejecutivo_mensual WHERE mes >= $1 AND mes <= $2`, [desde, hasta])).rows.map((r) => r.mes));
+    const guardados = new Set((await query(`SELECT DISTINCT mes FROM ejecutivo_mensual WHERE mes >= $1 AND mes <= $2 AND clave = '*' AND COALESCE((datos->>'v')::int, 1) >= ${VERSION}`, [desde, hasta])).rows.map((r) => r.mes));
     for (let m = desde; m <= hasta; m = sumaMes(m, 1)) {
       const reciente = m >= sumaMes(hoy, -2);
       if (forzar || reciente || !guardados.has(m)) {
@@ -142,6 +189,35 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('GET /ejecutivo:', err.message);
     res.status(500).json({ ok: false, error: 'Error al calcular el resumen ejecutivo' });
+  }
+});
+
+// GET /api/ejecutivo/mapa?mes=YYYY-MM — un punto por cliente con sus visitas y kg del mes (liviano)
+router.get('/mapa', async (req, res) => {
+  try {
+    const mes = String(req.query.mes || '');
+    if (!MES_RE.test(mes)) return res.status(400).json({ ok: false, error: 'Mes inválido' });
+    const dias = await diasRomaneo(`${mes}-01`, `${sumaMes(mes, 1)}-01`);
+    const ubic = await cargarUbicaciones();
+    const por = new Map();
+    dias.forEach(({ d }) => (d.paradas || []).forEach((p) => {
+      const cod = Number(p[2]); if (!p[4] || !p[5]) return;
+      const o = por.get(cod) || { c: cod, la: Math.round(p[4] * 1e5) / 1e5, lo: Math.round(p[5] * 1e5) / 1e5, n: p[3], v: 0, kg: 0, ch: {} };
+      o.v += 1; o.kg += Number(p[6]) || 0;
+      const ch = (d.rutas[p[0]] && d.rutas[p[0]].chofer) || '';
+      if (ch) o.ch[ch] = (o.ch[ch] || 0) + 1;
+      por.set(cod, o);
+    }));
+    const puntos = [...por.values()].map((o) => {
+      const top = Object.entries(o.ch).sort((a, b) => b[1] - a[1])[0];
+      const u = ubic.get(o.c);
+      return { c: o.c, la: o.la, lo: o.lo, n: o.n, v: o.v, kg: Math.round(o.kg), ch: top ? top[0] : '', l: (u && u.loc) || 'Sin localidad' };
+    });
+    res.set('Cache-Control', 'private, max-age=300');
+    res.json({ ok: true, mes, dias: dias.length, data: puntos });
+  } catch (err) {
+    console.error('GET /ejecutivo/mapa:', err.message);
+    res.status(500).json({ ok: false, error: 'Error al armar el mapa' });
   }
 });
 
