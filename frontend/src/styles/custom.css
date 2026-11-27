@@ -885,3 +885,16 @@ body {
 }
 @media (max-width: 680px) { .app-sub { padding: 6px 10px 8px; } .app-sub-btn { padding: 8px 14px; } }
 @media (prefers-reduced-motion: reduce) { .app-sub-btn, .app-bottom-btn, .app-bottom-btn .ic { transition: none; } }
+
+/* ============ CELULAR: que nada se salga de la pantalla ============ */
+@media (max-width: 680px) {
+  .app-main [style*="grid-template-columns"][style*="minmax"] { grid-template-columns: repeat(auto-fit, minmax(min(100%, 135px), 1fr)) !important; }
+  .app-main [style*="grid-template-columns"] { min-width: 0; }
+  .app-main [style*="grid-template-columns"] > * { min-width: 0; overflow-wrap: anywhere; }
+  .app-main select, .app-main input, .app-main textarea { max-width: 100%; }
+  .app-main .filter-select { min-width: 0; }
+  .app-main .zona-stats { flex-wrap: wrap; gap: 8px 16px; }
+  .app-main .dash-card, .app-main .card { min-width: 0; max-width: 100%; }
+  .app-main .dash-table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .app-main .dash-card > div[style*="display: flex"] { flex-wrap: wrap; }
+}
