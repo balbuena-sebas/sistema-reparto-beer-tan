@@ -1,0 +1,91 @@
+/* Formato ejecutivo — estilos compartidos y livianos */
+.ej { --ej-acento: #b87c00; --ej-ok: #15803d; --ej-aviso: #d97706; --ej-mal: #b91c1c; --ej-fondo: #fff; --ej-borde: #e5e7eb; --ej-sut: #6b7280; --ej-tinta: #111827; display: grid; gap: 18px; font-size: 15px; color: var(--ej-tinta); }
+.ej * { box-sizing: border-box; }
+
+.ej-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.ej-head h2 { margin: 0; font-size: 24px; letter-spacing: -.02em; }
+.ej-head p { margin: 2px 0 0; color: var(--ej-sut); font-size: 13px; }
+.ej-ctrl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ej-sel { padding: 9px 12px; border-radius: 10px; border: 1.5px solid #e5b84b; background: #fff; font: 600 14px inherit; min-width: 0; max-width: 100%; }
+.ej-seg { display: inline-flex; background: #f3f4f6; border-radius: 10px; padding: 3px; gap: 2px; }
+.ej-seg button { border: 0; background: transparent; padding: 7px 12px; border-radius: 8px; font: 600 13px inherit; color: var(--ej-sut); cursor: pointer; transition: background .15s, color .15s; }
+.ej-seg button.on { background: #fff; color: var(--ej-acento); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+
+.ej-fuentes { display: flex; flex-wrap: wrap; gap: 6px; }
+.ej-chip { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--ej-borde); background: #fff; }
+.ej-chip.ok { color: var(--ej-ok); border-color: #bbf7d0; background: #f0fdf4; }
+.ej-chip.nd { color: var(--ej-sut); background: #f9fafb; }
+
+.ej-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; }
+.ej-tile { position: relative; background: var(--ej-fondo); border: 1px solid var(--ej-borde); border-radius: 14px; padding: 14px 16px 12px; display: grid; gap: 4px; align-content: start; overflow: hidden; animation: ejEntra .45s cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--i, 0) * 45ms); transition: transform .15s, box-shadow .15s, border-color .15s; }
+.ej-tile::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--ej-acento); opacity: .85; }
+.ej-tile.t-ok::before { background: var(--ej-ok); } .ej-tile.t-aviso::before { background: var(--ej-aviso); } .ej-tile.t-mal::before { background: var(--ej-mal); }
+.ej-tile.click { cursor: pointer; } .ej-tile.click:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+.ej-tile.activa { border-color: var(--ej-acento); box-shadow: 0 0 0 2px #fde8a8; }
+.ej-tile-top { display: flex; align-items: center; gap: 8px; color: var(--ej-sut); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.ej-ic { font-size: 18px; }
+.ej-val { font-size: 30px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ej-val small { font-size: 14px; font-weight: 600; color: var(--ej-sut); margin-left: 3px; }
+.ej-det { color: var(--ej-sut); font-size: 13px; }
+.ej-nd { color: #9ca3af; font-size: 14px; font-weight: 600; }
+.ej-var { font-size: 12px; font-weight: 700; } .ej-var small { font-weight: 500; color: var(--ej-sut); }
+.ej-var.ok { color: var(--ej-ok); } .ej-var.mal { color: var(--ej-mal); } .ej-var.n { color: var(--ej-sut); }
+
+.ej-barra { height: 8px; border-radius: 99px; background: #f3f4f6; overflow: hidden; margin-top: 4px; }
+.ej-barra i { display: block; height: 100%; border-radius: 99px; transform-origin: left; animation: ejCrece .8s cubic-bezier(.2,.7,.2,1) both; }
+.ej-barra i.ok { background: var(--ej-ok); } .ej-barra i.aviso { background: var(--ej-aviso); } .ej-barra i.mal { background: var(--ej-mal); }
+
+.ej-sem { font-size: 14px; } .ej-sem.ok { color: var(--ej-ok); } .ej-sem.aviso { color: var(--ej-aviso); } .ej-sem.mal { color: var(--ej-mal); } .ej-sem.nd { color: #d1d5db; }
+
+.ej-card { background: #fff; border: 1px solid var(--ej-borde); border-radius: 14px; padding: 16px; min-width: 0; animation: ejEntra .5s both; }
+.ej-card h3 { margin: 0 0 2px; font-size: 16px; } .ej-card .sub { margin: 0 0 12px; color: var(--ej-sut); font-size: 13px; }
+
+.ej-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+.ej-chips button { flex: 0 0 auto; border: 1px solid var(--ej-borde); background: #fff; border-radius: 999px; padding: 7px 13px; font: 600 13px inherit; color: var(--ej-sut); cursor: pointer; transition: all .15s; }
+.ej-chips button.on { background: #fef3c7; color: var(--ej-acento); border-color: #f3d98b; }
+
+.ej-evo svg { width: 100%; height: auto; max-height: 220px; display: block; overflow: visible; }
+.ej-bar { transform-box: fill-box; transform-origin: bottom; animation: ejSube .6s cubic-bezier(.2,.7,.2,1) both; animation-delay: calc(var(--i, 0) * 30ms); opacity: .55; transition: opacity .15s; }
+.ej-bar.on { opacity: 1; }
+.ej-bar-nd { fill: #e5e7eb; }
+.ej-x { font-size: 10px; fill: var(--ej-sut); } .ej-x.on { fill: var(--ej-tinta); font-weight: 700; }
+.ej-v { font-size: 11px; font-weight: 700; fill: var(--ej-tinta); }
+.ej-ref { stroke: #9ca3af; stroke-dasharray: 4 4; stroke-width: 1; }
+
+.ej-tabla { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ej-tabla th { text-align: right; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--ej-sut); padding: 8px 10px; white-space: nowrap; cursor: pointer; user-select: none; border-bottom: 2px solid var(--ej-borde); }
+.ej-tabla th:first-child, .ej-tabla td:first-child { text-align: left; position: sticky; left: 0; background: #fff; z-index: 1; }
+.ej-tabla td { text-align: right; padding: 10px; border-bottom: 1px solid #f3f4f6; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ej-tabla tbody tr { cursor: pointer; transition: background .12s; } .ej-tabla tbody tr:hover td { background: #fffbeb; }
+.ej-tabla tr.abierta td { background: #fffbeb; }
+.ej-tabla .nom { font-weight: 700; }
+.ej-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; padding: 0 4px; }
+.ej-detalle { background: #fffbeb; padding: 12px 14px !important; text-align: left !important; white-space: normal !important; animation: ejEntra .3s both; }
+.ej-detalle .ej-mini { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.ej-detalle b { display: block; font-size: 17px; } .ej-detalle span { color: var(--ej-sut); font-size: 12px; }
+
+.ej-ops { display: grid; gap: 8px; }
+.ej-op { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: #fffbeb; border: 1px solid #fde8a8; font-size: 14px; animation: ejEntra .4s both; animation-delay: calc(var(--i, 0) * 60ms); }
+.ej-op.mal { background: #fef2f2; border-color: #fecaca; } .ej-op.ok { background: #f0fdf4; border-color: #bbf7d0; }
+.ej-op .ic { font-size: 18px; line-height: 1.2; }
+
+.ej-vacio { text-align: center; padding: 36px 16px; color: var(--ej-sut); }
+.ej-cargando { text-align: center; padding: 30px; color: var(--ej-sut); }
+.ej-cargando::before { content: ''; display: block; width: 28px; height: 28px; margin: 0 auto 10px; border-radius: 50%; border: 3px solid #fde8a8; border-top-color: var(--ej-acento); animation: ejGira .8s linear infinite; }
+
+@keyframes ejEntra { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes ejCrece { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ejSube { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes ejGira { to { transform: rotate(360deg); } }
+
+@media (max-width: 680px) {
+  .ej { gap: 14px; }
+  .ej-head h2 { font-size: 20px; }
+  .ej-val { font-size: 26px; }
+  .ej-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .ej-tile { padding: 12px 12px 10px; } .ej-tile-top { font-size: 11px; }
+  .ej-ctrl { width: 100%; } .ej-sel { flex: 1 1 140px; }
+  .ej-card { padding: 12px; }
+}
+@media (max-width: 380px) { .ej-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .ej *, .ej-tile, .ej-card, .ej-op, .ej-bar, .ej-barra i { animation: none !important; transition: none !important; } }

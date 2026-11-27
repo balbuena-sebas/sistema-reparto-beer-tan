@@ -50,6 +50,7 @@ const TImportacion = lazy(() => import("./components/TImportacion").then(mod => 
 const TNotas = lazy(() => import("./components/TNotas").then(mod => ({ default: mod.TNotas })));
 const TBiolinks = lazy(() => import("./components/TBiolinks").then(mod => ({ default: mod.TBiolinks })));
 const TSimulacion = lazy(() => import("./components/TSimulacion").then(mod => ({ default: mod.TSimulacion })));
+const TEjecutivo = lazy(() => import("./components/TEjecutivo").then(mod => ({ default: mod.TEjecutivo })));
 const TDbStats = lazy(() => import("./components/TDbStats").then(mod => ({ default: mod.TDbStats })));
 
 // ─── Pantalla de carga / error ────────────────────────────────────────────────
@@ -1198,7 +1199,8 @@ export default function App() {
   };
 
   const tabs = [
-    { id: "dashboard", lb: "📊 Dashboard" },
+    { id: "ejecutivo", lb: "📊 Ejecutivo" },
+    { id: "dashboard", lb: "🏠 Dashboard" },
     { id: "dbstats", lb: "🗄️ DB" },
     { id: "registros", lb: "🚛 Registros" },
     { id: "ausencias", lb: "📋 Ausencias" },
@@ -1216,7 +1218,7 @@ export default function App() {
 
   // Secciones: agrupan las pestañas para que entren en celular y tablet. Cada pestaña conserva su permiso.
   const GRUPOS = [
-    { id: "inicio", ic: "🏠", lb: "Inicio", tabs: ["dashboard"] },
+    { id: "inicio", ic: "🏠", lb: "Inicio", tabs: ["ejecutivo", "dashboard"] },
     { id: "operacion", ic: "🚛", lb: "Operación", tabs: ["registros", "ausencias", "personal", "simulacion"] },
     { id: "analisis", ic: "📈", lb: "Análisis", tabs: ["costos", "reportes", "rechazos", "foxtrot"] },
     { id: "datos", ic: "📂", lb: "Datos", tabs: ["importar", "dbstats"] },
@@ -1686,6 +1688,7 @@ export default function App() {
           />
         )}
         {tab === "biolinks" && <TBiolinks />}
+        {tab === "ejecutivo" && <TEjecutivo loggedInUser={loggedInUser} />}
         {tab === "simulacion" && <TSimulacion loggedInUser={loggedInUser} cfg={cfg} ausencias={aus} />}
       </Suspense>
       </main>

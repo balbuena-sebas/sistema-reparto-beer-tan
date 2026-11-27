@@ -2,6 +2,7 @@
 
 export const PERMISOS_DEFAULTS = {
   admin: {
+    ejecutivo: true,
     dashboard: true,
     registros: true,
     ausencias: true,
@@ -18,6 +19,7 @@ export const PERMISOS_DEFAULTS = {
     editar_contenido: false, // Admin debe aprobar explícitamente para crear/subir contenido
   },
   chofer: {
+    ejecutivo: false,
     dashboard: true,
     registros: true,
     ausencias: true,
@@ -34,6 +36,7 @@ export const PERMISOS_DEFAULTS = {
     editar_contenido: false,
   },
   ayudante: {
+    ejecutivo: false,
     dashboard: true,
     registros: true,
     ausencias: true,

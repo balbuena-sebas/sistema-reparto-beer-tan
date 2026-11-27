@@ -62,6 +62,7 @@ const checklistsRouter = require('./routes/checklists');
 const mantenimientoRouter = require('./routes/mantenimiento');
 const dbstatsRouter = require('./routes/dbstats');
 const ruteoRouter = require('./routes/ruteo');
+const ejecutivoRouter = require('./routes/ejecutivo');
 
 app.use('/api/registros', autenticar, registrosRouter);
 app.use('/api/ausencias', autenticar, ausenciasRouter);
@@ -75,6 +76,7 @@ app.use('/api/checklists', autenticar, checklistsRouter);
 app.use('/api/mantenimiento', autenticar, mantenimientoRouter);
 app.use('/api/dbstats', autenticar, dbstatsRouter);
 app.use('/api/ruteo', autenticar, ruteoRouter);
+app.use('/api/ejecutivo', autenticar, ejecutivoRouter);
 
 // API not found handler returns JSON instead of HTML
 app.use('/api', (req, res) => {
