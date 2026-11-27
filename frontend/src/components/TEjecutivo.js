@@ -30,7 +30,7 @@ function ind(a) {
   const hayReg = a.rep > 0;
   const bulCam = hayReg ? div(a.bul, a.rep) : null;
   return {
-    hayReg, camiones: a.rep || a.fr || 0, pdv: a.bol || a.fcl || 0, deFoxtrot: !hayReg && !!a.fr,
+    hayReg, camiones: a.rep || a.fr || 0, pdv: a.fcl || 0, deFoxtrot: !hayReg && !!a.fr,
     bulCam, bolCam: hayReg ? div(a.bol, a.rep) : null, camDia: hayReg ? div(a.rep, a.dias) : null,
     ocup: bulCam != null ? (bulCam / CAP_BULTOS) * 100 : null,
     ocupKg: bulCam != null && P.capacidadKg ? ((bulCam * P.kgPorBulto) / P.capacidadKg) * 100 : null,
@@ -44,7 +44,7 @@ function ind(a) {
 
 const METRICAS = [
   { id: 'bulCam', lb: 'Bultos / camión', fmt: f0, v: (i) => i.bulCam, ref: CAP_BULTOS },
-  { id: 'bolCam', lb: 'PDV / camión', fmt: f1, v: (i) => i.bolCam },
+  { id: 'bolCam', lb: 'Destinos / camión', fmt: f1, v: (i) => i.bolCam },
   { id: 'ocup', lb: 'Ocupación %', fmt: (n) => `${f0(n)}%`, v: (i) => i.ocup, ref: 100 },
   { id: 'cosBul', lb: 'Costo / bulto', fmt: (n) => fp(n), v: (i) => i.cosBul, bajaBien: true },
   { id: 'camDia', lb: 'Camiones / día', fmt: f1, v: (i) => i.camDia },
@@ -164,17 +164,17 @@ export function TEjecutivo({ loggedInUser }) {
       {error && <div className="ej-card" role="alert"><b>No se pudo cargar el resumen.</b> <span style={{ color: '#6b7280' }}>{error}</span> <button className="ej-chip" onClick={() => cargar(false)}>Reintentar</button></div>}
       {!filas && !error && <div className="ej-cargando">Calculando el resumen…</div>}
 
-      {filas && !a && !error && <div className="ej-card ej-vacio">No hay repartos registrados en {mesLargo(mes)}{zona !== 'todas' ? ' para esta zona' : ''}. Elegí otro mes.</div>}
+      {filas && !a && !error && <div className="ej-card ej-vacio">No hay datos de {mesLargo(mes)}{zona !== 'todas' ? ' para esta zona' : ''}. Elegí otro mes.</div>}
 
       {a && i && (
         <>
           <Fuentes items={fuentes} />
           <div className="ej-grid">
-            <Tile idx={0} icono="🚛" etiqueta="Camiones" detalle={i.hayReg ? `${f1(i.camDia)} por día · ${a.dias} días` : 'Rutas de Foxtrot (sin Registros este mes)'}><Contar valor={i.camiones} /><small>{i.deFoxtrot ? 'rutas' : 'repartos'}</small></Tile>
+            <Tile idx={0} icono="🚛" etiqueta="Camiones" detalle={i.hayReg ? `${f1(i.camDia)} por día · ${a.dias} días · ${a.bol} destinos` : 'Rutas de Foxtrot (sin Registros este mes)'}><Contar valor={i.camiones || null} /><small>{i.deFoxtrot ? 'rutas' : 'repartos'}</small></Tile>
             <Tile idx={1} icono="📦" etiqueta="Bultos" detalle={i.hayReg ? `${f0(i.bulCam)} por camión · ${f1(i.pesoT)} t` : 'Faltan los Registros de este mes'}
               variacion={cerrado && i.hayReg ? <Variacion actual={i.bulCam} previo={ant.bulCam} /> : null}><Contar valor={i.hayReg ? a.bul : null} /></Tile>
-            <Tile idx={2} icono="🧾" etiqueta="PDV (boletas)" detalle={i.hayReg ? `${f1(i.bolCam)} por camión` : i.pdv ? `${f1(i.pdv / (i.camiones || 1))} por ruta (clientes de Foxtrot)` : 'Sin datos'}
-              variacion={cerrado && i.hayReg ? <Variacion actual={i.bolCam} previo={ant.bolCam} /> : null}><Contar valor={i.pdv || null} /></Tile>
+            <Tile idx={2} icono="🧾" etiqueta="PDV atendidos" detalle={i.pdv ? `${f1(i.pdv / (a.fr || 1))} por ruta · según Foxtrot` : 'Los PDV salen de Foxtrot (sin datos este mes)'}
+              variacion={cerrado && i.pdv && ant.pdv && a.fr && ant.fr ? <Variacion actual={i.pdv / a.fr} previo={ant.pdv / ant.fr} /> : null}><Contar valor={i.pdv || null} /></Tile>
             <Tile idx={3} icono="🏭" etiqueta="Ocupación de bodega" tono={nivelOcup(i.ocup)} ayuda={`Bultos por camión sobre la capacidad (${P.palletsPorCamion} pallets ≈ ${f0(CAP_BULTOS)} bultos)`}
               detalle={i.hayReg ? `Peso ${f0(i.ocupKg)}% del máximo de ${f1(P.capacidadKg / 1000)} t` : 'Faltan los Registros de este mes'} variacion={cerrado && i.hayReg ? <Variacion actual={i.ocup} previo={ant.ocup} /> : null}>
               <Contar valor={i.ocup} fmt={(x) => `${f0(x)}%`} /><Barra pct={i.ocup} etiqueta="Ocupación" />
@@ -219,7 +219,7 @@ export function TEjecutivo({ loggedInUser }) {
             {localidades.length ? (
               <div className="ej-scroll">
                 <table className="ej-tabla">
-                  <thead><tr><Th k="nombre">Localidad</Th><Th k="rep">Camiones</Th><Th k="bul">Bultos</Th><Th k="bulCam">Bult./cam.</Th><Th k="bolCam">PDV/cam.</Th><Th k="ocup">Ocup.</Th><Th k="cosBul">$/bulto</Th><Th k="jornada">Jornada</Th><th style={{ cursor: 'default' }}>Tendencia</th></tr></thead>
+                  <thead><tr><Th k="nombre">Localidad</Th><Th k="rep">Camiones</Th><Th k="bul">Bultos</Th><Th k="bulCam">Bult./cam.</Th><Th k="bolCam">Dest./cam.</Th><Th k="ocup">Ocup.</Th><Th k="cosBul">$/bulto</Th><Th k="jornada">Jornada</Th><th style={{ cursor: 'default' }}>Tendencia</th></tr></thead>
                   <tbody>
                     {ordenadas.map((l) => {
                       const peor = l.i && i.cosBul && l.i.cosBul > i.cosBul * 1.25 ? 'mal' : l.i && i.cosBul && l.i.cosBul > i.cosBul * 1.1 ? 'aviso' : 'ok';
@@ -239,10 +239,10 @@ export function TEjecutivo({ loggedInUser }) {
                             <tr><td colSpan={9} className="ej-detalle">
                               <div className="ej-mini">
                                 <div><b>{l.fila.dias}</b><span>días con reparto</span></div>
-                                <div><b>{f0(l.fila.bol)}</b><span>PDV en total</span></div>
+                                <div><b>{f0(l.fila.bol)}</b><span>destinos cargados</span></div>
                                 <div><b>{fp(l.fila.cos)}</b><span>costo del reparto</span></div>
                                 <div><b>{fp(l.i.cosCam)}</b><span>por camión</span></div>
-                                <div><b>{fp(l.i.cosPdv)}</b><span>por PDV</span></div>
+                                <div><b>{fp(l.i.cosPdv)}</b><span>por destino</span></div>
                                 <div><b>{f1(l.i.pesoT)} t</b><span>peso estimado</span></div>
                                 <div><b>{l.fila.rec}</b><span>recargas</span></div>
                                 <div><b>{l.fila.km ? `${f0(l.fila.km)} km` : '—'}</b><span>recorridos (Foxtrot)</span></div>
