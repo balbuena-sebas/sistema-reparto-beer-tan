@@ -26,14 +26,17 @@ function juntar(filas) {
 }
 // Indicadores derivados de una fila de resumen
 function ind(a) {
-  if (!a || !a.rep) return null;
-  const bulCam = div(a.bul, a.rep);
+  if (!a || (!a.rep && !a.fr && !a.rch)) return null;
+  const hayReg = a.rep > 0;
+  const bulCam = hayReg ? div(a.bul, a.rep) : null;
   return {
-    bulCam, bolCam: div(a.bol, a.rep), camDia: div(a.rep, a.dias),
+    hayReg, camiones: a.rep || a.fr || 0, pdv: a.bol || a.fcl || 0, deFoxtrot: !hayReg && !!a.fr,
+    bulCam, bolCam: hayReg ? div(a.bol, a.rep) : null, camDia: hayReg ? div(a.rep, a.dias) : null,
     ocup: bulCam != null ? (bulCam / CAP_BULTOS) * 100 : null,
     ocupKg: bulCam != null && P.capacidadKg ? ((bulCam * P.kgPorBulto) / P.capacidadKg) * 100 : null,
-    cosBul: div(a.cos, a.bul), cosCam: div(a.cos, a.rep), cosPdv: div(a.cos, a.bol),
-    jornada: a.fx ? a.hc / a.fx : null, horas: a.fx ? a.hc + a.ha : null,
+    cosBul: hayReg ? div(a.cos, a.bul) : null, cosCam: hayReg ? div(a.cos, a.rep) : null, cosPdv: hayReg ? div(a.cos, a.bol) : null,
+    jornada: a.fx ? a.hc / a.fx : a.fr && a.fh ? a.fh / a.fr : null,
+    horas: a.fx ? a.hc + a.ha : a.fh || null, soloChofer: !a.fx && !!a.fh,
     rechPct: a.rch && a.bul ? (a.rch.bul / a.bul) * 100 : null,
     pesoT: (a.bul * P.kgPorBulto) / 1000,
   };
@@ -134,8 +137,8 @@ export function TEjecutivo({ loggedInUser }) {
 
   const selMeses = useMemo(() => { const s = new Set([...mesesConDatos, actual]); return [...s].sort().reverse(); }, [mesesConDatos, actual]);
   const fuentes = [
-    { nombre: 'Registros', ok: !!(a && a.rep), detalle: a ? `${a.rep} repartos` : 'Sin registros en este mes' },
-    { nombre: 'Foxtrot', ok: !!(a && a.fx), detalle: a && a.fx ? `Horas de ${a.fx} de ${a.rep} repartos` : 'Sin datos de Foxtrot en este mes' },
+    { nombre: 'Registros', ok: !!(a && a.rep), detalle: a && a.rep ? `${a.rep} repartos` : 'Sin registros de reparto en este mes' },
+    { nombre: 'Foxtrot', ok: !!(a && (a.fx || a.fr)), detalle: a && a.fr ? `${a.fr} rutas de Foxtrot` : 'Sin datos de Foxtrot en este mes' },
     { nombre: 'Rechazos', ok: !!(a && a.rch), detalle: a && a.rch ? `${a.rch.n} líneas con rechazo` : 'Sin datos de Rechazos en este mes' },
     { nombre: 'Facturación', ok: !!(a && a.fac), detalle: 'Facturación por camión (se carga desde Importar)' },
   ];
@@ -145,7 +148,7 @@ export function TEjecutivo({ loggedInUser }) {
       <div className="ej-head">
         <div>
           <h2>📊 Ejecutivo</h2>
-          <p>{enCurso ? `Acumulado de ${mesLargo(mes)}${a ? ` · ${a.dias} días con reparto` : ''}` : `Mes completo · ${mesLargo(mes)}`}</p>
+          <p>{enCurso ? `Acumulado de ${mesLargo(mes)}${a && a.dias ? ` · ${a.dias} días con reparto` : ''}` : `Mes completo · ${mesLargo(mes)}`}</p>
         </div>
         <div className="ej-ctrl">
           <select className="ej-sel" value={mes} onChange={(e) => { setMes(e.target.value); setAbierta(null); }} aria-label="Mes">
@@ -167,24 +170,24 @@ export function TEjecutivo({ loggedInUser }) {
         <>
           <Fuentes items={fuentes} />
           <div className="ej-grid">
-            <Tile idx={0} icono="🚛" etiqueta="Camiones" detalle={`${f1(i.camDia)} por día · ${a.dias} días`}><Contar valor={a.rep} /><small>repartos</small></Tile>
-            <Tile idx={1} icono="📦" etiqueta="Bultos" detalle={`${f0(i.bulCam)} por camión · ${f1(i.pesoT)} t`}
-              variacion={cerrado ? <Variacion actual={i.bulCam} previo={ant.bulCam} /> : null}><Contar valor={a.bul} /></Tile>
-            <Tile idx={2} icono="🧾" etiqueta="PDV (boletas)" detalle={`${f1(i.bolCam)} por camión`}
-              variacion={cerrado ? <Variacion actual={i.bolCam} previo={ant.bolCam} /> : null}><Contar valor={a.bol} /></Tile>
+            <Tile idx={0} icono="🚛" etiqueta="Camiones" detalle={i.hayReg ? `${f1(i.camDia)} por día · ${a.dias} días` : 'Rutas de Foxtrot (sin Registros este mes)'}><Contar valor={i.camiones} /><small>{i.deFoxtrot ? 'rutas' : 'repartos'}</small></Tile>
+            <Tile idx={1} icono="📦" etiqueta="Bultos" detalle={i.hayReg ? `${f0(i.bulCam)} por camión · ${f1(i.pesoT)} t` : 'Faltan los Registros de este mes'}
+              variacion={cerrado && i.hayReg ? <Variacion actual={i.bulCam} previo={ant.bulCam} /> : null}><Contar valor={i.hayReg ? a.bul : null} /></Tile>
+            <Tile idx={2} icono="🧾" etiqueta="PDV (boletas)" detalle={i.hayReg ? `${f1(i.bolCam)} por camión` : i.pdv ? `${f1(i.pdv / (i.camiones || 1))} por ruta (clientes de Foxtrot)` : 'Sin datos'}
+              variacion={cerrado && i.hayReg ? <Variacion actual={i.bolCam} previo={ant.bolCam} /> : null}><Contar valor={i.pdv || null} /></Tile>
             <Tile idx={3} icono="🏭" etiqueta="Ocupación de bodega" tono={nivelOcup(i.ocup)} ayuda={`Bultos por camión sobre la capacidad (${P.palletsPorCamion} pallets ≈ ${f0(CAP_BULTOS)} bultos)`}
-              detalle={`Peso ${f0(i.ocupKg)}% del máximo de ${f1(P.capacidadKg / 1000)} t`} variacion={cerrado ? <Variacion actual={i.ocup} previo={ant.ocup} /> : null}>
+              detalle={i.hayReg ? `Peso ${f0(i.ocupKg)}% del máximo de ${f1(P.capacidadKg / 1000)} t` : 'Faltan los Registros de este mes'} variacion={cerrado && i.hayReg ? <Variacion actual={i.ocup} previo={ant.ocup} /> : null}>
               <Contar valor={i.ocup} fmt={(x) => `${f0(x)}%`} /><Barra pct={i.ocup} etiqueta="Ocupación" />
             </Tile>
-            <Tile idx={4} icono="💰" etiqueta="Costo del reparto" detalle={`${fp(i.cosBul)} por bulto · ${fp(i.cosCam)} por camión`}
-              variacion={ant ? <Variacion actual={i.cosBul} previo={ant.cosBul} mejorSiBaja sufijo="costo/bulto vs mes anterior" /> : null}><Contar valor={a.cos} fmt={(x) => fp(x)} /></Tile>
+            <Tile idx={4} icono="💰" etiqueta="Costo del reparto" detalle={i.hayReg ? `${fp(i.cosBul)} por bulto · ${fp(i.cosCam)} por camión` : 'Faltan los Registros de este mes'}
+              variacion={ant && i.hayReg ? <Variacion actual={i.cosBul} previo={ant.cosBul} mejorSiBaja sufijo="costo/bulto vs mes anterior" /> : null}><Contar valor={i.hayReg ? a.cos : null} fmt={(x) => fp(x)} /></Tile>
             <Tile idx={5} icono="⏱️" etiqueta="Horas de personal" ayuda="Jornada real de Foxtrot del chofer, y la misma jornada por cada ayudante del camión"
-              detalle={a.fx ? `Chofer ${f0(a.hc)} h · ayudantes ${f0(a.ha)} h${a.fx < a.rep ? ` · de ${a.fx}/${a.rep} repartos` : ''}` : 'Sin datos de Foxtrot en este mes'}>
+              detalle={a.fx ? `Chofer ${f0(a.hc)} h · ayudantes ${f0(a.ha)} h${a.fx < a.rep ? ` · de ${a.fx}/${a.rep} repartos` : ''}` : i.soloChofer ? `Solo choferes (jornada Foxtrot de ${a.fr} rutas)` : 'Sin datos de Foxtrot en este mes'}>
               <Contar valor={i.horas} fmt={(x) => f0(x)} />{i.horas != null && <small>h</small>}
             </Tile>
-            <Tile idx={6} icono="❌" etiqueta="Rechazos" tono={i.rechPct == null ? 'base' : i.rechPct > 3 ? 'mal' : 'ok'} detalle={a.rch ? `${fp(a.rch.imp)} · ${f0(a.rch.bul)} bultos` : 'Sin datos de Rechazos en este mes'}
+            <Tile idx={6} icono="❌" etiqueta="Rechazos" tono={i.rechPct == null ? 'base' : i.rechPct > 3 ? 'mal' : 'ok'} detalle={a.rch ? `${fp(a.rch.imp)} · ${f0(a.rch.bul)} bultos rechazados${i.rechPct == null ? ' (el % necesita los Registros del mes)' : ''}` : 'Sin datos de Rechazos en este mes'}
               variacion={ant && i.rechPct != null ? <Variacion actual={i.rechPct} previo={ant.rechPct} mejorSiBaja /> : null}>
-              <Contar valor={i.rechPct} fmt={(x) => `${f1(x)}%`} />
+              {i.rechPct != null ? <Contar valor={i.rechPct} fmt={(x) => `${f1(x)}%`} /> : a.rch ? <Contar valor={a.rch.bul} fmt={(x) => `${f0(x)} bultos`} /> : <span className="ej-nd">sin datos</span>}
             </Tile>
             <Tile idx={7} icono="🧮" etiqueta="Costo / facturación" detalle={a.fac ? `Facturación ${fp(a.fac)}` : 'Falta cargar la facturación por camión'}>
               {a.fac ? <Contar valor={(a.cos / a.fac) * 100} fmt={(x) => `${f1(x)}%`} /> : <span className="ej-nd">sin datos</span>}
