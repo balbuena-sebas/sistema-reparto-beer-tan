@@ -1,5 +1,5 @@
 // src/App.js — Versión con backend Neon
-import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react";
 import "./styles/custom.css";
 import { exportarReporteXLSX } from "./utils/exportXLSX";
 import { DC } from "./constants";
@@ -82,7 +82,6 @@ const Cargando = ({ error }) => (
 // ════════════════════════════════════════════════════════════════════════════════
 export default function App() {
   const [tab, setTab] = useState("dashboard");
-  const [menuOpen, setMenuOpen] = useState(false);
   const [regs, setRegs] = useState([]);
   const [aus, setAus] = useState([]);
   const [cfg, setCfg] = useState(DC);
@@ -1215,6 +1214,15 @@ export default function App() {
     { id: "biolinks", lb: "🔗 Links" },
   ];
 
+  // Secciones: agrupan las pestañas para que entren en celular y tablet. Cada pestaña conserva su permiso.
+  const GRUPOS = [
+    { id: "inicio", ic: "🏠", lb: "Inicio", tabs: ["dashboard"] },
+    { id: "operacion", ic: "🚛", lb: "Operación", tabs: ["registros", "ausencias", "personal", "simulacion"] },
+    { id: "analisis", ic: "📈", lb: "Análisis", tabs: ["costos", "reportes", "rechazos", "foxtrot"] },
+    { id: "datos", ic: "📂", lb: "Datos", tabs: ["importar", "dbstats"] },
+    { id: "admin", ic: "⚙", lb: "Admin", tabs: ["config", "notas", "biolinks"] },
+  ];
+
   // Filtrar tabs según permisos del usuario loguado (TODOS incluido admin)
   const tabsVisibles = useMemo(() => {
     if (!loggedInUser) return tabs;
@@ -1223,6 +1231,24 @@ export default function App() {
     const permisos = loggedInUser.permisos || {};
     return tabs.filter((t) => permisos[t.id] === true);
   }, [loggedInUser, tabs]);
+
+  const gruposVisibles = useMemo(() => GRUPOS
+    .map((g) => ({ ...g, items: g.tabs.map((id) => tabsVisibles.find((t) => t.id === id)).filter(Boolean) }))
+    .filter((g) => g.items.length > 0), [tabsVisibles]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const grupoActivo = gruposVisibles.find((g) => g.items.some((t) => t.id === tab)) || gruposVisibles[0];
+  const ultimoDeGrupo = useRef({});
+  if (grupoActivo) ultimoDeGrupo.current[grupoActivo.id] = tab;
+  const irAGrupo = (g) => {
+    const rec = ultimoDeGrupo.current[g.id];
+    setTab(g.items.some((t) => t.id === rec) ? rec : g.items[0].id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  const subRef = useRef(null);
+  useEffect(() => {
+    const c = subRef.current; if (!c) return;
+    const a = c.querySelector(".app-sub-on"); if (!a) return;
+    c.scrollTo({ left: a.offsetLeft - (c.clientWidth - a.offsetWidth) / 2, behavior: "smooth" });
+  }, [tab]);
 
   // CRÍTICO: Si usuario no tiene acceso a tab actual, redirigir al PRIMER tab permitido
   useEffect(() => {
@@ -1350,6 +1376,7 @@ export default function App() {
 
   return (
     <div className="app-root">
+      <header className="app-head">
       <nav className="app-nav">
         <div className="nav-brand">
           <div className="nav-logo">
@@ -1364,16 +1391,13 @@ export default function App() {
           </div>
         </div>
         <div className="nav-tabs">
-          {tabsVisibles.map((t) => (
+          {gruposVisibles.map((g) => (
             <button
-              key={t.id}
-              className={`nav-tab ${tab === t.id ? "nav-tab-active" : ""}`}
-              data-tut={`tab-${t.id}`}
-              onClick={() => setTab(t.id)}>
-              {t.lb}
-              {t.id === "dashboard" && alertas.length > 0 && (
-                <span className="nav-alert-dot" />
-              )}
+              key={g.id}
+              className={`nav-tab ${grupoActivo && grupoActivo.id === g.id ? "nav-tab-active" : ""}`}
+              onClick={() => irAGrupo(g)}>
+              {g.ic} {g.lb}
+              {g.id === "inicio" && alertas.length > 0 && <span className="nav-alert-dot" />}
             </button>
           ))}
         </div>
@@ -1408,40 +1432,36 @@ export default function App() {
               year: "numeric",
             })}
           </span>
-          <button
-            className="nav-hamburger"
-            onClick={() => setMenuOpen((o) => !o)}
-            aria-label="Menú">
-            {menuOpen ? "✕" : "☰"}
-          </button>
         </div>
       </nav>
-
-      {menuOpen && (
-        <div className="nav-dropdown">
-          {tabsVisibles.map((t) => (
+      {grupoActivo && grupoActivo.items.length > 1 && (
+        <div className="app-sub" ref={subRef} role="tablist">
+          {grupoActivo.items.map((t) => (
             <button
               key={t.id}
-              className={`nav-dropdown-item ${tab === t.id ? "nav-dropdown-item-active" : ""}`}
-              onClick={() => {
-                setTab(t.id);
-                setMenuOpen(false);
-              }}>
+              role="tab"
+              aria-selected={tab === t.id}
+              className={`app-sub-btn ${tab === t.id ? "app-sub-on" : ""}`}
+              data-tut={`tab-${t.id}`}
+              onClick={() => setTab(t.id)}>
               {t.lb}
-              {t.id === "dashboard" && alertas.length > 0 && (
-                <span
-                  className="nav-alert-dot"
-                  style={{
-                    position: "static",
-                    display: "inline-block",
-                    marginLeft: 6,
-                  }}
-                />
-              )}
             </button>
           ))}
         </div>
       )}
+      </header>
+
+      <div className="app-bottom" role="navigation" aria-label="Secciones">
+        {gruposVisibles.map((g) => (
+          <button
+            key={g.id}
+            className={`app-bottom-btn ${grupoActivo && grupoActivo.id === g.id ? "on" : ""}`}
+            onClick={() => irAGrupo(g)}>
+            <span className="ic">{g.ic}{g.id === "inicio" && alertas.length > 0 && <i className="nav-alert-dot" />}</span>
+            <span className="tx">{g.lb}</span>
+          </button>
+        ))}
+      </div>
 
       <main className="app-main">
         {/* BLOQUEO PARA CHOFERES (CHECKLIST) */}

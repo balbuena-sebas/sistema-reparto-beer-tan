@@ -826,7 +826,7 @@ export function TSimulacion({ loggedInUser, cfg, ausencias }) {
     if (it.foco && it.foco.filtro) setFEstado(it.foco.filtro);
   };
   useEffect(() => {
-    const fijar = () => { const n = document.querySelector('.app-nav'), raiz = document.querySelector('.sim'); if (n && raiz) raiz.style.setProperty('--nav-h', `${n.offsetHeight}px`); };
+    const fijar = () => { const n = document.querySelector('.app-head'), raiz = document.querySelector('.sim'); if (n && raiz) raiz.style.setProperty('--nav-h', `${n.offsetHeight}px`); };
     fijar(); window.addEventListener('resize', fijar);
     return () => window.removeEventListener('resize', fijar);
   }, []);
